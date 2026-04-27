@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
-import { logger } from 'hono/logger';
 import { loadAccounts } from './services/account-store.js';
 import { pool } from './services/account-pool.js';
 import { startSessionCleanup, clearAllSessions, sessionCount } from './services/session-store.js';
 import { startHealthCheck } from './services/health-check.js';
 import { authMiddleware } from './middleware/auth.js';
+import { logRequest } from './utils/logger.js';
 import chatCompletionsRoute from './routes/chat-completions.js';
 import responsesRoute from './routes/responses.js';
 import modelsRoute from './routes/models.js';
@@ -14,7 +14,11 @@ import adminRoute from './routes/admin.js';
 const app = new Hono();
 
 // ─── Request logger ────────────────────────────────────────
-app.use('*', logger());
+app.use('*', async (c, next) => {
+  const start = Date.now();
+  await next();
+  logRequest(c.req.method, c.req.path, c.res.status, Date.now() - start);
+});
 
 // ─── Global error handler ──────────────────────────────────
 app.onError((err, c) => {

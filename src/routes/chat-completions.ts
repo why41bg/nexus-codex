@@ -12,6 +12,7 @@ import {
   formatSSE,
   SSE_DONE,
 } from '../adapters/chat-completions.js';
+import { logAcquire, logRelease, logPoolExhausted } from '../utils/logger.js';
 import { stream } from 'hono/streaming';
 
 /** 单次请求超时（毫秒），默认 5 分钟 */
@@ -58,6 +59,7 @@ chatCompletionsRoute.post(
     // 从账号池获取一个可用账号
     const entry = pool.acquire();
     if (!entry) {
+      logPoolExhausted();
       return c.json(
         {
           error: {
@@ -69,6 +71,8 @@ chatCompletionsRoute.post(
         429,
       );
     }
+
+    const reqStart = Date.now();
 
     try {
       // 创建临时会话
@@ -83,6 +87,8 @@ chatCompletionsRoute.post(
           lastUsedAt: new Date().toISOString(),
         });
       }
+
+      logAcquire(entry.accountId, acc?.remark);
 
       if (body.stream) {
         // ─── 流式响应 ──────────────────────────────────────
@@ -139,6 +145,8 @@ chatCompletionsRoute.post(
             await s.write(SSE_DONE);
           } finally {
             deleteSession(session.conversationId);
+            pool.release(entry.accountId);
+            logRelease(entry.accountId, Date.now() - reqStart);
           }
         });
       } else {
@@ -163,11 +171,14 @@ chatCompletionsRoute.post(
           return c.json(response);
         } finally {
           deleteSession(session.conversationId);
+          pool.release(entry.accountId);
+          logRelease(entry.accountId, Date.now() - reqStart);
         }
       }
     } catch (err) {
       // 确保异常时释放账号
       pool.release(entry.accountId);
+      logRelease(entry.accountId, Date.now() - reqStart, err instanceof Error ? err.message : 'unknown error');
       const errMsg = err instanceof Error ? err.message : 'Unknown error';
       return c.json(
         {
