@@ -5,6 +5,7 @@ import { api, extractErrorMessage } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import ConfirmModal from './ConfirmModal';
+import EditAccountModal from './EditAccountModal';
 import Spinner from './Spinner';
 
 type FilterKey = 'all' | 'online' | 'active' | 'unhealthy' | 'disabled';
@@ -31,6 +32,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editTarget, setEditTarget] = useState<Account | null>(null);
 
   // 计算筛选项统计
   const filterTabs = useMemo(() => {
@@ -170,6 +172,12 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        onClick={() => setEditTarget(acc)}
+                        className="rounded-md bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100"
+                      >
+                        编辑
+                      </button>
+                      <button
                         onClick={() => toggleEnabled(acc)}
                         className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                           acc.enabled
@@ -193,6 +201,15 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
           </table>
         )}
       </div>
+
+      {/* Edit Modal */}
+      {editTarget && (
+        <EditAccountModal
+          account={editTarget}
+          onSaved={() => { setEditTarget(null); onRefresh(); }}
+          onCancel={() => setEditTarget(null)}
+        />
+      )}
 
       {/* Delete Confirm Modal */}
       {deleteTarget && (

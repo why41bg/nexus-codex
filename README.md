@@ -40,7 +40,8 @@ CODEX_HOME=~/.codex-pool/account-2 codex login
     "healthy": true,
     "remark": "account-a@gmail.com",
     "usageCount": 0,
-    "lastUsedAt": null
+    "lastUsedAt": null,
+    "maxConcurrency": 3
   },
   {
     "id": "acc-2",
@@ -63,6 +64,7 @@ CODEX_HOME=~/.codex-pool/account-2 codex login
 | `PORT` | 服务监听端口 | `3000` |
 | `REQUEST_TIMEOUT_MS` | 单次请求超时时间（毫秒） | `300000`（5 分钟） |
 | `ACQUIRE_TIMEOUT_MS` | 账号池排队超时时间（毫秒） | `30000`（30 秒） |
+| `DEFAULT_MAX_CONCURRENCY` | 单账号默认最大并发数（每账号可独立覆盖） | `1` |
 | `ADMIN_USERNAME` | 管理面板登录用户名 | `admin` |
 | `ADMIN_PASSWORD` | 管理面板登录密码（生产环境务必修改） | `admin` |
 | `LOG_LEVEL` | 日志级别（`debug` / `info` / `warn` / `error`） | `info` |
@@ -186,7 +188,7 @@ http://localhost:3000/admin
 
 面板提供以下功能：
 
-- **全局概览**：账号总数、在线可用、当前忙碌、不健康、已禁用、总请求数一目了然，30 秒自动刷新
+- **全局概览**：账号总数、并发槽位（使用中/总数）、空闲槽位、不健康、已禁用、总请求数一目了然，30 秒自动刷新
 - **账号管理**：查看每个账号的状态、使用次数、最后使用时间，支持按状态筛选；添加、启用/禁用、删除账号，操作即时生效无需重启
 - **模型白名单**：查看和管理允许客户端使用的模型列表，动态添加或移除模型
 - **API Key 管理**：创建、编辑、删除 API Key，支持为每个 Key 配置独立的模型权限和过期时间
@@ -279,7 +281,7 @@ nexus-codex/
 │   │   ├── models.ts           # GET /v1/models
 │   │   └── admin.ts            # 管理路由（账号、模型、API Key、登录登出）
 │   ├── services/
-│   │   ├── account-pool.ts     # 账号池与轮询调度
+│   │   ├── account-pool.ts     # 账号池与最小负载调度
 │   │   ├── account-store.ts    # 账号数据持久化
 │   │   ├── config-store.ts     # 配置持久化（API Key、模型白名单）
 │   │   ├── session-manager.ts  # 管理面板 session 管理（24h TTL）
