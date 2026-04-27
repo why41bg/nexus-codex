@@ -1,10 +1,40 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { loadAccounts, addAccount, updateAccount } from '../services/account-store.js';
+import { loadAccounts, addAccount, updateAccount, removeAccount } from '../services/account-store.js';
 import { pool } from '../services/account-pool.js';
 
 const adminRoute = new Hono();
+
+// ─── GET /api/admin/dashboard ───────────────────────────────
+adminRoute.get('/dashboard', async (c) => {
+  const accounts = await loadAccounts();
+  const poolStatus = pool.getStatus();
+
+  const total = accounts.length;
+  const enabled = accounts.filter((a) => a.enabled).length;
+  const disabled = total - enabled;
+  const busy = poolStatus.filter((p) => p.busy).length;
+  const unhealthy = poolStatus.filter((p) => !p.healthy).length;
+  const healthy = poolStatus.filter((p) => p.healthy).length;
+  const available = poolStatus.filter((p) => !p.busy && p.healthy).length;
+  const totalUsage = accounts.reduce((sum, a) => sum + a.usageCount, 0);
+
+  // sessionCount is exposed via /health; import here for dashboard
+  const { sessionCount } = await import('../services/session-store.js');
+
+  return c.json({
+    total,
+    enabled,
+    healthy,
+    busy,
+    available,
+    disabled,
+    unhealthy,
+    totalUsage,
+    activeSessions: sessionCount(),
+  });
+});
 
 // ─── GET /api/admin/accounts ───────────────────────────────
 adminRoute.get('/accounts', async (c) => {
@@ -114,5 +144,45 @@ adminRoute.patch(
     return c.json({ account: updated });
   },
 );
+
+// ─── DELETE /api/admin/accounts/:id ─────────────────────────
+adminRoute.delete('/accounts/:id', async (c) => {
+  const id = c.req.param('id');
+
+  // 检查账号是否正在使用中
+  const poolStatus = pool.getStatus();
+  const runtime = poolStatus.find((p) => p.accountId === id);
+  if (runtime?.busy) {
+    return c.json(
+      {
+        error: {
+          message: `Account '${id}' is currently busy. Please try again later.`,
+          type: 'invalid_request_error',
+          code: 'conflict',
+        },
+      },
+      409,
+    );
+  }
+
+  const deleted = await removeAccount(id);
+  if (!deleted) {
+    return c.json(
+      {
+        error: {
+          message: `Account '${id}' not found.`,
+          type: 'invalid_request_error',
+          code: 'not_found',
+        },
+      },
+      404,
+    );
+  }
+
+  // 从运行时池中移除
+  pool.removeEntry(id);
+
+  return c.json({ deleted: true, id });
+});
 
 export default adminRoute;

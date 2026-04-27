@@ -54,7 +54,7 @@ CODEX_HOME=~/.codex-pool/account-2 codex login
 ]
 ```
 
-也可以在服务运行后通过 Admin API 动态添加账号。
+也可以在服务运行后通过管理面板或 Admin API 动态添加账号。
 
 ## 环境变量
 
@@ -158,13 +158,32 @@ curl http://localhost:3000/v1/chat/completions \
   -d '{"model":"codex-plus","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
+## 管理面板
+
+服务内置了一个 Web 管理面板，可以在浏览器中直观地管理账号池。服务启动后访问：
+
+```
+http://localhost:3000/admin
+```
+
+面板提供以下功能：
+
+- **全局概览**：账号总数、在线可用、当前忙碌、不健康、已禁用、总请求数一目了然
+- **账号列表**：查看每个账号的状态、使用次数、最后使用时间，支持按状态筛选
+- **账号操作**：添加新账号、启用/禁用账号、删除账号，操作即时生效无需重启
+
+如果配置了 `NEXUS_API_KEYS` 环境变量，访问面板时需要输入 API Key 进行鉴权；未配置时（开发模式）直接进入。
+
 ## Admin API
 
-服务运行后可通过管理接口动态管理账号，无需重启：
+除了管理面板，也可以通过 API 接口管理账号：
 
 ```bash
 # 查看所有账号
 curl -H "Authorization: Bearer sk-key1" http://localhost:3000/api/admin/accounts
+
+# 查看账号池概览
+curl -H "Authorization: Bearer sk-key1" http://localhost:3000/api/admin/dashboard
 
 # 添加新账号
 curl -X POST -H "Authorization: Bearer sk-key1" -H "Content-Type: application/json" \
@@ -174,6 +193,10 @@ curl -X POST -H "Authorization: Bearer sk-key1" -H "Content-Type: application/js
 # 禁用账号
 curl -X PATCH -H "Authorization: Bearer sk-key1" -H "Content-Type: application/json" \
   -d '{"enabled":false}' \
+  http://localhost:3000/api/admin/accounts/acc-1
+
+# 删除账号
+curl -X DELETE -H "Authorization: Bearer sk-key1" \
   http://localhost:3000/api/admin/accounts/acc-1
 ```
 
@@ -185,7 +208,10 @@ nexus-codex/
 │   └── accounts.json           # 账号配置
 ├── docs/
 │   ├── design.md               # 设计方案
-│   └── phase.md                # 实现阶段规划
+│   ├── phase.md                # 实现阶段规划
+│   └── admin-panel.md          # 管理面板方案
+├── public/
+│   └── admin.html              # Web 管理面板
 ├── src/
 │   ├── index.ts                # 入口：启动服务、挂载路由、优雅关闭
 │   ├── types.ts                # 公共类型定义

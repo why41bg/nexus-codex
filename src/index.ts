@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { loadAccounts } from './services/account-store.js';
 import { pool } from './services/account-pool.js';
 import { startSessionCleanup, clearAllSessions, sessionCount } from './services/session-store.js';
@@ -57,6 +58,9 @@ app.get('/health', (c) => {
     sessions: sessionCount(),
   });
 });
+
+// ─── Admin panel (static HTML) ─────────────────────────────
+app.get('/admin', serveStatic({ path: './public/admin.html' }));
 
 // ─── Auth middleware for /v1/* and /api/admin/* ─────────────
 app.use('/v1/*', authMiddleware);
