@@ -15,11 +15,10 @@
 Codex CLI 新版（≥0.123.0）强制使用 Responses API 格式。在 `~/.codex/config.toml` 中配置自定义 Provider 即可：
 
 ```toml
-model = "codex-plus"
+model = "codex-mini"
 model_provider = "nexus"
 
 [model_providers.nexus]
-name = "Nexus Codex"
 base_url = "http://localhost:3000/v1"
 wire_api = "responses"
 env_key = "NEXUS_API_KEY"
@@ -41,15 +40,12 @@ opencode 基于 AI SDK，走 Chat Completions 格式。在项目根目录创建 
   "provider": {
     "nexus": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Nexus Codex",
       "options": {
         "baseURL": "http://localhost:3000/v1",
         "apiKey": "your-api-key"
       },
       "models": {
-        "codex-plus": {
-          "name": "Codex Plus Pool"
-        }
+        "codex-mini": {}
       }
     }
   }
@@ -70,7 +66,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="codex-plus",
+    model="codex-mini",
     messages=[{"role": "user", "content": "Hello!"}],
     stream=True,
 )
@@ -83,7 +79,7 @@ for chunk in response:
 curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
-  -d '{"model":"codex-plus","messages":[{"role":"user","content":"Hello!"}]}'
+  -d '{"model":"codex-mini","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 ---
@@ -325,20 +321,28 @@ const sessions = new Map<string, SessionInfo>();
 ```
 POST /v1/chat/completions
   Headers: Authorization: Bearer <API_KEY>
-  Body: OpenAI Chat Completions 标准请求格式
+  Body: OpenAI Chat Completions 标准请求格式，支持 reasoning_effort 参数
+  ⚠ model 字段须在 AVAILABLE_MODELS 白名单中，否则返回 404
   → 非流式：返回 Chat Completion 对象
   → 流式（stream: true）：SSE 推送 Chat Completion Chunk，以 data: [DONE] 结束
 
 POST /v1/responses
   Headers: Authorization: Bearer <API_KEY>
-  Body: OpenAI Responses API 标准请求格式
+  Body: OpenAI Responses API 标准请求格式，支持 reasoning_effort 参数
+  ⚠ model 字段须在 AVAILABLE_MODELS 白名单中，否则返回 404
   → 非流式：返回 Response 对象
   → 流式（stream: true）：SSE 推送 Response 事件流
 
 GET /v1/models
   Headers: Authorization: Bearer <API_KEY>
-  → 返回模型列表（固定返回 "codex-plus" 等虚拟模型名）
+  → 返回模型白名单列表（通过 AVAILABLE_MODELS 环境变量配置，默认 codex-mini）
+
+GET /v1/models/:modelId
+  Headers: Authorization: Bearer <API_KEY>
+  → 返回单个模型详情，模型不在白名单中返回 404
 ```
+
+> **模型白名单校验**：`AVAILABLE_MODELS` 环境变量同时作为请求校验白名单。`/v1/chat/completions` 和 `/v1/responses` 在处理请求前会检查 `model` 字段是否在白名单中，不在则返回 404（`code: model_not_found`）。白名单逻辑由 `src/services/model-registry.ts` 统一提供，所有路由共用。
 
 #### Chat Completions 请求/响应格式
 
@@ -346,12 +350,13 @@ GET /v1/models
 
 ```json
 {
-  "model": "codex-plus",
+  "model": "codex-mini",
   "messages": [
     {"role": "system", "content": "You are a helpful assistant."},
     {"role": "user", "content": "Hello!"}
   ],
-  "stream": false
+  "stream": false,
+  "reasoning_effort": "high"
 }
 ```
 
@@ -362,7 +367,7 @@ GET /v1/models
   "id": "chatcmpl-nexus-xxxxx",
   "object": "chat.completion",
   "created": 1700000000,
-  "model": "codex-plus",
+  "model": "codex-mini",
   "choices": [
     {
       "index": 0,
@@ -384,11 +389,11 @@ GET /v1/models
 流式响应（`stream: true`）：
 
 ```
-data: {"id":"chatcmpl-nexus-xxxxx","object":"chat.completion.chunk","created":1700000000,"model":"codex-plus","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+data: {"id":"chatcmpl-nexus-xxxxx","object":"chat.completion.chunk","created":1700000000,"model":"codex-mini","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-nexus-xxxxx","object":"chat.completion.chunk","created":1700000000,"model":"codex-plus","choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":null}]}
+data: {"id":"chatcmpl-nexus-xxxxx","object":"chat.completion.chunk","created":1700000000,"model":"codex-mini","choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-nexus-xxxxx","object":"chat.completion.chunk","created":1700000000,"model":"codex-plus","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+data: {"id":"chatcmpl-nexus-xxxxx","object":"chat.completion.chunk","created":1700000000,"model":"codex-mini","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
 
 data: [DONE]
 ```
@@ -399,14 +404,15 @@ data: [DONE]
 
 ```json
 {
-  "model": "codex-plus",
+  "model": "codex-mini",
   "input": [
     {
       "role": "user",
       "content": [{"type": "input_text", "text": "Hello!"}]
     }
   ],
-  "stream": true
+  "stream": true,
+  "reasoning_effort": "high"
 }
 ```
 
@@ -419,7 +425,7 @@ data: [DONE]
   "object": "list",
   "data": [
     {
-      "id": "codex-plus",
+      "id": "codex-mini",
       "object": "model",
       "created": 1700000000,
       "owned_by": "nexus-codex"
@@ -431,9 +437,14 @@ data: [DONE]
 #### Admin 管理 API
 
 ```
-GET  /api/admin/accounts        → 查看所有账号及运行时状态（busy、healthy、usageCount）
-POST /api/admin/accounts        → 添加账号 { "codexHome": "...", "remark": "..." }
-PATCH /api/admin/accounts/:id   → 启用/禁用账号 { "enabled": true/false }
+GET    /api/admin/accounts        → 查看所有账号及运行时状态（busy、healthy、usageCount）
+POST   /api/admin/accounts        → 添加账号 { "codexHome": "...", "remark": "..." }
+PATCH  /api/admin/accounts/:id    → 启用/禁用账号 { "enabled": true/false }
+DELETE /api/admin/accounts/:id    → 删除账号
+
+GET    /api/admin/models          → 查看当前模型白名单
+POST   /api/admin/models          → 添加模型 { "model": "codex-plus" }，已存在返回 409
+DELETE /api/admin/models/:model   → 移除模型，不存在返回 404
 ```
 
 #### API Key 鉴权
@@ -497,7 +508,9 @@ setInterval(async () => {
 nexus-codex/
 ├── docs/
 │   ├── design.md               # 设计方案
-│   └── phase.md                # 实现阶段规划
+│   └── admin-panel.md          # 管理面板方案
+├── public/
+│   └── admin.html              # Web 管理面板
 ├── src/
 │   ├── index.ts                # 入口，启动 Hono 服务
 │   ├── routes/
@@ -513,6 +526,7 @@ nexus-codex/
 │   ├── services/
 │   │   ├── account-pool.ts     # 账号池 & 路由调度
 │   │   ├── account-store.ts    # 账号数据持久化
+│   │   ├── model-registry.ts   # 模型白名单注册表
 │   │   ├── session-store.ts    # 会话状态管理
 │   │   └── health-check.ts     # 健康检查定时任务
 │   └── types.ts                # 公共类型定义

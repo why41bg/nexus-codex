@@ -1,15 +1,29 @@
-import type { Codex, Thread } from '@openai/codex-sdk';
+import type { Codex, Thread, ModelReasoningEffort } from '@openai/codex-sdk';
 import { randomUUID } from 'node:crypto';
 import type { SessionInfo } from '../types.js';
 import { pool } from './account-pool.js';
 
 const sessions = new Map<string, SessionInfo>();
 
+export interface CreateSessionOptions {
+  model?: string;
+  modelReasoningEffort?: ModelReasoningEffort;
+}
+
 /**
  * 创建新会话：启动一个 Thread 并绑定到指定账号。
+ * 可选传入 model 和 modelReasoningEffort 透传给 SDK。
  */
-export function createSession(accountId: string, codex: Codex): SessionInfo {
-  const thread: Thread = codex.startThread({ skipGitRepoCheck: true });
+export function createSession(
+  accountId: string,
+  codex: Codex,
+  options?: CreateSessionOptions,
+): SessionInfo {
+  const thread: Thread = codex.startThread({
+    skipGitRepoCheck: true,
+    ...(options?.model && { model: options.model }),
+    ...(options?.modelReasoningEffort && { modelReasoningEffort: options.modelReasoningEffort }),
+  });
   const conversationId = `conv-${randomUUID()}`;
   const session: SessionInfo = {
     conversationId,

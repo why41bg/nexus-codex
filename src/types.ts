@@ -1,5 +1,13 @@
 import type { Codex, Thread } from '@openai/codex-sdk';
 
+// ─── Hono Environment ──────────────────────────────────────
+
+export type AppEnv = {
+  Variables: {
+    apiKey: string;
+  };
+};
+
 // ─── Account & Pool ────────────────────────────────────────
 
 export interface Account {

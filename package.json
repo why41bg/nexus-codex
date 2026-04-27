@@ -5,11 +5,18 @@
   "main": "dist/index.js",
   "description": "OpenAI API compatible Codex account pool gateway",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "dev": "concurrently -n api,admin -c blue,green \"tsx watch src/index.ts\" \"cd admin-fe && npm run dev\"",
+    "dev:api": "tsx watch src/index.ts",
+    "dev:admin": "cd admin-fe && npm run dev",
+    "build": "tsc && cd admin-fe && npm run build",
+    "build:admin": "cd admin-fe && npm run build",
     "start": "node dist/index.js"
   },
-  "keywords": ["codex", "openai", "gateway"],
+  "keywords": [
+    "codex",
+    "openai",
+    "gateway"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -21,6 +28,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }

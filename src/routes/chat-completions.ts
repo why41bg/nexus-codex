@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
+import type { AppEnv } from '../types.js';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { pool } from '../services/account-pool.js';
-import { createSession, deleteSession, touchSession } from '../services/session-store.js';
+import { createSession, deleteSession, touchSession, type CreateSessionOptions } from '../services/session-store.js';
 import { updateAccount, loadAccounts } from '../services/account-store.js';
 import {
   extractPrompt,
@@ -13,12 +14,15 @@ import {
   SSE_DONE,
 } from '../adapters/chat-completions.js';
 import { logAcquire, logRelease, logPoolExhausted } from '../utils/logger.js';
+import { isModelAllowedForKey } from '../services/config-store.js';
 import { stream } from 'hono/streaming';
 
 /** 单次请求超时（毫秒），默认 5 分钟 */
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 5 * 60 * 1000;
 
 // ─── Request validation schema ─────────────────────────────
+const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+
 const chatCompletionSchema = z.object({
   model: z.string(),
   messages: z.array(
@@ -31,9 +35,10 @@ const chatCompletionSchema = z.object({
   stream: z.boolean().optional().default(false),
   temperature: z.number().optional(),
   max_tokens: z.number().optional(),
+  reasoning_effort: z.enum(REASONING_EFFORTS).optional(),
 });
 
-const chatCompletionsRoute = new Hono();
+const chatCompletionsRoute = new Hono<AppEnv>();
 
 chatCompletionsRoute.post(
   '/chat/completions',
@@ -53,11 +58,26 @@ chatCompletionsRoute.post(
   }),
   async (c) => {
     const body = c.req.valid('json');
+    // 校验模型是否在白名单中
+    const apiKey = c.get('apiKey');
+    if (!isModelAllowedForKey(apiKey, body.model)) {
+      return c.json(
+        {
+          error: {
+            message: `The model '${body.model}' does not exist or is not available. Check /v1/models for available models.`,
+            type: 'invalid_request_error',
+            code: 'model_not_found',
+          },
+        },
+        404,
+      );
+    }
+
     const prompt = extractPrompt(body.messages);
     const completionId = generateCompletionId();
 
-    // 从账号池获取一个可用账号
-    const entry = pool.acquire();
+    // 从账号池获取一个可用账号（排队等待）
+    const entry = await pool.acquireAsync();
     if (!entry) {
       logPoolExhausted();
       return c.json(
@@ -73,22 +93,26 @@ chatCompletionsRoute.post(
     }
 
     const reqStart = Date.now();
+    logAcquire(entry.accountId);
 
     try {
-      // 创建临时会话
-      const session = createSession(entry.accountId, entry.codex);
+      // 创建临时会话，透传 model 和 reasoning_effort
+      const sessionOpts: CreateSessionOptions = {
+        model: body.model,
+        ...(body.reasoning_effort && { modelReasoningEffort: body.reasoning_effort }),
+      };
+      const session = createSession(entry.accountId, entry.codex, sessionOpts);
 
-      // 更新使用统计
-      const accounts = await loadAccounts();
-      const acc = accounts.find((a) => a.id === entry.accountId);
-      if (acc) {
-        await updateAccount(acc.id, {
-          usageCount: acc.usageCount + 1,
-          lastUsedAt: new Date().toISOString(),
-        });
-      }
-
-      logAcquire(entry.accountId, acc?.remark);
+      // 更新使用统计（异步，不阻塞请求处理）
+      loadAccounts().then((accounts) => {
+        const acc = accounts.find((a) => a.id === entry.accountId);
+        if (acc) {
+          updateAccount(acc.id, {
+            usageCount: acc.usageCount + 1,
+            lastUsedAt: new Date().toISOString(),
+          });
+        }
+      });
 
       if (body.stream) {
         // ─── 流式响应 ──────────────────────────────────────
@@ -145,7 +169,6 @@ chatCompletionsRoute.post(
             await s.write(SSE_DONE);
           } finally {
             deleteSession(session.conversationId);
-            pool.release(entry.accountId);
             logRelease(entry.accountId, Date.now() - reqStart);
           }
         });
@@ -171,7 +194,6 @@ chatCompletionsRoute.post(
           return c.json(response);
         } finally {
           deleteSession(session.conversationId);
-          pool.release(entry.accountId);
           logRelease(entry.accountId, Date.now() - reqStart);
         }
       }

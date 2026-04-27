@@ -5,7 +5,8 @@ import { loadAccounts } from './services/account-store.js';
 import { pool } from './services/account-pool.js';
 import { startSessionCleanup, clearAllSessions, sessionCount } from './services/session-store.js';
 import { startHealthCheck } from './services/health-check.js';
-import { authMiddleware } from './middleware/auth.js';
+import { loadConfig } from './services/config-store.js';
+import { adminAuthMiddleware, apiKeyAuthMiddleware } from './middleware/auth.js';
 import { logRequest } from './utils/logger.js';
 import chatCompletionsRoute from './routes/chat-completions.js';
 import responsesRoute from './routes/responses.js';
@@ -59,12 +60,17 @@ app.get('/health', (c) => {
   });
 });
 
-// ─── Admin panel (static HTML) ─────────────────────────────
-app.get('/admin', serveStatic({ path: './public/admin.html' }));
+// ─── Admin panel (React SPA) ────────────────────────────────
+// Serve static assets under /admin/ (JS, CSS, etc.)
+app.use('/admin/*', serveStatic({ root: './public' }));
+// Serve index.html for /admin (SPA fallback)
+app.get('/admin', serveStatic({ path: './public/admin/index.html' }));
 
-// ─── Auth middleware for /v1/* and /api/admin/* ─────────────
-app.use('/v1/*', authMiddleware);
-app.use('/api/admin/*', authMiddleware);
+// ─── Auth middleware ─────────────────────────────────────────
+// Admin 路由：使用本地配置文件中的账号密码（Basic Auth）
+app.use('/api/admin/*', adminAuthMiddleware);
+// API 路由：使用 API Key（Bearer Auth）
+app.use('/v1/*', apiKeyAuthMiddleware);
 
 // ─── Routes ────────────────────────────────────────────────
 app.route('/v1', chatCompletionsRoute);
@@ -78,6 +84,9 @@ let healthCheckTimer: NodeJS.Timeout | undefined;
 
 // ─── Bootstrap ─────────────────────────────────────────────
 async function bootstrap() {
+  // 加载持久化配置（API Key、模型白名单等）
+  await loadConfig();
+
   const accounts = await loadAccounts();
   pool.init(accounts);
 

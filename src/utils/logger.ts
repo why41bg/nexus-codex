@@ -40,8 +40,8 @@ function poolSnapshot(): string {
   const entries = pool.getStatus();
   const total = entries.length;
   const busy = entries.filter((e) => e.busy).length;
-  const unhealthy = entries.filter((e) => !e.healthy).length;
-  const available = total - busy - unhealthy;
+  const unhealthy = entries.filter((e) => !e.healthy && !e.busy).length;
+  const available = entries.filter((e) => !e.busy && e.healthy).length;
   return (
     `${c.cyan}pool${c.reset} ` +
     `total=${c.bold}${total}${c.reset} ` +
@@ -54,10 +54,9 @@ function poolSnapshot(): string {
 /**
  * 请求开始时：打印分配到的账号 + 池快照。
  */
-export function logAcquire(accountId: string, remark?: string): void {
-  const label = remark ? `${accountId} ${c.dim}(${remark})${c.reset}` : accountId;
+export function logAcquire(accountId: string): void {
   console.log(
-    `${timestamp()} ${c.magenta}acquire${c.reset} account=${c.bold}${label}${c.reset}  ${poolSnapshot()}`,
+    `${timestamp()} ${c.magenta}acquire${c.reset} account=${c.bold}${accountId}${c.reset}  ${poolSnapshot()}`,
   );
 }
 
@@ -74,10 +73,10 @@ export function logRelease(accountId: string, durationMs: number, error?: string
 }
 
 /**
- * 账号池耗尽（返回 429）时打印。
+ * 排队超时后仍无可用账号（返回 429）时打印。
  */
 export function logPoolExhausted(): void {
   console.log(
-    `${timestamp()} ${c.red}${c.bold}pool exhausted${c.reset}  ${poolSnapshot()}`,
+    `${timestamp()} ${c.red}${c.bold}pool exhausted${c.reset} (queue timed out)  ${poolSnapshot()}`,
   );
 }

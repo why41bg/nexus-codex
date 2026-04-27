@@ -2,9 +2,13 @@ node_modules/
 dist/
 *.js.map
 
-data/accounts.json
+data/
 
 .env
 .env.*
+!.env.example
 
 *.log
+
+# React admin UI build output
+public/admin/

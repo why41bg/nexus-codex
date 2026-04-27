@@ -1,9 +1,20 @@
 import { Codex } from '@openai/codex-sdk';
 import type { Account, PoolEntry } from '../types.js';
 
+/** 默认排队等待超时（毫秒） */
+const DEFAULT_ACQUIRE_TIMEOUT_MS = Number(process.env.ACQUIRE_TIMEOUT_MS) || 30_000;
+
+/** 等待队列中的一个排队项 */
+interface QueueItem {
+  resolve: (entry: PoolEntry) => void;
+  reject: (err: Error) => void;
+  timer: NodeJS.Timeout;
+}
+
 export class AccountPool {
   private pool: PoolEntry[] = [];
   private counter = 0;
+  private waitQueue: QueueItem[] = [];
 
   init(accounts: Account[]): void {
     this.pool = accounts
@@ -18,7 +29,7 @@ export class AccountPool {
   }
 
   /**
-   * 轮询选取一个空闲且健康的账号，标记为 busy 并返回。
+   * 同步获取一个空闲且健康的账号（不排队）。
    * 无可用账号时返回 null。
    */
   acquire(): PoolEntry | null {
@@ -31,11 +42,65 @@ export class AccountPool {
   }
 
   /**
-   * 释放指定账号的占用。
+   * 异步获取账号：先尝试同步获取，拿不到则排队等待，超时后返回 null。
+   */
+  acquireAsync(timeoutMs: number = DEFAULT_ACQUIRE_TIMEOUT_MS): Promise<PoolEntry | null> {
+    // 先尝试同步获取
+    const entry = this.acquire();
+    if (entry) return Promise.resolve(entry);
+
+    // 同步拿不到，进入排队等待
+    const position = this.waitQueue.length + 1;
+    console.log(`⏳ Queued request (position #${position}, timeout ${timeoutMs}ms)`);
+
+    return new Promise<PoolEntry | null>((resolve) => {
+      const item: QueueItem = {
+        resolve: null!,
+        reject: null!,
+        timer: null!,
+      };
+
+      item.timer = setTimeout(() => {
+        // 超时：从队列中移除，返回 null
+        const idx = this.waitQueue.indexOf(item);
+        if (idx !== -1) this.waitQueue.splice(idx, 1);
+        console.log(`⏳ Queue timeout after ${timeoutMs}ms (remaining queue: ${this.waitQueue.length})`);
+        resolve(null);
+      }, timeoutMs);
+
+      item.resolve = (entry: PoolEntry) => {
+        clearTimeout(item.timer);
+        console.log(`⏳ Queue fulfilled → account=${entry.accountId} (remaining queue: ${this.waitQueue.length})`);
+        resolve(entry);
+      };
+
+      this.waitQueue.push(item);
+    });
+  }
+
+  /**
+   * 释放指定账号的占用，并通知队列中的下一个等待者。
    */
   release(accountId: string): void {
     const entry = this.pool.find((e) => e.accountId === accountId);
     if (entry) entry.busy = false;
+
+    // 尝试唤醒队列中的下一个等待者
+    this.drainQueue();
+  }
+
+  /**
+   * 从队列头部取出等待者，尝试为其分配账号。
+   */
+  private drainQueue(): void {
+    while (this.waitQueue.length > 0) {
+      const entry = this.acquire();
+      if (!entry) break; // 没有可用账号了，停止
+
+      const waiter = this.waitQueue.shift()!;
+      clearTimeout(waiter.timer);
+      waiter.resolve(entry);
+    }
   }
 
   /**

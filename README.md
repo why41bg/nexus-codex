@@ -63,6 +63,7 @@ CODEX_HOME=~/.codex-pool/account-2 codex login
 | `PORT` | 服务监听端口 | `3000` |
 | `NEXUS_API_KEYS` | 允许访问的 API Key 列表，逗号分隔。不设则跳过鉴权 | 无 |
 | `REQUEST_TIMEOUT_MS` | 单次请求超时时间（毫秒） | `300000`（5 分钟） |
+| `AVAILABLE_MODELS` | 模型白名单，逗号分隔。控制 `/v1/models` 返回的模型列表，同时作为请求校验白名单——请求中的 `model` 不在此列表中将返回 404 | `codex-mini` |
 
 ## 启动
 
@@ -103,18 +104,27 @@ PORT=8080 NEXUS_API_KEYS="sk-key1,sk-key2" npm start
 curl http://localhost:3000/health
 ```
 
+## 模型切换
+
+用户通过客户端配置中的 `model` 字段选择要使用的模型。可用模型由管理员在管理面板或通过 Admin API 配置白名单，用户可通过 `GET /v1/models` 查询当前可用的模型列表：
+
+```bash
+curl -H "Authorization: Bearer sk-key1" http://localhost:3000/v1/models
+```
+
+确认可用模型后，在客户端配置中指定即可。以下是各客户端的配置方式。
+
 ## 客户端接入
 
 ### Codex CLI
 
-在 `~/.codex/config.toml` 中添加：
+在 `~/.codex/config.toml` 中添加（`model` 改为你想使用的模型）：
 
 ```toml
-model = "codex-plus"
+model = "codex-mini"
 model_provider = "nexus"
 
 [model_providers.nexus]
-name = "Nexus Codex"
 base_url = "http://localhost:3000/v1"
 wire_api = "responses"
 env_key = "NEXUS_API_KEY"
@@ -134,15 +144,12 @@ codex --provider nexus "你的问题"
   "provider": {
     "nexus": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Nexus Codex",
       "options": {
         "baseURL": "http://localhost:3000/v1",
         "apiKey": "sk-key1"
       },
       "models": {
-        "codex-plus": {
-          "name": "Codex Plus Pool"
-        }
+        "codex-mini": {}
       }
     }
   }
@@ -155,7 +162,16 @@ codex --provider nexus "你的问题"
 curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer sk-key1" \
   -H "Content-Type: application/json" \
-  -d '{"model":"codex-plus","messages":[{"role":"user","content":"Hello!"}]}'
+  -d '{"model":"codex-mini","messages":[{"role":"user","content":"Hello!"}]}'
+```
+
+指定 `reasoning_effort` 控制模型思考深度（可选值：`minimal`、`low`、`medium`、`high`、`xhigh`）：
+
+```bash
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer sk-key1" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"codex-mini","messages":[{"role":"user","content":"Hello!"}],"reasoning_effort":"high"}'
 ```
 
 ## 管理面板
@@ -169,14 +185,14 @@ http://localhost:3000/admin
 面板提供以下功能：
 
 - **全局概览**：账号总数、在线可用、当前忙碌、不健康、已禁用、总请求数一目了然
-- **账号列表**：查看每个账号的状态、使用次数、最后使用时间，支持按状态筛选
-- **账号操作**：添加新账号、启用/禁用账号、删除账号，操作即时生效无需重启
+- **账号管理**：查看每个账号的状态、使用次数、最后使用时间，支持按状态筛选；添加、启用/禁用、删除账号，操作即时生效无需重启
+- **模型白名单**：查看和管理允许客户端使用的模型列表，动态添加或移除模型，无需重启服务
 
 如果配置了 `NEXUS_API_KEYS` 环境变量，访问面板时需要输入 API Key 进行鉴权；未配置时（开发模式）直接进入。
 
 ## Admin API
 
-除了管理面板，也可以通过 API 接口管理账号：
+除了管理面板，也可以通过 API 接口管理账号和模型白名单：
 
 ```bash
 # 查看所有账号
@@ -198,6 +214,18 @@ curl -X PATCH -H "Authorization: Bearer sk-key1" -H "Content-Type: application/j
 # 删除账号
 curl -X DELETE -H "Authorization: Bearer sk-key1" \
   http://localhost:3000/api/admin/accounts/acc-1
+
+# 查看模型白名单
+curl -H "Authorization: Bearer sk-key1" http://localhost:3000/api/admin/models
+
+# 添加模型到白名单
+curl -X POST -H "Authorization: Bearer sk-key1" -H "Content-Type: application/json" \
+  -d '{"model":"codex-plus"}' \
+  http://localhost:3000/api/admin/models
+
+# 从白名单移除模型
+curl -X DELETE -H "Authorization: Bearer sk-key1" \
+  http://localhost:3000/api/admin/models/codex-plus
 ```
 
 ## 项目结构
@@ -208,7 +236,6 @@ nexus-codex/
 │   └── accounts.json           # 账号配置
 ├── docs/
 │   ├── design.md               # 设计方案
-│   ├── phase.md                # 实现阶段规划
 │   └── admin-panel.md          # 管理面板方案
 ├── public/
 │   └── admin.html              # Web 管理面板
@@ -228,6 +255,7 @@ nexus-codex/
 │   └── services/
 │       ├── account-pool.ts     # 账号池与轮询调度
 │       ├── account-store.ts    # 账号数据持久化
+│       ├── model-registry.ts   # 模型白名单注册表
 │       ├── session-store.ts    # 会话状态管理
 │       └── health-check.ts     # 定时健康检查
 ├── package.json
