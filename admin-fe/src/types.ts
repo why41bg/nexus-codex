@@ -27,8 +27,11 @@ export interface Dashboard {
 
 /** API Key 信息 */
 export interface ApiKey {
-  key: string;
+  /** 完整 key（仅创建时返回，列表接口不返回） */
+  key?: string;
   keyMasked: string;
+  /** key 前缀，用于标识（如 sk-abcde） */
+  keyPrefix: string;
   name?: string;
   models: string[];
   effectiveModels: string[];

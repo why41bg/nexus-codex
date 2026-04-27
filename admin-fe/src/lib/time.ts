@@ -3,7 +3,9 @@
  */
 export function relativeTime(iso: string | undefined | null): string {
   if (!iso) return '从未使用';
-  const diff = Date.now() - new Date(iso).getTime();
+  const ts = new Date(iso).getTime();
+  if (isNaN(ts)) return '未知时间';
+  const diff = Date.now() - ts;
   const s = Math.floor(diff / 1000);
   if (s < 60) return '刚刚';
   const m = Math.floor(s / 60);

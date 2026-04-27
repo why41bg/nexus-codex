@@ -322,27 +322,27 @@ const sessions = new Map<string, SessionInfo>();
 POST /v1/chat/completions
   Headers: Authorization: Bearer <API_KEY>
   Body: OpenAI Chat Completions 标准请求格式，支持 reasoning_effort 参数
-  ⚠ model 字段须在 AVAILABLE_MODELS 白名单中，否则返回 404
+  ⚠ model 字段须在模型白名单中，否则返回 404
   → 非流式：返回 Chat Completion 对象
   → 流式（stream: true）：SSE 推送 Chat Completion Chunk，以 data: [DONE] 结束
 
 POST /v1/responses
   Headers: Authorization: Bearer <API_KEY>
   Body: OpenAI Responses API 标准请求格式，支持 reasoning_effort 参数
-  ⚠ model 字段须在 AVAILABLE_MODELS 白名单中，否则返回 404
+  ⚠ model 字段须在模型白名单中，否则返回 404
   → 非流式：返回 Response 对象
   → 流式（stream: true）：SSE 推送 Response 事件流
 
 GET /v1/models
   Headers: Authorization: Bearer <API_KEY>
-  → 返回模型白名单列表（通过 AVAILABLE_MODELS 环境变量配置，默认 codex-mini）
+  → 返回模型白名单列表（通过管理面板或 Admin API 配置）
 
 GET /v1/models/:modelId
   Headers: Authorization: Bearer <API_KEY>
   → 返回单个模型详情，模型不在白名单中返回 404
 ```
 
-> **模型白名单校验**：`AVAILABLE_MODELS` 环境变量同时作为请求校验白名单。`/v1/chat/completions` 和 `/v1/responses` 在处理请求前会检查 `model` 字段是否在白名单中，不在则返回 404（`code: model_not_found`）。白名单逻辑由 `src/services/model-registry.ts` 统一提供，所有路由共用。
+> **模型白名单校验**：模型白名单通过管理面板或 Admin API 配置，持久化在 `data/config.json` 中。`/v1/chat/completions` 和 `/v1/responses` 在处理请求前会检查 `model` 字段是否在白名单中，不在则返回 404（`code: model_not_found`）。白名单逻辑由 `src/services/config-store.ts` 统一提供，所有路由共用。
 
 #### Chat Completions 请求/响应格式
 
@@ -437,6 +437,10 @@ data: [DONE]
 #### Admin 管理 API
 
 ```
+POST   /api/admin/login           → 登录（Basic Auth），返回 session token
+POST   /api/admin/logout          → 登出，销毁 session
+
+GET    /api/admin/dashboard       → 账号池概览数据
 GET    /api/admin/accounts        → 查看所有账号及运行时状态（busy、healthy、usageCount）
 POST   /api/admin/accounts        → 添加账号 { "codexHome": "...", "remark": "..." }
 PATCH  /api/admin/accounts/:id    → 启用/禁用账号 { "enabled": true/false }
@@ -445,28 +449,32 @@ DELETE /api/admin/accounts/:id    → 删除账号
 GET    /api/admin/models          → 查看当前模型白名单
 POST   /api/admin/models          → 添加模型 { "model": "codex-plus" }，已存在返回 409
 DELETE /api/admin/models/:model   → 移除模型，不存在返回 404
+
+GET    /api/admin/keys            → 查看 API Key 列表（脱敏显示）
+POST   /api/admin/keys            → 创建 API Key
+PATCH  /api/admin/keys/:keyPrefix → 更新 API Key 配置
+DELETE /api/admin/keys/:keyPrefix → 删除 API Key
 ```
 
 #### API Key 鉴权
 
-网关通过环境变量 `NEXUS_API_KEYS` 配置允许访问的 API Key 列表（逗号分隔）。所有 `/v1/*` 请求必须携带 `Authorization: Bearer <key>` 头，鉴权失败返回 401。Admin API 复用同一套鉴权机制。
+API Key 通过管理面板或 Admin API 创建，持久化在 `data/config.json` 中。所有 `/v1/*` 请求必须携带 `Authorization: Bearer <key>` 头，鉴权失败返回 401。每个 API Key 支持配置独立的模型权限和过期时间。Admin API 使用独立的管理员认证（Basic Auth 或 session token）。速率限制基于滑动窗口算法，默认每个 Key 每分钟 60 次请求。
 
 ### 5. 协议适配层
 
 协议适配层是本方案的核心新增模块，负责在 OpenAI API 协议和 Codex SDK 调用之间做双向转换：
 
-**入方向（请求解析）**：将 Chat Completions 的 `messages` 或 Responses API 的 `input` 统一转换为一条文本 prompt，提取最后一条 user message 的内容作为 `thread.run()` 的输入。如果 messages 包含 system prompt，将其拼接到用户消息前面。
+**入方向（请求解析）**：将 Chat Completions 的 `messages` 或 Responses API 的 `input` 统一转换为一条文本 prompt。按顺序保留所有 system/user/assistant/tool 消息，以 `[role]\n内容` 格式拼接完整多轮对话上下文，作为 `thread.run()` 的输入。
 
 **出方向（响应封装）**：将 Codex SDK 返回的 `turn.finalResponse`（非流式）或 `ThreadEvent` 流（流式）封装为对应协议的标准响应格式。Chat Completions 封装为 `chat.completion` / `chat.completion.chunk` 对象，Responses API 封装为对应的事件流格式。
 
 ```typescript
 // adapters/chat-completions.ts — 核心转换逻辑示意
 function extractPrompt(messages: ChatMessage[]): string {
-  const systemMsgs = messages.filter(m => m.role === 'system');
-  const userMsgs = messages.filter(m => m.role === 'user');
-  const lastUser = userMsgs[userMsgs.length - 1]?.content ?? '';
-  const systemPrefix = systemMsgs.map(m => m.content).join('\n');
-  return systemPrefix ? `${systemPrefix}\n\n${lastUser}` : lastUser;
+  // 按顺序保留所有 system/user/assistant/tool 消息，拼接完整多轮对话上下文
+  return messages
+    .map(m => `[${m.role}]\n${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
+    .join('\n\n');
 }
 
 function wrapResponse(id: string, model: string, content: string): ChatCompletion {
@@ -509,29 +517,40 @@ nexus-codex/
 ├── docs/
 │   ├── design.md               # 设计方案
 │   └── admin-panel.md          # 管理面板方案
+├── admin-fe/                    # 管理面板前端（React + Vite + Tailwind）
+│   └── src/
+│       ├── components/          # UI 组件
+│       ├── contexts/            # React Context（Auth、Toast）
+│       └── lib/                 # 工具函数
 ├── public/
-│   └── admin.html              # Web 管理面板
+│   └── admin/                   # 管理面板构建产物
 ├── src/
 │   ├── index.ts                # 入口，启动 Hono 服务
 │   ├── routes/
 │   │   ├── chat-completions.ts # POST /v1/chat/completions
 │   │   ├── responses.ts        # POST /v1/responses
 │   │   ├── models.ts           # GET /v1/models
-│   │   └── admin.ts            # 账号管理路由
+│   │   └── admin.ts            # 管理路由（账号、模型、API Key、登录登出）
 │   ├── adapters/
 │   │   ├── chat-completions.ts # Chat Completions 协议适配
 │   │   └── responses.ts        # Responses API 协议适配
 │   ├── middleware/
-│   │   └── auth.ts             # API Key 鉴权中间件
+│   │   ├── auth.ts             # API Key 鉴权 + Admin 认证中间件
+│   │   └── rate-limit.ts       # 基于 API Key 的滑动窗口速率限制
 │   ├── services/
 │   │   ├── account-pool.ts     # 账号池 & 路由调度
 │   │   ├── account-store.ts    # 账号数据持久化
-│   │   ├── model-registry.ts   # 模型白名单注册表
-│   │   ├── session-store.ts    # 会话状态管理
+│   │   ├── config-store.ts     # 配置持久化（API Key、模型白名单）
+│   │   ├── session-manager.ts  # 管理面板 session 管理
+│   │   ├── session-store.ts    # Codex 会话状态管理
 │   │   └── health-check.ts     # 健康检查定时任务
+│   ├── utils/
+│   │   ├── logger.ts           # 结构化 JSON 日志
+│   │   └── request-lifecycle.ts # 请求生命周期共享函数
 │   └── types.ts                # 公共类型定义
 ├── data/
-│   └── accounts.json           # 账号配置（需手动维护）
+│   ├── accounts.json           # 账号数据
+│   └── config.json             # API Key、模型白名单等配置
 ├── package.json
 └── tsconfig.json
 ```

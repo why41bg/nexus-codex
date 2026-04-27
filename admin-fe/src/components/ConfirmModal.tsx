@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import Spinner from './Spinner';
 
 interface ConfirmModalProps {
@@ -25,13 +25,36 @@ export default function ConfirmModal({
       ? 'bg-red-600 hover:bg-red-700'
       : 'bg-brand-600 hover:bg-brand-700';
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = 'confirm-modal-title';
+
+  // Escape 键关闭 + 焦点管理
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    // 打开时聚焦到对话框
+    dialogRef.current?.focus();
+
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
     >
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-200">
-        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-200 outline-none"
+      >
+        <h3 id={titleId} className="text-base font-semibold text-gray-900">{title}</h3>
         <div className="mt-2 text-sm text-gray-600">{children}</div>
         <div className="mt-5 flex justify-end gap-3">
           <button

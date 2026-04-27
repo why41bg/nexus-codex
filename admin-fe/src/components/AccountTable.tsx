@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { Account } from '@/types';
 import { relativeTime } from '@/lib/time';
-import { api } from '@/lib/api';
+import { api, extractErrorMessage } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import ConfirmModal from './ConfirmModal';
@@ -9,25 +9,11 @@ import Spinner from './Spinner';
 
 type FilterKey = 'all' | 'online' | 'busy' | 'unhealthy' | 'disabled';
 
-function statusDotClass(acc: Account) {
-  if (!acc.enabled) return 'bg-gray-400';
-  if (acc.runtime?.busy) return 'bg-amber-400';
-  if (!acc.runtime?.healthy) return 'bg-red-500';
-  return 'bg-green-500';
-}
-
-function statusTextClass(acc: Account) {
-  if (!acc.enabled) return 'text-gray-400';
-  if (acc.runtime?.busy) return 'text-amber-600';
-  if (!acc.runtime?.healthy) return 'text-red-600';
-  return 'text-green-600';
-}
-
-function statusLabel(acc: Account) {
-  if (!acc.enabled) return '已禁用';
-  if (acc.runtime?.busy) return '忙碌';
-  if (!acc.runtime?.healthy) return '不健康';
-  return '空闲';
+function getAccountStatus(acc: Account): { dot: string; text: string; label: string } {
+  if (!acc.enabled) return { dot: 'bg-gray-400', text: 'text-gray-400', label: '已禁用' };
+  if (acc.runtime?.busy) return { dot: 'bg-amber-400', text: 'text-amber-600', label: '忙碌' };
+  if (!acc.runtime?.healthy) return { dot: 'bg-red-500', text: 'text-red-600', label: '不健康' };
+  return { dot: 'bg-green-500', text: 'text-green-600', label: '空闲' };
 }
 
 interface Props {
@@ -83,7 +69,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
         toast(newEnabled ? `已启用 ${acc.id}` : `已禁用 ${acc.id}`, 'success');
         onRefresh();
       } else {
-        toast((res.data as { error?: { message?: string } })?.error?.message || '操作失败', 'error');
+        toast(extractErrorMessage(res.data, '操作失败'), 'error');
       }
     } catch {
       toast('请求失败', 'error');
@@ -101,7 +87,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
         setDeleteTarget(null);
         onRefresh();
       } else {
-        toast((res.data as { error?: { message?: string } })?.error?.message || '删除失败', 'error');
+        toast(extractErrorMessage(res.data, '删除失败'), 'error');
       }
     } catch {
       toast('请求失败', 'error');
@@ -164,8 +150,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
               {filtered.map((acc) => (
                 <tr key={acc.id} className="transition-colors hover:bg-gray-50/50">
                   <td className="px-4 py-3">
-                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotClass(acc)}`} />
-                    <span className={`ml-1.5 text-xs ${statusTextClass(acc)}`}>{statusLabel(acc)}</span>
+                    {(() => { const s = getAccountStatus(acc); return (<><span className={`inline-block h-2.5 w-2.5 rounded-full ${s.dot}`} /><span className={`ml-1.5 text-xs ${s.text}`}>{s.label}</span></>); })()}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">{acc.id}</td>
                   <td className="px-4 py-3 text-gray-700">{acc.remark || '—'}</td>

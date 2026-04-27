@@ -2,6 +2,7 @@ import type { Codex, Thread, ModelReasoningEffort } from '@openai/codex-sdk';
 import { randomUUID } from 'node:crypto';
 import type { SessionInfo } from '../types.js';
 import { pool } from './account-pool.js';
+import { logger } from '../utils/logger.js';
 
 const sessions = new Map<string, SessionInfo>();
 
@@ -87,7 +88,7 @@ export function startSessionCleanup(
       }
     }
     if (cleaned > 0) {
-      console.log(`🧹 Cleaned ${cleaned} idle session(s)`);
+      logger.info('Cleaned idle sessions', { count: cleaned });
     }
   }, intervalMs);
   return timer;

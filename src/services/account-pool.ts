@@ -1,5 +1,6 @@
 import { Codex } from '@openai/codex-sdk';
 import type { Account, PoolEntry } from '../types.js';
+import { logger } from '../utils/logger.js';
 
 /** 默认排队等待超时（毫秒） */
 const DEFAULT_ACQUIRE_TIMEOUT_MS = Number(process.env.ACQUIRE_TIMEOUT_MS) || 30_000;
@@ -25,7 +26,7 @@ export class AccountPool {
         busy: false,
         healthy: a.healthy,
       }));
-    console.log(`📦 Account pool initialized with ${this.pool.length} account(s)`);
+    logger.info('Account pool initialized', { count: this.pool.length });
   }
 
   /**
@@ -51,7 +52,7 @@ export class AccountPool {
 
     // 同步拿不到，进入排队等待
     const position = this.waitQueue.length + 1;
-    console.log(`⏳ Queued request (position #${position}, timeout ${timeoutMs}ms)`);
+    logger.info('Queued request', { position, timeoutMs });
 
     return new Promise<PoolEntry | null>((resolve) => {
       const item: QueueItem = {
@@ -64,13 +65,13 @@ export class AccountPool {
         // 超时：从队列中移除，返回 null
         const idx = this.waitQueue.indexOf(item);
         if (idx !== -1) this.waitQueue.splice(idx, 1);
-        console.log(`⏳ Queue timeout after ${timeoutMs}ms (remaining queue: ${this.waitQueue.length})`);
+        logger.info('Queue timeout', { timeoutMs, remainingQueue: this.waitQueue.length });
         resolve(null);
       }, timeoutMs);
 
       item.resolve = (entry: PoolEntry) => {
         clearTimeout(item.timer);
-        console.log(`⏳ Queue fulfilled → account=${entry.accountId} (remaining queue: ${this.waitQueue.length})`);
+        logger.info('Queue fulfilled', { accountId: entry.accountId, remainingQueue: this.waitQueue.length });
         resolve(entry);
       };
 
@@ -125,7 +126,7 @@ export class AccountPool {
       busy: false,
       healthy: account.healthy,
     });
-    console.log(`➕ Account ${account.id} added to pool`);
+    logger.info('Account added to pool', { accountId: account.id });
   }
 
   /**
@@ -145,7 +146,7 @@ export class AccountPool {
     const index = this.pool.findIndex((e) => e.accountId === accountId);
     if (index !== -1) {
       this.pool.splice(index, 1);
-      console.log(`➖ Account ${accountId} removed from pool`);
+      logger.info('Account removed from pool', { accountId });
     }
   }
 

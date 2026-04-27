@@ -61,9 +61,15 @@ CODEX_HOME=~/.codex-pool/account-2 codex login
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `PORT` | 服务监听端口 | `3000` |
-| `NEXUS_API_KEYS` | 允许访问的 API Key 列表，逗号分隔。不设则跳过鉴权 | 无 |
 | `REQUEST_TIMEOUT_MS` | 单次请求超时时间（毫秒） | `300000`（5 分钟） |
-| `AVAILABLE_MODELS` | 模型白名单，逗号分隔。控制 `/v1/models` 返回的模型列表，同时作为请求校验白名单——请求中的 `model` 不在此列表中将返回 404 | `codex-mini` |
+| `ACQUIRE_TIMEOUT_MS` | 账号池排队超时时间（毫秒） | `30000`（30 秒） |
+| `ADMIN_USERNAME` | 管理面板登录用户名 | `admin` |
+| `ADMIN_PASSWORD` | 管理面板登录密码（生产环境务必修改） | `admin` |
+| `LOG_LEVEL` | 日志级别（`debug` / `info` / `warn` / `error`） | `info` |
+| `RATE_LIMIT_MAX` | 单个 API Key 在时间窗口内的最大请求数 | `60` |
+| `RATE_LIMIT_WINDOW_MS` | 速率限制滑动窗口大小（毫秒） | `60000`（1 分钟） |
+
+> API Key 和模型白名单已迁移到 `data/config.json`，通过管理面板配置。首次启动时访问 `http://localhost:3000/admin` 进行初始化设置。
 
 ## 启动
 
@@ -87,16 +93,10 @@ npm start
 带环境变量启动示例：
 
 ```bash
-PORT=8080 NEXUS_API_KEYS="sk-key1,sk-key2" npm start
+PORT=8080 npm start
 ```
 
-服务启动后会输出：
-
-```
-📦 Account pool initialized with 2 account(s)
-🏥 Health check started (interval: 300s, timeout: 30s, threshold: 2)
-🚀 Nexus Codex is running on http://localhost:3000
-```
+服务启动后日志会输出账号池初始化、健康检查启动和服务监听地址等信息。
 
 验证服务是否正常：
 
@@ -176,56 +176,75 @@ curl http://localhost:3000/v1/chat/completions \
 
 ## 管理面板
 
-服务内置了一个 Web 管理面板，可以在浏览器中直观地管理账号池。服务启动后访问：
+服务内置了一个 Web 管理面板（React + Tailwind CSS），可以在浏览器中直观地管理账号池。服务启动后访问：
 
 ```
 http://localhost:3000/admin
 ```
 
+访问面板需要输入管理员用户名和密码登录（通过 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量配置，默认 `admin/admin`）。登录后服务端签发 session token，前端通过 Bearer token 鉴权。
+
 面板提供以下功能：
 
-- **全局概览**：账号总数、在线可用、当前忙碌、不健康、已禁用、总请求数一目了然
+- **全局概览**：账号总数、在线可用、当前忙碌、不健康、已禁用、总请求数一目了然，30 秒自动刷新
 - **账号管理**：查看每个账号的状态、使用次数、最后使用时间，支持按状态筛选；添加、启用/禁用、删除账号，操作即时生效无需重启
-- **模型白名单**：查看和管理允许客户端使用的模型列表，动态添加或移除模型，无需重启服务
-
-如果配置了 `NEXUS_API_KEYS` 环境变量，访问面板时需要输入 API Key 进行鉴权；未配置时（开发模式）直接进入。
+- **模型白名单**：查看和管理允许客户端使用的模型列表，动态添加或移除模型
+- **API Key 管理**：创建、编辑、删除 API Key，支持为每个 Key 配置独立的模型权限和过期时间
 
 ## Admin API
 
-除了管理面板，也可以通过 API 接口管理账号和模型白名单：
+除了管理面板，也可以通过 API 接口管理。Admin API 使用 Basic Auth（管理员用户名密码）或 Bearer token（登录后获取的 session token）鉴权。
 
 ```bash
-# 查看所有账号
-curl -H "Authorization: Bearer sk-key1" http://localhost:3000/api/admin/accounts
+# 登录获取 session token
+curl -X POST -u admin:admin http://localhost:3000/api/admin/login
+# 返回 {"token": "<session_token>"}
+
+# 后续请求使用 session token
+TOKEN="<session_token>"
 
 # 查看账号池概览
-curl -H "Authorization: Bearer sk-key1" http://localhost:3000/api/admin/dashboard
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/admin/dashboard
+
+# 查看所有账号
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/admin/accounts
 
 # 添加新账号
-curl -X POST -H "Authorization: Bearer sk-key1" -H "Content-Type: application/json" \
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"codexHome":"/Users/you/.codex-pool/account-3","remark":"account-c@gmail.com"}' \
   http://localhost:3000/api/admin/accounts
 
 # 禁用账号
-curl -X PATCH -H "Authorization: Bearer sk-key1" -H "Content-Type: application/json" \
+curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"enabled":false}' \
   http://localhost:3000/api/admin/accounts/acc-1
 
 # 删除账号
-curl -X DELETE -H "Authorization: Bearer sk-key1" \
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:3000/api/admin/accounts/acc-1
 
 # 查看模型白名单
-curl -H "Authorization: Bearer sk-key1" http://localhost:3000/api/admin/models
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/admin/models
 
 # 添加模型到白名单
-curl -X POST -H "Authorization: Bearer sk-key1" -H "Content-Type: application/json" \
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"model":"codex-plus"}' \
   http://localhost:3000/api/admin/models
 
 # 从白名单移除模型
-curl -X DELETE -H "Authorization: Bearer sk-key1" \
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:3000/api/admin/models/codex-plus
+
+# 查看 API Key 列表
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/admin/keys
+
+# 创建 API Key
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"my-key"}' \
+  http://localhost:3000/api/admin/keys
+
+# 登出
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/admin/logout
 ```
 
 ## 项目结构
@@ -233,12 +252,18 @@ curl -X DELETE -H "Authorization: Bearer sk-key1" \
 ```
 nexus-codex/
 ├── data/
-│   └── accounts.json           # 账号配置
+│   ├── accounts.json           # 账号数据
+│   └── config.json             # API Key、模型白名单等配置
 ├── docs/
 │   ├── design.md               # 设计方案
 │   └── admin-panel.md          # 管理面板方案
+├── admin-fe/                    # 管理面板前端（React + Vite + Tailwind）
+│   └── src/
+│       ├── components/          # UI 组件
+│       ├── contexts/            # React Context（Auth、Toast）
+│       └── lib/                 # 工具函数（api、clipboard、styles、time）
 ├── public/
-│   └── admin.html              # Web 管理面板
+│   └── admin/                   # 管理面板构建产物
 ├── src/
 │   ├── index.ts                # 入口：启动服务、挂载路由、优雅关闭
 │   ├── types.ts                # 公共类型定义
@@ -246,18 +271,23 @@ nexus-codex/
 │   │   ├── chat-completions.ts # Chat Completions 协议适配
 │   │   └── responses.ts        # Responses API 协议适配
 │   ├── middleware/
-│   │   └── auth.ts             # API Key 鉴权中间件
+│   │   ├── auth.ts             # API Key 鉴权 + Admin 认证中间件
+│   │   └── rate-limit.ts       # 基于 API Key 的滑动窗口速率限制
 │   ├── routes/
 │   │   ├── chat-completions.ts # POST /v1/chat/completions
 │   │   ├── responses.ts        # POST /v1/responses
 │   │   ├── models.ts           # GET /v1/models
-│   │   └── admin.ts            # 账号管理路由
-│   └── services/
-│       ├── account-pool.ts     # 账号池与轮询调度
-│       ├── account-store.ts    # 账号数据持久化
-│       ├── model-registry.ts   # 模型白名单注册表
-│       ├── session-store.ts    # 会话状态管理
-│       └── health-check.ts     # 定时健康检查
+│   │   └── admin.ts            # 管理路由（账号、模型、API Key、登录登出）
+│   ├── services/
+│   │   ├── account-pool.ts     # 账号池与轮询调度
+│   │   ├── account-store.ts    # 账号数据持久化
+│   │   ├── config-store.ts     # 配置持久化（API Key、模型白名单）
+│   │   ├── session-manager.ts  # 管理面板 session 管理（24h TTL）
+│   │   ├── session-store.ts    # Codex 会话状态管理
+│   │   └── health-check.ts     # 定时健康检查
+│   └── utils/
+│       ├── logger.ts           # 结构化 JSON 日志（支持日志级别控制）
+│       └── request-lifecycle.ts # 请求生命周期共享函数
 ├── package.json
 └── tsconfig.json
 ```

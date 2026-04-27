@@ -1,5 +1,6 @@
 import { pool } from './account-pool.js';
 import { updateAccount } from './account-store.js';
+import { logger } from '../utils/logger.js';
 
 export interface HealthCheckOptions {
   /** 检查间隔（毫秒），默认 5 分钟 */
@@ -26,9 +27,7 @@ export function startHealthCheck(options?: HealthCheckOptions): NodeJS.Timeout {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT;
   const failThreshold = options?.failThreshold ?? DEFAULT_FAIL_THRESHOLD;
 
-  console.log(
-    `🏥 Health check started (interval: ${intervalMs / 1000}s, timeout: ${timeoutMs / 1000}s, threshold: ${failThreshold})`,
-  );
+  logger.info('Health check started', { intervalSec: intervalMs / 1000, timeoutSec: timeoutMs / 1000, threshold: failThreshold });
 
   const timer = setInterval(async () => {
     const entries = pool.entries();
@@ -51,7 +50,7 @@ export function startHealthCheck(options?: HealthCheckOptions): NodeJS.Timeout {
             // 从 unhealthy 恢复为 healthy
             pool.updateEntry(entry.accountId, { healthy: true });
             await updateAccount(entry.accountId, { healthy: true });
-            console.log(`✅ Account ${entry.accountId} recovered to healthy`);
+            logger.info('Account recovered to healthy', { accountId: entry.accountId });
           }
         } else {
           // 失败：递增失败计数
@@ -62,9 +61,7 @@ export function startHealthCheck(options?: HealthCheckOptions): NodeJS.Timeout {
             // 连续失败达到阈值，标记为 unhealthy
             pool.updateEntry(entry.accountId, { healthy: false });
             await updateAccount(entry.accountId, { healthy: false });
-            console.log(
-              `❌ Account ${entry.accountId} marked unhealthy (failed ${count} times)`,
-            );
+            logger.warn('Account marked unhealthy', { accountId: entry.accountId, failCount: count });
           }
         }
       } catch (err) {
@@ -76,9 +73,7 @@ export function startHealthCheck(options?: HealthCheckOptions): NodeJS.Timeout {
           pool.updateEntry(entry.accountId, { healthy: false });
           await updateAccount(entry.accountId, { healthy: false });
           const errMsg = err instanceof Error ? err.message : 'Unknown error';
-          console.log(
-            `❌ Account ${entry.accountId} marked unhealthy: ${errMsg}`,
-          );
+          logger.warn('Account marked unhealthy', { accountId: entry.accountId, error: errMsg });
         }
       }
     }
@@ -98,12 +93,17 @@ async function probeAccount(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  let thread: import('@openai/codex-sdk').Thread | undefined;
   try {
-    const thread = codex.startThread({ skipGitRepoCheck: true });
+    thread = codex.startThread({ skipGitRepoCheck: true });
     const turn = await thread.run('reply with: ok', { signal: controller.signal });
     const response = turn.finalResponse ?? '';
     return response.toLowerCase().includes('ok');
   } finally {
     clearTimeout(timeoutId);
+    // Note: @openai/codex-sdk Thread 没有 close/destroy 方法，
+    // 底层 CLI 进程由 Codex 实例管理。abort 信号已确保超时时中止操作。
+    // 将 thread 引用置空以帮助 GC 回收。
+    thread = undefined;
   }
 }

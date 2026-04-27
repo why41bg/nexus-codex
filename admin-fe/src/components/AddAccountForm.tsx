@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import { api, extractErrorMessage } from '@/lib/api';
+import { inputClass, primaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import Spinner from './Spinner';
@@ -15,7 +16,8 @@ export default function AddAccountForm({ onAdded }: Props) {
   const [remark, setRemark] = useState('');
   const [adding, setAdding] = useState(false);
 
-  const handleAdd = async () => {
+  const handleAdd = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!codexHome.trim()) return;
     setAdding(true);
     try {
@@ -30,7 +32,7 @@ export default function AddAccountForm({ onAdded }: Props) {
         setRemark('');
         onAdded();
       } else {
-        toast((res.data as { error?: { message?: string } })?.error?.message || '添加失败', 'error');
+        toast(extractErrorMessage(res.data, '添加失败'), 'error');
       }
     } catch {
       toast('请求失败', 'error');
@@ -42,7 +44,7 @@ export default function AddAccountForm({ onAdded }: Props) {
   return (
     <div className="mt-8 rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
       <h2 className="text-sm font-semibold text-gray-900">添加账号</h2>
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+      <form onSubmit={handleAdd} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex-1">
           <label className="mb-1 block text-xs font-medium text-gray-600">
             CODEX_HOME 路径 <span className="text-red-400">*</span>
@@ -52,7 +54,7 @@ export default function AddAccountForm({ onAdded }: Props) {
             value={codexHome}
             onChange={(e) => setCodexHome(e.target.value)}
             placeholder="/Users/you/.codex-pool/account-x"
-            className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className={inputClass}
           />
         </div>
         <div className="sm:w-56">
@@ -62,18 +64,18 @@ export default function AddAccountForm({ onAdded }: Props) {
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
             placeholder="email@example.com"
-            className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className={inputClass}
           />
         </div>
         <button
-          onClick={handleAdd}
+          type="submit"
           disabled={!codexHome.trim() || adding}
-          className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500/50 disabled:opacity-50"
+          className={primaryBtnClass}
         >
           {adding && <Spinner className="mr-1.5 h-4 w-4" />}
           添加
         </button>
-      </div>
+      </form>
     </div>
   );
 }

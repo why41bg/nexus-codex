@@ -49,14 +49,14 @@ function extractTextFromContent(content: string | Array<{ type: string; text?: s
  * 生成唯一的 response ID。
  */
 export function generateResponseId(): string {
-  return `resp-nexus-${randomUUID().slice(0, 12)}`;
+  return `resp-nexus-${randomUUID()}`;
 }
 
 /**
  * 生成唯一的 output item ID。
  */
 export function generateOutputItemId(): string {
-  return `msg-nexus-${randomUUID().slice(0, 12)}`;
+  return `msg-nexus-${randomUUID()}`;
 }
 
 /**

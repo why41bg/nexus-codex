@@ -2,9 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types.js';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { pool } from '../services/account-pool.js';
-import { createSession, deleteSession, touchSession, type CreateSessionOptions } from '../services/session-store.js';
-import { updateAccount, loadAccounts } from '../services/account-store.js';
+import type { CreateSessionOptions } from '../services/session-store.js';
 import {
   extractPrompt,
   generateCompletionId,
@@ -13,12 +11,16 @@ import {
   formatSSE,
   SSE_DONE,
 } from '../adapters/chat-completions.js';
-import { logAcquire, logRelease, logPoolExhausted } from '../utils/logger.js';
-import { isModelAllowedForKey } from '../services/config-store.js';
 import { stream } from 'hono/streaming';
-
-/** 单次请求超时（毫秒），默认 5 分钟 */
-const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 5 * 60 * 1000;
+import {
+  validateModel,
+  acquireAccount,
+  initRequestContext,
+  releaseRequestContext,
+  releaseAccountOnError,
+  createTimeoutController,
+  formatError,
+} from '../utils/request-lifecycle.js';
 
 // ─── Request validation schema ─────────────────────────────
 const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
@@ -58,61 +60,26 @@ chatCompletionsRoute.post(
   }),
   async (c) => {
     const body = c.req.valid('json');
-    // 校验模型是否在白名单中
-    const apiKey = c.get('apiKey');
-    if (!isModelAllowedForKey(apiKey, body.model)) {
-      return c.json(
-        {
-          error: {
-            message: `The model '${body.model}' does not exist or is not available. Check /v1/models for available models.`,
-            type: 'invalid_request_error',
-            code: 'model_not_found',
-          },
-        },
-        404,
-      );
-    }
+
+    // 校验模型白名单
+    const modelError = validateModel(c, body.model);
+    if (modelError) return modelError;
 
     const prompt = extractPrompt(body.messages);
     const completionId = generateCompletionId();
 
-    // 从账号池获取一个可用账号（排队等待）
-    const entry = await pool.acquireAsync();
-    if (!entry) {
-      logPoolExhausted();
-      return c.json(
-        {
-          error: {
-            message: 'All accounts are currently busy. Please try again later.',
-            type: 'rate_limit_error',
-            code: 'rate_limit_exceeded',
-          },
-        },
-        429,
-      );
-    }
-
-    const reqStart = Date.now();
-    logAcquire(entry.accountId);
+    // 从账号池获取可用账号
+    const result = await acquireAccount(c);
+    if ('error' in result) return result.error;
+    const { entry } = result;
 
     try {
-      // 创建临时会话，透传 model 和 reasoning_effort
+      // 初始化请求上下文（创建会话 + 触发使用统计）
       const sessionOpts: CreateSessionOptions = {
         model: body.model,
         ...(body.reasoning_effort && { modelReasoningEffort: body.reasoning_effort }),
       };
-      const session = createSession(entry.accountId, entry.codex, sessionOpts);
-
-      // 更新使用统计（异步，不阻塞请求处理）
-      loadAccounts().then((accounts) => {
-        const acc = accounts.find((a) => a.id === entry.accountId);
-        if (acc) {
-          updateAccount(acc.id, {
-            usageCount: acc.usageCount + 1,
-            lastUsedAt: new Date().toISOString(),
-          });
-        }
-      });
+      const ctx = initRequestContext(entry, sessionOpts);
 
       if (body.stream) {
         // ─── 流式响应 ──────────────────────────────────────
@@ -126,16 +93,13 @@ chatCompletionsRoute.post(
             const initChunk = wrapChunk(completionId, body.model, { role: 'assistant' });
             await s.write(formatSSE(initChunk));
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-            const { events } = await session.thread.runStreamed(prompt, { signal: controller.signal });
+            const { controller, cleanup } = createTimeoutController();
+            const { events } = await ctx.session.thread.runStreamed(prompt, { signal: controller.signal });
             let fullContent = '';
 
             for await (const event of events) {
               if (event.type === 'item.updated' || event.type === 'item.completed') {
                 if (event.item.type === 'agent_message') {
-                  // 计算增量：SDK 的 item.updated 每次都返回完整文本
                   const newContent = event.item.text;
                   if (newContent.length > fullContent.length) {
                     const delta = newContent.slice(fullContent.length);
@@ -153,36 +117,30 @@ chatCompletionsRoute.post(
               }
             }
 
-            clearTimeout(timeoutId);
+            cleanup();
 
             // 发送结束 chunk
             const stopChunk = wrapChunk(completionId, body.model, {}, 'stop');
             await s.write(formatSSE(stopChunk));
             await s.write(SSE_DONE);
           } catch (err) {
-            const isTimeout = err instanceof Error && err.name === 'AbortError';
-            const errMsg = isTimeout
-              ? 'Request timed out'
-              : err instanceof Error ? err.message : 'Unknown error';
-            const errorData = `data: ${JSON.stringify({ error: { message: errMsg, type: 'server_error', code: isTimeout ? 'timeout' : 'internal_error' } })}\n\n`;
+            const { message, isTimeout } = formatError(err);
+            const errorData = `data: ${JSON.stringify({ error: { message, type: 'server_error', code: isTimeout ? 'timeout' : 'internal_error' } })}\n\n`;
             await s.write(errorData);
             await s.write(SSE_DONE);
           } finally {
-            deleteSession(session.conversationId);
-            logRelease(entry.accountId, Date.now() - reqStart);
+            releaseRequestContext(ctx);
           }
         });
       } else {
         // ─── 非流式响应 ────────────────────────────────────
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-          const turn = await session.thread.run(prompt, { signal: controller.signal });
-          clearTimeout(timeoutId);
+          const { controller, cleanup } = createTimeoutController();
+          const turn = await ctx.session.thread.run(prompt, { signal: controller.signal });
+          cleanup();
           const content = turn.finalResponse ?? '';
           const response = wrapResponse(completionId, body.model, content);
 
-          // 填入 usage（如果 SDK 返回了的话）
           if (turn.usage) {
             response.usage = {
               prompt_tokens: turn.usage.input_tokens,
@@ -193,19 +151,16 @@ chatCompletionsRoute.post(
 
           return c.json(response);
         } finally {
-          deleteSession(session.conversationId);
-          logRelease(entry.accountId, Date.now() - reqStart);
+          releaseRequestContext(ctx);
         }
       }
     } catch (err) {
-      // 确保异常时释放账号
-      pool.release(entry.accountId);
-      logRelease(entry.accountId, Date.now() - reqStart, err instanceof Error ? err.message : 'unknown error');
-      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      releaseAccountOnError(entry, Date.now(), err);
+      const { message } = formatError(err);
       return c.json(
         {
           error: {
-            message: errMsg,
+            message,
             type: 'server_error',
             code: 'internal_error',
           },

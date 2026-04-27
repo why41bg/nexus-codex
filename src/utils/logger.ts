@@ -1,82 +1,98 @@
 import { pool } from '../services/account-pool.js';
 
-// ─── ANSI color helpers ─────────────────────────────────────
-const c = {
-  reset: '\x1b[0m',
-  dim: '\x1b[2m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  cyan: '\x1b[36m',
-  magenta: '\x1b[35m',
-  blue: '\x1b[34m',
-  bold: '\x1b[1m',
+// ─── Log levels ─────────────────────────────────────────────
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+const LOG_LEVELS: Record<LogLevel, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40,
 };
 
-function timestamp(): string {
-  return `${c.dim}${new Date().toISOString()}${c.reset}`;
+const currentLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || 'info';
+
+function shouldLog(level: LogLevel): boolean {
+  return LOG_LEVELS[level] >= LOG_LEVELS[currentLevel];
 }
 
-function statusColor(status: number): string {
-  if (status >= 500) return c.red;
-  if (status >= 400) return c.yellow;
-  return c.green;
+// ─── Structured log output ──────────────────────────────────
+
+interface LogEntry {
+  level: LogLevel;
+  time: string;
+  msg: string;
+  [key: string]: unknown;
 }
+
+function emit(entry: LogEntry): void {
+  const output = JSON.stringify(entry);
+  if (entry.level === 'error') {
+    console.error(output);
+  } else if (entry.level === 'warn') {
+    console.warn(output);
+  } else {
+    console.log(output);
+  }
+}
+
+function log(level: LogLevel, msg: string, extra?: Record<string, unknown>): void {
+  if (!shouldLog(level)) return;
+  emit({ level, time: new Date().toISOString(), msg, ...extra });
+}
+
+// ─── Public API ─────────────────────────────────────────────
+
+export const logger = {
+  debug: (msg: string, extra?: Record<string, unknown>) => log('debug', msg, extra),
+  info: (msg: string, extra?: Record<string, unknown>) => log('info', msg, extra),
+  warn: (msg: string, extra?: Record<string, unknown>) => log('warn', msg, extra),
+  error: (msg: string, extra?: Record<string, unknown>) => log('error', msg, extra),
+};
+
+// ─── Pool snapshot helper ───────────────────────────────────
+
+function poolSnapshot(): Record<string, number> {
+  const entries = pool.getStatus();
+  return {
+    total: entries.length,
+    available: entries.filter((e) => !e.busy && e.healthy).length,
+    busy: entries.filter((e) => e.busy).length,
+    unhealthy: entries.filter((e) => !e.healthy && !e.busy).length,
+  };
+}
+
+// ─── Domain-specific log helpers ────────────────────────────
 
 /**
  * 打印 HTTP 请求日志，包含方法、路径、状态码、耗时。
  */
 export function logRequest(method: string, path: string, status: number, durationMs: number): void {
-  const sc = statusColor(status);
-  console.log(
-    `${timestamp()} ${c.bold}${method}${c.reset} ${path} ${sc}${status}${c.reset} ${c.dim}${durationMs}ms${c.reset}`,
-  );
-}
-
-/**
- * 打印账号池状态快照。
- */
-function poolSnapshot(): string {
-  const entries = pool.getStatus();
-  const total = entries.length;
-  const busy = entries.filter((e) => e.busy).length;
-  const unhealthy = entries.filter((e) => !e.healthy && !e.busy).length;
-  const available = entries.filter((e) => !e.busy && e.healthy).length;
-  return (
-    `${c.cyan}pool${c.reset} ` +
-    `total=${c.bold}${total}${c.reset} ` +
-    `available=${c.green}${available}${c.reset} ` +
-    `busy=${busy > 0 ? c.yellow : c.dim}${busy}${c.reset} ` +
-    `unhealthy=${unhealthy > 0 ? c.red : c.dim}${unhealthy}${c.reset}`
-  );
+  logger.info('http request', { method, path, status, durationMs });
 }
 
 /**
  * 请求开始时：打印分配到的账号 + 池快照。
  */
 export function logAcquire(accountId: string): void {
-  console.log(
-    `${timestamp()} ${c.magenta}acquire${c.reset} account=${c.bold}${accountId}${c.reset}  ${poolSnapshot()}`,
-  );
+  logger.info('acquire account', { accountId, pool: poolSnapshot() });
 }
 
 /**
  * 请求结束时：打印释放的账号 + 池快照 + 耗时。
  */
 export function logRelease(accountId: string, durationMs: number, error?: string): void {
-  const suffix = error
-    ? ` ${c.red}error=${error}${c.reset}`
-    : ` ${c.green}ok${c.reset}`;
-  console.log(
-    `${timestamp()} ${c.blue}release${c.reset} account=${c.bold}${accountId}${c.reset} ${c.dim}${durationMs}ms${c.reset}${suffix}  ${poolSnapshot()}`,
-  );
+  logger.info('release account', {
+    accountId,
+    durationMs,
+    ...(error ? { error } : {}),
+    pool: poolSnapshot(),
+  });
 }
 
 /**
  * 排队超时后仍无可用账号（返回 429）时打印。
  */
 export function logPoolExhausted(): void {
-  console.log(
-    `${timestamp()} ${c.red}${c.bold}pool exhausted${c.reset} (queue timed out)  ${poolSnapshot()}`,
-  );
+  logger.warn('pool exhausted (queue timed out)', { pool: poolSnapshot() });
 }

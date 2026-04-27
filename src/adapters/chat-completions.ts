@@ -7,26 +7,40 @@ import type {
 
 /**
  * 从 messages 数组中提取 prompt 文本。
- * 将 system messages 拼接在前面，取最后一条 user message 作为主体。
+ * 保留完整的多轮对话上下文：system 指令在前，随后按顺序拼接所有
+ * user / assistant / tool 消息，以便 Codex SDK 获得尽可能完整的上下文。
  */
 export function extractPrompt(messages: ChatMessage[]): string {
-  const systemParts = messages
-    .filter((m) => m.role === 'system')
-    .map((m) => m.content);
-  const userMessages = messages.filter((m) => m.role === 'user');
-  const lastUser = userMessages[userMessages.length - 1]?.content ?? '';
+  const systemParts: string[] = [];
+  const conversationParts: string[] = [];
 
-  if (systemParts.length > 0) {
-    return `${systemParts.join('\n')}\n\n${lastUser}`;
+  for (const m of messages) {
+    if (m.role === 'system') {
+      systemParts.push(m.content);
+    } else if (m.role === 'user') {
+      conversationParts.push(`[user]\n${m.content}`);
+    } else if (m.role === 'assistant') {
+      conversationParts.push(`[assistant]\n${m.content}`);
+    } else if (m.role === 'tool') {
+      conversationParts.push(`[tool]\n${m.content}`);
+    }
   }
-  return lastUser;
+
+  const parts: string[] = [];
+  if (systemParts.length > 0) {
+    parts.push(systemParts.join('\n'));
+  }
+  if (conversationParts.length > 0) {
+    parts.push(conversationParts.join('\n\n'));
+  }
+  return parts.join('\n\n');
 }
 
 /**
  * 生成唯一的 completion ID。
  */
 export function generateCompletionId(): string {
-  return `chatcmpl-nexus-${randomUUID().slice(0, 12)}`;
+  return `chatcmpl-nexus-${randomUUID()}`;
 }
 
 /**

@@ -1,0 +1,91 @@
+import { createMiddleware } from 'hono/factory';
+
+/**
+ * Rate limit configuration from environment variables.
+ */
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 60;
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000; // 1 minute default
+
+/**
+ * In-memory store for rate limiting.
+ * Maps API key to an array of request timestamps (sliding window).
+ */
+const requestStore = new Map<string, number[]>();
+
+/**
+ * Cleans up expired timestamps from the sliding window.
+ */
+function cleanupTimestamps(timestamps: number[], windowMs: number): number[] {
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  return timestamps.filter((ts) => ts > cutoff);
+}
+
+/**
+ * Rate limiting middleware using sliding window algorithm.
+ *
+ * Limits requests by API Key (from Authorization: Bearer <key> header).
+ * Default: 60 requests per minute per API key (configurable via env vars).
+ *
+ * Response headers:
+ * - X-RateLimit-Limit: Maximum requests per window
+ * - X-RateLimit-Remaining: Remaining requests in current window
+ * - X-RateLimit-Reset: Unix timestamp when the window resets
+ *
+ * Returns 429 with OpenAI-compatible error format when limit exceeded.
+ */
+export const rateLimitMiddleware = createMiddleware<{
+  Variables: { apiKey?: string };
+}>(async (c, next) => {
+  // Get API key from context (set by apiKeyAuthMiddleware)
+  const apiKey = c.get('apiKey');
+
+  // If no API key in context, skip rate limiting (should not happen after auth middleware)
+  if (!apiKey) {
+    return next();
+  }
+
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+
+  // Get or initialize timestamps for this API key
+  let timestamps = requestStore.get(apiKey) || [];
+
+  // Clean up expired timestamps
+  timestamps = cleanupTimestamps(timestamps, RATE_LIMIT_WINDOW_MS);
+
+  // Calculate remaining requests
+  const currentCount = timestamps.length;
+  const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
+
+  // Calculate reset time (oldest timestamp in window + window duration)
+  const oldestTimestamp = timestamps.length > 0 ? Math.min(...timestamps) : now;
+  const resetTime = oldestTimestamp + RATE_LIMIT_WINDOW_MS;
+
+  // Set rate limit headers
+  c.header('X-RateLimit-Limit', String(RATE_LIMIT_MAX));
+  c.header('X-RateLimit-Remaining', String(remaining));
+  c.header('X-RateLimit-Reset', String(Math.ceil(resetTime / 1000))); // Unix timestamp in seconds
+
+  // Check if rate limit exceeded
+  if (currentCount >= RATE_LIMIT_MAX) {
+    const retryAfterSeconds = Math.ceil((resetTime - now) / 1000);
+
+    return c.json(
+      {
+        error: {
+          message: `Rate limit exceeded. Please retry after ${retryAfterSeconds} seconds.`,
+          type: 'rate_limit_error',
+          code: 'rate_limit_exceeded',
+        },
+      },
+      429,
+    );
+  }
+
+  // Record this request
+  timestamps.push(now);
+  requestStore.set(apiKey, timestamps);
+
+  await next();
+});

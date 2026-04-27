@@ -4,6 +4,8 @@ import { zValidator } from '@hono/zod-validator';
 import { randomUUID } from 'node:crypto';
 import { loadAccounts, addAccount, updateAccount, removeAccount } from '../services/account-store.js';
 import { pool } from '../services/account-pool.js';
+import { sessionCount } from '../services/session-store.js';
+import { createSession, destroySession } from '../services/session-manager.js';
 import {
   getDefaultModels,
   addDefaultModel,
@@ -24,6 +26,23 @@ const adminRoute = new Hono();
 
 adminRoute.post('/login', (c) => {
   // 如果请求能到达这里，说明 adminAuthMiddleware 已校验通过
+  // 创建会话令牌并返回
+  const token = createSession();
+  return c.json({ ok: true, token });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Logout (destroy session)
+// ═══════════════════════════════════════════════════════════════
+
+adminRoute.post('/logout', (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (authHeader) {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match) {
+      destroySession(match[1]);
+    }
+  }
   return c.json({ ok: true });
 });
 
@@ -43,8 +62,6 @@ adminRoute.get('/dashboard', async (c) => {
   const healthy = poolStatus.filter((p) => p.healthy).length;
   const available = poolStatus.filter((p) => !p.busy && p.healthy).length;
   const totalUsage = accounts.reduce((sum, a) => sum + a.usageCount, 0);
-
-  const { sessionCount } = await import('../services/session-store.js');
 
   return c.json({
     total,
@@ -268,10 +285,10 @@ adminRoute.delete('/models/:model', async (c) => {
 // ═══════════════════════════════════════════════════════════════
 
 adminRoute.get('/keys', (c) => {
-  // 返回所有 Key（脱敏显示）
+  // 返回所有 Key（仅脱敏显示，不返回完整 key）
   const keys = getApiKeys().map((k) => ({
-    key: k.key,
     keyMasked: maskKey(k.key),
+    keyPrefix: k.key.slice(0, 8),
     name: k.name,
     models: k.models,
     effectiveModels: getModelsForKey(k.key),
@@ -342,7 +359,7 @@ const patchKeySchema = z.object({
 });
 
 adminRoute.patch(
-  '/keys/:key',
+  '/keys/:keyPrefix',
   zValidator('json', patchKeySchema, (result, c) => {
     if (!result.success) {
       return c.json(
@@ -358,26 +375,27 @@ adminRoute.patch(
     }
   }),
   async (c) => {
-    const key = c.req.param('key');
+    const keyPrefix = c.req.param('keyPrefix');
+    const fullKey = resolveKeyByPrefix(keyPrefix);
+    if (!fullKey) {
+      return c.json(
+        { error: { message: 'API key not found.', type: 'invalid_request_error', code: 'not_found' } },
+        404,
+      );
+    }
     const body = c.req.valid('json');
 
-    const updated = await updateApiKey(key, body);
+    const updated = await updateApiKey(fullKey, body);
     if (!updated) {
       return c.json(
-        {
-          error: {
-            message: `API key not found.`,
-            type: 'invalid_request_error',
-            code: 'not_found',
-          },
-        },
+        { error: { message: 'API key not found.', type: 'invalid_request_error', code: 'not_found' } },
         404,
       );
     }
 
     return c.json({
-      key: updated.key,
       keyMasked: maskKey(updated.key),
+      keyPrefix: updated.key.slice(0, 8),
       name: updated.name,
       models: updated.models,
       effectiveModels: getModelsForKey(updated.key),
@@ -386,18 +404,19 @@ adminRoute.patch(
   },
 );
 
-adminRoute.delete('/keys/:key', async (c) => {
-  const key = c.req.param('key');
-  const removed = await removeApiKey(key);
+adminRoute.delete('/keys/:keyPrefix', async (c) => {
+  const keyPrefix = c.req.param('keyPrefix');
+  const fullKey = resolveKeyByPrefix(keyPrefix);
+  if (!fullKey) {
+    return c.json(
+      { error: { message: 'API key not found.', type: 'invalid_request_error', code: 'not_found' } },
+      404,
+    );
+  }
+  const removed = await removeApiKey(fullKey);
   if (!removed) {
     return c.json(
-      {
-        error: {
-          message: `API key not found.`,
-          type: 'invalid_request_error',
-          code: 'not_found',
-        },
-      },
+      { error: { message: 'API key not found.', type: 'invalid_request_error', code: 'not_found' } },
       404,
     );
   }
@@ -405,6 +424,12 @@ adminRoute.delete('/keys/:key', async (c) => {
 });
 
 // ─── Helpers ────────────────────────────────────────────────
+
+function resolveKeyByPrefix(prefix: string): string | null {
+  const keys = getApiKeys();
+  const match = keys.find((k) => k.key.startsWith(prefix));
+  return match?.key ?? null;
+}
 
 function generateApiKey(): string {
   return `sk-${randomUUID().replace(/-/g, '').slice(0, 48)}`;

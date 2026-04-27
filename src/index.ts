@@ -7,7 +7,8 @@ import { startSessionCleanup, clearAllSessions, sessionCount } from './services/
 import { startHealthCheck } from './services/health-check.js';
 import { loadConfig } from './services/config-store.js';
 import { adminAuthMiddleware, apiKeyAuthMiddleware } from './middleware/auth.js';
-import { logRequest } from './utils/logger.js';
+import { rateLimitMiddleware } from './middleware/rate-limit.js';
+import { logger, logRequest } from './utils/logger.js';
 import chatCompletionsRoute from './routes/chat-completions.js';
 import responsesRoute from './routes/responses.js';
 import modelsRoute from './routes/models.js';
@@ -24,11 +25,12 @@ app.use('*', async (c, next) => {
 
 // ─── Global error handler ──────────────────────────────────
 app.onError((err, c) => {
-  console.error('Unhandled error:', err);
+  // 详细错误仅记录到服务端日志，不暴露给客户端
+  logger.error('Unhandled error', { error: err instanceof Error ? err.message : String(err) });
   return c.json(
     {
       error: {
-        message: err.message || 'Internal server error',
+        message: 'An internal server error occurred. Please try again later.',
         type: 'server_error',
         code: 'internal_error',
       },
@@ -71,6 +73,8 @@ app.get('/admin', serveStatic({ path: './public/admin/index.html' }));
 app.use('/api/admin/*', adminAuthMiddleware);
 // API 路由：使用 API Key（Bearer Auth）
 app.use('/v1/*', apiKeyAuthMiddleware);
+// Rate limiting for API routes
+app.use('/v1/*', rateLimitMiddleware);
 
 // ─── Routes ────────────────────────────────────────────────
 app.route('/v1', chatCompletionsRoute);
@@ -98,36 +102,36 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT) || 3000;
   const server = serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`🚀 Nexus Codex is running on http://localhost:${info.port}`);
+    logger.info('Nexus Codex is running', { port: info.port });
   });
 
   // ─── Graceful shutdown ─────────────────────────────────
   const shutdown = (signal: string) => {
-    console.log(`\n📦 Received ${signal}, starting graceful shutdown...`);
+    logger.info('Starting graceful shutdown', { signal });
 
     // 停止定时器
     if (sessionCleanupTimer) clearInterval(sessionCleanupTimer);
     if (healthCheckTimer) clearInterval(healthCheckTimer);
-    console.log('  ✓ Timers stopped');
+    logger.info('Timers stopped');
 
     // 清理所有会话，释放账号池资源
     clearAllSessions();
-    console.log('  ✓ Sessions cleared');
+    logger.info('Sessions cleared');
 
     // 关闭 HTTP 服务器
     server.close((err) => {
       if (err) {
-        console.error('  ✗ Error closing server:', err);
+        logger.error('Error closing server', { error: err instanceof Error ? err.message : String(err) });
         process.exit(1);
       }
-      console.log('  ✓ HTTP server closed');
-      console.log('👋 Nexus Codex shut down gracefully');
+      logger.info('HTTP server closed');
+      logger.info('Nexus Codex shut down gracefully');
       process.exit(0);
     });
 
     // 强制退出超时保护（10 秒）
     setTimeout(() => {
-      console.error('  ✗ Graceful shutdown timed out, forcing exit');
+      logger.error('Graceful shutdown timed out, forcing exit');
       process.exit(1);
     }, 10_000).unref();
   };
@@ -137,7 +141,7 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  console.error('❌ Failed to start Nexus Codex:', err);
+  logger.error('Failed to start Nexus Codex', { error: err instanceof Error ? err.message : String(err) });
   process.exit(1);
 });
 

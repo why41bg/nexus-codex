@@ -10,6 +10,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { timingSafeEqual } from 'node:crypto';
+import { logger } from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,8 +57,8 @@ const DEFAULT_MODELS = [
 ];
 
 const DEFAULT_ADMIN_AUTH: AdminAuth = {
-  username: 'admin',
-  password: 'admin',
+  username: process.env.ADMIN_USERNAME || 'admin',
+  password: process.env.ADMIN_PASSWORD || 'admin',
 };
 
 function createDefaultConfig(): AppConfig {
@@ -77,21 +79,43 @@ export async function loadConfig(): Promise<AppConfig> {
   if (!existsSync(CONFIG_PATH)) {
     config = createDefaultConfig();
     await saveConfig();
-    return config;
+  } else {
+    const raw = await readFile(CONFIG_PATH, 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    // 兼容旧配置：补齐 adminAuth 字段
+    config = {
+      adminAuth: parsed.adminAuth ?? { ...DEFAULT_ADMIN_AUTH },
+      defaultModels: parsed.defaultModels ?? [...DEFAULT_MODELS],
+      apiKeys: parsed.apiKeys ?? [],
+    };
   }
-  const raw = await readFile(CONFIG_PATH, 'utf-8');
-  const parsed = JSON.parse(raw) as Partial<AppConfig>;
-  // 兼容旧配置：补齐 adminAuth 字段
-  config = {
-    adminAuth: parsed.adminAuth ?? { ...DEFAULT_ADMIN_AUTH },
-    defaultModels: parsed.defaultModels ?? [...DEFAULT_MODELS],
-    apiKeys: parsed.apiKeys ?? [],
-  };
+
+  // 检测默认密码并发出安全警告
+  if (config.adminAuth.username === 'admin' && config.adminAuth.password === 'admin') {
+    logger.warn(
+      'Admin credentials are set to default (admin/admin). Please change them via environment variables ADMIN_USERNAME/ADMIN_PASSWORD or update data/config.json before deploying to production.',
+    );
+  }
+
   return config;
 }
 
 export async function saveConfig(): Promise<void> {
   await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+}
+
+// ─── API Key Set 缓存（避免每次请求重建） ──────────────────
+let apiKeySetCache: Set<string> | null = null;
+
+function invalidateApiKeyCache(): void {
+  apiKeySetCache = null;
+}
+
+export function getApiKeySet(): Set<string> {
+  if (!apiKeySetCache) {
+    apiKeySetCache = new Set(config.apiKeys.map((k) => k.key));
+  }
+  return apiKeySetCache;
 }
 
 // ─── Getters ────────────────────────────────────────────────
@@ -135,7 +159,19 @@ export function getAdminAuth(): AdminAuth {
 }
 
 export function verifyAdminAuth(username: string, password: string): boolean {
-  return config.adminAuth.username === username && config.adminAuth.password === password;
+  const expectedUser = Buffer.from(config.adminAuth.username);
+  const expectedPass = Buffer.from(config.adminAuth.password);
+  const inputUser = Buffer.from(username);
+  const inputPass = Buffer.from(password);
+
+  // 长度不同时仍需执行 timingSafeEqual 以避免泄露长度信息
+  const userMatch =
+    expectedUser.length === inputUser.length &&
+    timingSafeEqual(expectedUser, inputUser);
+  const passMatch =
+    expectedPass.length === inputPass.length &&
+    timingSafeEqual(expectedPass, inputPass);
+  return userMatch && passMatch;
 }
 
 // ─── API Key CRUD ───────────────────────────────────────────
@@ -148,6 +184,7 @@ export async function addApiKey(key: string, name: string, models: string[] = []
     createdAt: new Date().toISOString(),
   };
   config.apiKeys.push(entry);
+  invalidateApiKeyCache();
   await saveConfig();
   return entry;
 }
@@ -160,6 +197,7 @@ export async function updateApiKey(
   if (index === -1) return null;
   if (partial.name !== undefined) config.apiKeys[index].name = partial.name;
   if (partial.models !== undefined) config.apiKeys[index].models = partial.models;
+  invalidateApiKeyCache();
   await saveConfig();
   return config.apiKeys[index];
 }
@@ -168,6 +206,7 @@ export async function removeApiKey(key: string): Promise<boolean> {
   const index = config.apiKeys.findIndex((k) => k.key === key);
   if (index === -1) return false;
   config.apiKeys.splice(index, 1);
+  invalidateApiKeyCache();
   await saveConfig();
   return true;
 }

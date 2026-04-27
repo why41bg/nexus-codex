@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import { api, extractErrorMessage } from '@/lib/api';
+import { inputClass, primaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import ConfirmModal from './ConfirmModal';
@@ -29,8 +30,7 @@ export default function ModelManager({ models, onModelsChange }: Props) {
         toast(`已添加模型 ${newModel.trim()}`, 'success');
         setNewModel('');
       } else {
-        const d = res.data as unknown as { error?: { message?: string } };
-        toast(d?.error?.message || '添加失败', 'error');
+        toast(extractErrorMessage(res.data, '添加失败'), 'error');
       }
     } catch {
       toast('请求失败', 'error');
@@ -50,8 +50,7 @@ export default function ModelManager({ models, onModelsChange }: Props) {
         toast(`已移除模型 ${deleteTarget}`, 'success');
         setDeleteTarget(null);
       } else {
-        const d = res.data as unknown as { error?: { message?: string } };
-        toast(d?.error?.message || '移除失败', 'error');
+        toast(extractErrorMessage(res.data, '移除失败'), 'error');
       }
     } catch {
       toast('请求失败', 'error');
@@ -101,13 +100,13 @@ export default function ModelManager({ models, onModelsChange }: Props) {
             onChange={(e) => setNewModel(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addModel()}
             placeholder="例如 o4-mini"
-            className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className={inputClass}
           />
         </div>
         <button
           onClick={addModel}
           disabled={!newModel.trim() || adding}
-          className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500/50 disabled:opacity-50"
+          className={primaryBtnClass}
         >
           {adding && <Spinner className="mr-1.5 h-4 w-4" />}
           添加
