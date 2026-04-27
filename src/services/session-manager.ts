@@ -73,28 +73,3 @@ export function validateSession(token: string): boolean {
 export function destroySession(token: string): boolean {
   return sessions.delete(token);
 }
-
-/**
- * Clean up all expired sessions.
- * This can be called periodically to free memory.
- */
-export function cleanExpiredSessions(): number {
-  const now = Date.now();
-  let cleaned = 0;
-
-  for (const [token, session] of sessions.entries()) {
-    if (now > session.expiresAt) {
-      sessions.delete(token);
-      cleaned++;
-    }
-  }
-
-  return cleaned;
-}
-
-/**
- * Get the current number of active sessions (for debugging/monitoring).
- */
-export function getSessionCount(): number {
-  return sessions.size;
-}

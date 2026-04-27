@@ -14,6 +14,7 @@ export default function AddAccountForm({ onAdded }: Props) {
   const authGuard = useAuthGuard();
   const [codexHome, setCodexHome] = useState('');
   const [remark, setRemark] = useState('');
+  const [maxConcurrency, setMaxConcurrency] = useState('');
   const [adding, setAdding] = useState(false);
 
   const handleAdd = async (e?: React.FormEvent) => {
@@ -24,12 +25,14 @@ export default function AddAccountForm({ onAdded }: Props) {
       const res = await api('POST', '/api/admin/accounts', {
         codexHome: codexHome.trim(),
         remark: remark.trim(),
+        ...(maxConcurrency && { maxConcurrency: Number(maxConcurrency) }),
       });
       if (authGuard(res.status)) return;
       if (res.ok) {
         toast('账号添加成功', 'success');
         setCodexHome('');
         setRemark('');
+        setMaxConcurrency('');
         onAdded();
       } else {
         toast(extractErrorMessage(res.data, '添加失败'), 'error');
@@ -64,6 +67,17 @@ export default function AddAccountForm({ onAdded }: Props) {
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
             placeholder="email@example.com"
+            className={inputClass}
+          />
+        </div>
+        <div className="sm:w-28">
+          <label className="mb-1 block text-xs font-medium text-gray-600">最大并发</label>
+          <input
+            type="number"
+            min="1"
+            value={maxConcurrency}
+            onChange={(e) => setMaxConcurrency(e.target.value)}
+            placeholder="默认"
             className={inputClass}
           />
         </div>

@@ -7,12 +7,15 @@ import { useAuthGuard } from '@/contexts/AuthContext';
 import ConfirmModal from './ConfirmModal';
 import Spinner from './Spinner';
 
-type FilterKey = 'all' | 'online' | 'busy' | 'unhealthy' | 'disabled';
+type FilterKey = 'all' | 'online' | 'active' | 'unhealthy' | 'disabled';
 
 function getAccountStatus(acc: Account): { dot: string; text: string; label: string } {
   if (!acc.enabled) return { dot: 'bg-gray-400', text: 'text-gray-400', label: '已禁用' };
-  if (acc.runtime?.busy) return { dot: 'bg-amber-400', text: 'text-amber-600', label: '忙碌' };
   if (!acc.runtime?.healthy) return { dot: 'bg-red-500', text: 'text-red-600', label: '不健康' };
+  const active = acc.runtime?.activeCount ?? 0;
+  const max = acc.runtime?.maxConcurrency ?? 0;
+  if (active >= max) return { dot: 'bg-amber-400', text: 'text-amber-600', label: '满载' };
+  if (active > 0) return { dot: 'bg-blue-400', text: 'text-blue-600', label: '部分占用' };
   return { dot: 'bg-green-500', text: 'text-green-600', label: '空闲' };
 }
 
@@ -31,17 +34,18 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
 
   // 计算筛选项统计
   const filterTabs = useMemo(() => {
-    const counts = { all: accounts.length, online: 0, busy: 0, unhealthy: 0, disabled: 0 };
+    const counts = { all: accounts.length, online: 0, active: 0, unhealthy: 0, disabled: 0 };
     for (const a of accounts) {
       if (!a.enabled) { counts.disabled++; continue; }
-      if (a.runtime?.busy) counts.busy++;
-      if (!a.runtime?.healthy) counts.unhealthy++;
-      else if (!a.runtime?.busy) counts.online++;
+      if (!a.runtime?.healthy) { counts.unhealthy++; continue; }
+      const active = a.runtime?.activeCount ?? 0;
+      if (active > 0) counts.active++;
+      else counts.online++;
     }
     return [
       { key: 'all' as const, label: '全部', count: counts.all },
-      { key: 'online' as const, label: '在线', count: counts.online },
-      { key: 'busy' as const, label: '忙碌', count: counts.busy },
+      { key: 'online' as const, label: '空闲', count: counts.online },
+      { key: 'active' as const, label: '使用中', count: counts.active },
       { key: 'unhealthy' as const, label: '不健康', count: counts.unhealthy },
       { key: 'disabled' as const, label: '已禁用', count: counts.disabled },
     ];
@@ -53,9 +57,9 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
     return accounts.filter((a) => {
       if (filter === 'disabled') return !a.enabled;
       if (!a.enabled) return false;
-      if (filter === 'busy') return a.runtime?.busy;
+      if (filter === 'active') return a.runtime?.healthy && (a.runtime?.activeCount ?? 0) > 0;
       if (filter === 'unhealthy') return !a.runtime?.healthy;
-      if (filter === 'online') return a.runtime?.healthy && !a.runtime?.busy;
+      if (filter === 'online') return a.runtime?.healthy && (a.runtime?.activeCount ?? 0) === 0;
       return true;
     });
   }, [accounts, filter]);
@@ -140,6 +144,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                 <th className="px-4 py-3 font-medium text-gray-500">状态</th>
                 <th className="px-4 py-3 font-medium text-gray-500">ID</th>
                 <th className="px-4 py-3 font-medium text-gray-500">备注</th>
+                <th className="px-4 py-3 font-medium text-gray-500">并发</th>
                 <th className="px-4 py-3 font-medium text-gray-500">CODEX_HOME</th>
                 <th className="px-4 py-3 text-right font-medium text-gray-500">使用次数</th>
                 <th className="px-4 py-3 font-medium text-gray-500">最后使用</th>
@@ -154,6 +159,9 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">{acc.id}</td>
                   <td className="px-4 py-3 text-gray-700">{acc.remark || '—'}</td>
+                  <td className="px-4 py-3 font-mono text-xs tabular-nums text-gray-700">
+                    {acc.runtime ? `${acc.runtime.activeCount} / ${acc.runtime.maxConcurrency}` : '—'}
+                  </td>
                   <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs text-gray-500" title={acc.codexHome}>
                     {acc.codexHome}
                   </td>

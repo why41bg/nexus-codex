@@ -37,13 +37,6 @@ export function createSession(
 }
 
 /**
- * 根据 conversationId 获取已有会话。
- */
-export function getSession(conversationId: string): SessionInfo | undefined {
-  return sessions.get(conversationId);
-}
-
-/**
  * 删除会话，同时释放关联的账号池占用。
  */
 export function deleteSession(conversationId: string): boolean {
@@ -52,14 +45,6 @@ export function deleteSession(conversationId: string): boolean {
   sessions.delete(conversationId);
   pool.release(session.accountId);
   return true;
-}
-
-/**
- * 更新会话的最后活跃时间。
- */
-export function touchSession(conversationId: string): void {
-  const session = sessions.get(conversationId);
-  if (session) session.lastActiveAt = Date.now();
 }
 
 /**

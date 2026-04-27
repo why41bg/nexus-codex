@@ -2,7 +2,7 @@ import { pool } from './account-pool.js';
 import { updateAccount } from './account-store.js';
 import { logger } from '../utils/logger.js';
 
-export interface HealthCheckOptions {
+interface HealthCheckOptions {
   /** 检查间隔（毫秒），默认 5 分钟 */
   intervalMs?: number;
   /** 单次探测超时（毫秒），默认 30 秒 */
@@ -34,8 +34,8 @@ export function startHealthCheck(options?: HealthCheckOptions): NodeJS.Timeout {
     if (entries.length === 0) return;
 
     for (const entry of entries) {
-      // 跳过正在使用的账号
-      if (entry.busy) continue;
+      // 跳过已满载的账号（所有并发槽位都在使用中）
+      if (entry.activeCount >= entry.maxConcurrency) continue;
 
       const wasHealthy = entry.healthy;
 

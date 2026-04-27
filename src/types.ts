@@ -18,12 +18,14 @@ export interface Account {
   remark: string;
   usageCount: number;
   lastUsedAt: string | null;
+  maxConcurrency?: number;           // 单账号最大并发数，缺省取全局默认值
 }
 
 export interface PoolEntry {
   accountId: string;
   codex: Codex;
-  busy: boolean;
+  activeCount: number;               // 当前活跃请求数
+  maxConcurrency: number;            // 该账号允许的最大并发数
   healthy: boolean;
 }
 
@@ -42,14 +44,6 @@ export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   name?: string;
-}
-
-export interface ChatCompletionRequest {
-  model: string;
-  messages: ChatMessage[];
-  stream?: boolean;
-  temperature?: number;
-  max_tokens?: number;
 }
 
 export interface ChatCompletionChoice {
@@ -98,16 +92,6 @@ export interface ResponsesInputItem {
   content: string | Array<{ type: string; text?: string }>;
 }
 
-export interface ResponsesRequest {
-  model: string;
-  input: string | ResponsesInputItem[];
-  stream?: boolean;
-  temperature?: number;
-  max_output_tokens?: number;
-  previous_response_id?: string;
-  instructions?: string;
-}
-
 export interface ResponsesOutput {
   id: string;
   type: 'message';
@@ -129,16 +113,6 @@ export interface ResponsesObject {
     input_tokens: number;
     output_tokens: number;
     total_tokens: number;
-  };
-}
-
-// ─── OpenAI Error Format ───────────────────────────────────
-
-export interface OpenAIError {
-  error: {
-    message: string;
-    type: string;
-    code: string | null;
   };
 }
 

@@ -1,7 +1,8 @@
 /** 账号运行时状态 */
 export interface AccountRuntime {
   healthy: boolean;
-  busy: boolean;
+  activeCount: number;
+  maxConcurrency: number;
 }
 
 /** 账号信息 */
@@ -18,8 +19,9 @@ export interface Account {
 /** Dashboard 汇总数据 */
 export interface Dashboard {
   total?: number;
-  available?: number;
-  busy?: number;
+  totalSlots?: number;
+  activeSlots?: number;
+  availableSlots?: number;
   unhealthy?: number;
   disabled?: number;
   totalUsage?: number;

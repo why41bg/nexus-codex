@@ -8,10 +8,13 @@ interface StatsCardDef {
 }
 
 function buildCards(d: Dashboard): StatsCardDef[] {
+  const slotsLabel = d.totalSlots != null && d.activeSlots != null
+    ? `${d.activeSlots} / ${d.totalSlots}`
+    : '—';
   return [
     { label: '账号总数', value: d.total ?? '—', labelColor: 'text-gray-500', valueColor: 'text-gray-900' },
-    { label: '在线可用', value: d.available ?? '—', labelColor: 'text-green-600', valueColor: 'text-green-700' },
-    { label: '当前忙碌', value: d.busy ?? '—', labelColor: 'text-amber-600', valueColor: 'text-amber-700' },
+    { label: '并发槽位', value: slotsLabel, labelColor: 'text-blue-600', valueColor: 'text-blue-700' },
+    { label: '空闲槽位', value: d.availableSlots ?? '—', labelColor: 'text-green-600', valueColor: 'text-green-700' },
     { label: '不健康', value: d.unhealthy ?? '—', labelColor: 'text-red-600', valueColor: 'text-red-700' },
     { label: '已禁用', value: d.disabled ?? '—', labelColor: 'text-gray-400', valueColor: 'text-gray-500' },
     { label: '总请求数', value: d.totalUsage ?? '—', labelColor: 'text-purple-600', valueColor: 'text-purple-700' },

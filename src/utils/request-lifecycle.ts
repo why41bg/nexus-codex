@@ -12,7 +12,7 @@ import { isModelAllowedForKey } from '../services/config-store.js';
 import { logger, logAcquire, logRelease, logPoolExhausted } from './logger.js';
 
 /** 单次请求超时（毫秒），默认 5 分钟 */
-export const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 5 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 5 * 60 * 1000;
 
 /**
  * 校验模型是否在当前 API Key 的白名单中。
@@ -49,7 +49,7 @@ export async function acquireAccount(
       error: c.json(
         {
           error: {
-            message: 'All accounts are currently busy. Please try again later.',
+            message: 'All account concurrency slots are currently in use. Please try again later.',
             type: 'rate_limit_error',
             code: 'rate_limit_exceeded',
           },

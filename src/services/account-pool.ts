@@ -5,6 +5,9 @@ import { logger } from '../utils/logger.js';
 /** 默认排队等待超时（毫秒） */
 const DEFAULT_ACQUIRE_TIMEOUT_MS = Number(process.env.ACQUIRE_TIMEOUT_MS) || 30_000;
 
+/** 全局默认单账号最大并发数 */
+const DEFAULT_MAX_CONCURRENCY = Number(process.env.DEFAULT_MAX_CONCURRENCY) || 1;
+
 /** 等待队列中的一个排队项 */
 interface QueueItem {
   resolve: (entry: PoolEntry) => void;
@@ -23,22 +26,31 @@ export class AccountPool {
       .map((a) => ({
         accountId: a.id,
         codex: new Codex({ env: { CODEX_HOME: a.codexHome } }),
-        busy: false,
+        activeCount: 0,
+        maxConcurrency: a.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
         healthy: a.healthy,
       }));
-    logger.info('Account pool initialized', { count: this.pool.length });
+    logger.info('Account pool initialized', { count: this.pool.length, defaultMaxConcurrency: DEFAULT_MAX_CONCURRENCY });
   }
 
   /**
-   * 同步获取一个空闲且健康的账号（不排队）。
+   * 同步获取一个可用且健康的账号（不排队）。
+   * 调度策略：最小负载优先，同负载时轮询作为 tie-breaker。
    * 无可用账号时返回 null。
    */
   acquire(): PoolEntry | null {
-    const available = this.pool.filter((e) => !e.busy && e.healthy);
+    const available = this.pool
+      .filter((e) => e.healthy && e.activeCount < e.maxConcurrency)
+      .sort((a, b) => a.activeCount - b.activeCount);
     if (available.length === 0) return null;
-    const entry = available[this.counter % available.length];
+
+    // 同负载时用轮询做 tie-breaker
+    const minLoad = available[0].activeCount;
+    const candidates = available.filter((e) => e.activeCount === minLoad);
+    const entry = candidates[this.counter % candidates.length];
     this.counter++;
-    entry.busy = true;
+
+    entry.activeCount++;
     return entry;
   }
 
@@ -80,11 +92,11 @@ export class AccountPool {
   }
 
   /**
-   * 释放指定账号的占用，并通知队列中的下一个等待者。
+   * 释放指定账号的一个并发槽位，并通知队列中的下一个等待者。
    */
   release(accountId: string): void {
     const entry = this.pool.find((e) => e.accountId === accountId);
-    if (entry) entry.busy = false;
+    if (entry) entry.activeCount = Math.max(0, entry.activeCount - 1);
 
     // 尝试唤醒队列中的下一个等待者
     this.drainQueue();
@@ -107,10 +119,11 @@ export class AccountPool {
   /**
    * 返回当前池中所有条目的状态快照。
    */
-  getStatus(): Array<{ accountId: string; busy: boolean; healthy: boolean }> {
+  getStatus(): Array<{ accountId: string; activeCount: number; maxConcurrency: number; healthy: boolean }> {
     return this.pool.map((e) => ({
       accountId: e.accountId,
-      busy: e.busy,
+      activeCount: e.activeCount,
+      maxConcurrency: e.maxConcurrency,
       healthy: e.healthy,
     }));
   }
@@ -123,20 +136,21 @@ export class AccountPool {
     this.pool.push({
       accountId: account.id,
       codex: new Codex({ env: { CODEX_HOME: account.codexHome } }),
-      busy: false,
+      activeCount: 0,
+      maxConcurrency: account.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
       healthy: account.healthy,
     });
-    logger.info('Account added to pool', { accountId: account.id });
+    logger.info('Account added to pool', { accountId: account.id, maxConcurrency: account.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY });
   }
 
   /**
-   * 运行时更新池中某个条目的属性（healthy / busy 等）。
+   * 运行时更新池中某个条目的属性（healthy / maxConcurrency 等）。
    */
-  updateEntry(accountId: string, partial: Partial<Pick<PoolEntry, 'healthy' | 'busy'>>): void {
+  updateEntry(accountId: string, partial: Partial<Pick<PoolEntry, 'healthy' | 'maxConcurrency'>>): void {
     const entry = this.pool.find((e) => e.accountId === accountId);
     if (!entry) return;
     if (partial.healthy !== undefined) entry.healthy = partial.healthy;
-    if (partial.busy !== undefined) entry.busy = partial.busy;
+    if (partial.maxConcurrency !== undefined) entry.maxConcurrency = partial.maxConcurrency;
   }
 
   /**
@@ -157,12 +171,6 @@ export class AccountPool {
     return this.pool;
   }
 
-  /**
-   * 池中账号总数。
-   */
-  get size(): number {
-    return this.pool.length;
-  }
 }
 
 // 全局单例

@@ -20,7 +20,8 @@ const app = new Hono();
 app.use('*', async (c, next) => {
   const start = Date.now();
   await next();
-  logRequest(c.req.method, c.req.path, c.res.status, Date.now() - start);
+  const level = c.req.path.startsWith('/api/admin/') || c.req.path === '/health' ? 'debug' : 'info';
+  logRequest(c.req.method, c.req.path, c.res.status, Date.now() - start, level);
 });
 
 // ─── Global error handler ──────────────────────────────────

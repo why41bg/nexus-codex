@@ -19,7 +19,7 @@ const CONFIG_PATH = join(__dirname, '..', '..', 'data', 'config.json');
 
 // ─── Types ──────────────────────────────────────────────────
 
-export interface ApiKeyEntry {
+interface ApiKeyEntry {
   /** API Key 值，如 sk-xxx */
   key: string;
   /** 显示名称 / 备注 */
@@ -30,14 +30,14 @@ export interface ApiKeyEntry {
   createdAt: string;
 }
 
-export interface AdminAuth {
+interface AdminAuth {
   /** 管理面板登录用户名 */
   username: string;
   /** 管理面板登录密码 */
   password: string;
 }
 
-export interface AppConfig {
+interface AppConfig {
   /** 管理面板账号密码 */
   adminAuth: AdminAuth;
   /** 全局默认模型列表 */
@@ -100,7 +100,7 @@ export async function loadConfig(): Promise<AppConfig> {
   return config;
 }
 
-export async function saveConfig(): Promise<void> {
+async function saveConfig(): Promise<void> {
   await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
 
@@ -119,10 +119,6 @@ export function getApiKeySet(): Set<string> {
 }
 
 // ─── Getters ────────────────────────────────────────────────
-
-export function getConfig(): AppConfig {
-  return config;
-}
 
 export function getDefaultModels(): string[] {
   return [...config.defaultModels];
@@ -152,10 +148,6 @@ export function getModelsForKey(key: string): string[] {
 export function isModelAllowedForKey(key: string, modelId: string): boolean {
   const models = getModelsForKey(key);
   return models.includes(modelId);
-}
-
-export function getAdminAuth(): AdminAuth {
-  return { ...config.adminAuth };
 }
 
 export function verifyAdminAuth(username: string, password: string): boolean {
@@ -212,11 +204,6 @@ export async function removeApiKey(key: string): Promise<boolean> {
 }
 
 // ─── Default Models CRUD ────────────────────────────────────
-
-export async function setDefaultModels(models: string[]): Promise<void> {
-  config.defaultModels = models;
-  await saveConfig();
-}
 
 export async function addDefaultModel(modelId: string): Promise<boolean> {
   if (config.defaultModels.includes(modelId)) return false;

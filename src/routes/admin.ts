@@ -57,18 +57,20 @@ adminRoute.get('/dashboard', async (c) => {
   const total = accounts.length;
   const enabled = accounts.filter((a) => a.enabled).length;
   const disabled = total - enabled;
-  const busy = poolStatus.filter((p) => p.busy).length;
   const unhealthy = poolStatus.filter((p) => !p.healthy).length;
   const healthy = poolStatus.filter((p) => p.healthy).length;
-  const available = poolStatus.filter((p) => !p.busy && p.healthy).length;
+  const totalSlots = poolStatus.reduce((sum, p) => sum + p.maxConcurrency, 0);
+  const activeSlots = poolStatus.reduce((sum, p) => sum + p.activeCount, 0);
+  const availableSlots = totalSlots - activeSlots;
   const totalUsage = accounts.reduce((sum, a) => sum + a.usageCount, 0);
 
   return c.json({
     total,
     enabled,
     healthy,
-    busy,
-    available,
+    totalSlots,
+    activeSlots,
+    availableSlots,
     disabled,
     unhealthy,
     totalUsage,
@@ -89,8 +91,8 @@ adminRoute.get('/accounts', async (c) => {
     return {
       ...acc,
       runtime: runtime
-        ? { busy: runtime.busy, healthy: runtime.healthy }
-        : { busy: false, healthy: false, note: 'not in pool' },
+        ? { activeCount: runtime.activeCount, maxConcurrency: runtime.maxConcurrency, healthy: runtime.healthy }
+        : { activeCount: 0, maxConcurrency: 0, healthy: false, note: 'not in pool' },
     };
   });
 
@@ -100,6 +102,7 @@ adminRoute.get('/accounts', async (c) => {
 const addAccountSchema = z.object({
   codexHome: z.string().min(1, 'codexHome is required'),
   remark: z.string().optional().default(''),
+  maxConcurrency: z.number().int().min(1).optional(),
 });
 
 adminRoute.post(
@@ -120,7 +123,7 @@ adminRoute.post(
   }),
   async (c) => {
     const body = c.req.valid('json');
-    const newAccount = await addAccount(body.codexHome, body.remark);
+    const newAccount = await addAccount(body.codexHome, body.remark, body.maxConcurrency);
     pool.addEntry(newAccount);
     return c.json({ account: newAccount }, 201);
   },
@@ -130,6 +133,7 @@ const patchAccountSchema = z.object({
   enabled: z.boolean().optional(),
   healthy: z.boolean().optional(),
   remark: z.string().optional(),
+  maxConcurrency: z.number().int().min(1).optional(),
 });
 
 adminRoute.patch(
@@ -174,6 +178,9 @@ adminRoute.patch(
     if (body.healthy !== undefined) {
       pool.updateEntry(id, { healthy: body.healthy });
     }
+    if (body.maxConcurrency !== undefined) {
+      pool.updateEntry(id, { maxConcurrency: body.maxConcurrency });
+    }
 
     return c.json({ account: updated });
   },
@@ -184,11 +191,11 @@ adminRoute.delete('/accounts/:id', async (c) => {
 
   const poolStatus = pool.getStatus();
   const runtime = poolStatus.find((p) => p.accountId === id);
-  if (runtime?.busy) {
+  if (runtime && runtime.activeCount > 0) {
     return c.json(
       {
         error: {
-          message: `Account '${id}' is currently busy. Please try again later.`,
+          message: `Account '${id}' is currently in use (${runtime.activeCount} active). Please try again later.`,
           type: 'invalid_request_error',
           code: 'conflict',
         },

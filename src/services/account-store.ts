@@ -31,7 +31,7 @@ export async function loadAccounts(): Promise<Account[]> {
   }
 }
 
-export async function saveAccounts(accounts: Account[]): Promise<void> {
+async function saveAccounts(accounts: Account[]): Promise<void> {
   // 使用互斥锁串行化写入操作
   const prevLock = writeLock;
   let releaseLock: () => void;
@@ -48,7 +48,7 @@ export async function saveAccounts(accounts: Account[]): Promise<void> {
   }
 }
 
-export async function addAccount(codexHome: string, remark: string): Promise<Account> {
+export async function addAccount(codexHome: string, remark: string, maxConcurrency?: number): Promise<Account> {
   const accounts = await loadAccounts();
   const newAccount: Account = {
     id: `acc-${randomUUID().slice(0, 8)}`,
@@ -58,6 +58,7 @@ export async function addAccount(codexHome: string, remark: string): Promise<Acc
     remark,
     usageCount: 0,
     lastUsedAt: null,
+    ...(maxConcurrency !== undefined && { maxConcurrency }),
   };
   accounts.push(newAccount);
   await saveAccounts(accounts);
