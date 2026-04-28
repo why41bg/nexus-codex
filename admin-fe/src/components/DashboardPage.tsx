@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Account, Dashboard, ApiKey } from '@/types';
-import { api } from '@/lib/api';
+import { api, getAuthToken } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import Sidebar, { type TabKey } from './Sidebar';
@@ -19,6 +19,10 @@ export default function DashboardPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [connected, setConnected] = useState(false);
+
+  // 用 ref 持有最新的 refresh，避免 SSE 回调闭包捕获旧值
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -43,9 +47,71 @@ export default function DashboardPage() {
     }
   }, [authGuard, toast]);
 
+  // 保持 ref 与最新 refresh 同步
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
+
+  // 初始加载
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // SSE 长连接：服务端有状态变化时主动推送，前端收到后拉取最新数据
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000;
+    let destroyed = false;
+
+    function connect() {
+      if (destroyed) return;
+
+      // EventSource 不支持自定义 header，通过 query string 传 token
+      const token = getAuthToken();
+      const url = `/api/admin/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      es = new EventSource(url);
+
+      es.onopen = () => {
+        setConnected(true);
+        retryDelay = 1000; // 重连成功后重置退避时间
+      };
+
+      es.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data) as { type: string };
+          // 任何事件都触发一次数据刷新（数据量小，全量拉取即可）
+          if (event.type === 'pool_changed' || event.type === 'health_changed') {
+            refreshRef.current();
+          }
+        } catch {
+          // 忽略解析失败的消息
+        }
+      };
+
+      es.onerror = () => {
+        setConnected(false);
+        es?.close();
+        es = null;
+        if (!destroyed) {
+          // 指数退避重连，最长 30 秒
+          retryTimer = setTimeout(() => {
+            retryDelay = Math.min(retryDelay * 2, 30_000);
+            connect();
+          }, retryDelay);
+        }
+      };
+    }
+
+    connect();
+
+    return () => {
+      destroyed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      es?.close();
+      setConnected(false);
+    };
+  }, []); // 仅挂载时建立一次连接
 
   const renderContent = () => {
     switch (activeTab) {
@@ -85,8 +151,15 @@ export default function DashboardPage() {
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-6 py-8 lg:px-8">
-          {/* Top bar with refresh */}
-          <div className="mb-6 flex items-center justify-end">
+          {/* Top bar */}
+          <div className="mb-6 flex items-center justify-end gap-2">
+            {/* 实时连接状态指示 */}
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-500">
+              <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-400' : 'bg-gray-300'}`} />
+              {connected ? '实时' : '已断开'}
+            </div>
+
+            {/* 手动刷新 */}
             <button
               onClick={refresh}
               disabled={loading}
