@@ -45,7 +45,7 @@ export default function AddAccountForm({ onAdded }: Props) {
   };
 
   return (
-    <div className="mt-8 rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+    <div className="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
       <h2 className="text-sm font-semibold text-gray-900">添加账号</h2>
       <form onSubmit={handleAdd} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex-1">
