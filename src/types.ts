@@ -23,6 +23,7 @@ export interface Account {
 
 export interface PoolEntry {
   accountId: string;
+  codexHome: string;
   codex: Codex;
   activeCount: number;               // 当前活跃请求数
   maxConcurrency: number;            // 该账号允许的最大并发数
