@@ -6,6 +6,8 @@ import { loadAccounts, addAccount, updateAccount, removeAccount } from '../servi
 import { pool } from '../services/account-pool.js';
 import { sessionCount } from '../services/session-store.js';
 import { createSession, destroySession } from '../services/session-manager.js';
+import { onAdminEvent, type AdminEvent } from '../services/admin-emitter.js';
+import { probeQuota, refreshQuota } from '../services/quota-probe.js';
 import {
   getDefaultModels,
   addDefaultModel,
@@ -19,6 +21,55 @@ import {
 } from '../services/config-store.js';
 
 const adminRoute = new Hono();
+
+// ═══════════════════════════════════════════════════════════════
+// SSE stream
+// ═══════════════════════════════════════════════════════════════
+
+adminRoute.get('/stream', (c) => {
+  c.header('Content-Type', 'text/event-stream');
+  c.header('Cache-Control', 'no-cache');
+  c.header('Connection', 'keep-alive');
+  c.header('X-Accel-Buffering', 'no'); // 禁用 Nginx 缓冲，确保事件实时到达
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const encode = (event: AdminEvent) =>
+        new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+
+      // 连接建立时立即推送一次当前快照，让前端无需额外 HTTP 请求即可初始化
+      const snapshot: AdminEvent = { type: 'pool_changed' };
+      controller.enqueue(encode(snapshot));
+
+      // 订阅后续事件
+      const unsubscribe = onAdminEvent((event) => {
+        try {
+          controller.enqueue(encode(event));
+        } catch {
+          // 客户端已断开，忽略写入错误
+        }
+      });
+
+      // 每 25 秒发一次心跳注释，防止代理/浏览器因空闲超时断开连接
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(new TextEncoder().encode(': heartbeat\n\n'));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 25_000);
+
+      // 客户端断开时清理资源
+      c.req.raw.signal.addEventListener('abort', () => {
+        unsubscribe();
+        clearInterval(heartbeat);
+        try { controller.close(); } catch { /* already closed */ }
+      });
+    },
+  });
+
+  return new Response(stream, { headers: c.res.headers });
+});
 
 // ═══════════════════════════════════════════════════════════════
 // Login verification (Basic Auth already validated by middleware)
@@ -220,6 +271,74 @@ adminRoute.delete('/accounts/:id', async (c) => {
 
   pool.removeEntry(id);
   return c.json({ deleted: true, id });
+});
+
+adminRoute.get('/accounts/:id/quota', async (c) => {
+  const id = c.req.param('id');
+  const accounts = await loadAccounts();
+  const account = accounts.find((a) => a.id === id);
+  if (!account) {
+    return c.json(
+      {
+        error: {
+          message: `Account '${id}' not found.`,
+          type: 'invalid_request_error',
+          code: 'not_found',
+        },
+      },
+      404,
+    );
+  }
+
+  const quota = await probeQuota(account.codexHome);
+  if (!quota) {
+    return c.json(
+      {
+        error: {
+          message: 'Failed to retrieve quota. The access token may be expired or the API may be unavailable.',
+          type: 'server_error',
+          code: 'quota_unavailable',
+        },
+      },
+      503,
+    );
+  }
+
+  return c.json({ quota });
+});
+
+adminRoute.post('/accounts/:id/quota/refresh', async (c) => {
+  const id = c.req.param('id');
+  const accounts = await loadAccounts();
+  const account = accounts.find((a) => a.id === id);
+  if (!account) {
+    return c.json(
+      {
+        error: {
+          message: `Account '${id}' not found.`,
+          type: 'invalid_request_error',
+          code: 'not_found',
+        },
+      },
+      404,
+    );
+  }
+
+  const quota = await refreshQuota(account.codexHome);
+  if (!quota) {
+    return c.json(
+      {
+        error: {
+          message: 'Failed to retrieve quota. The access token may be expired or the API may be unavailable.',
+          type: 'server_error',
+          code: 'quota_unavailable',
+        },
+      },
+      503,
+    );
+  }
+
+  return c.json({ quota });
 });
 
 // ═══════════════════════════════════════════════════════════════
