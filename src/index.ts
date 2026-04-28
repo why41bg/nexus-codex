@@ -20,7 +20,12 @@ const app = new Hono();
 app.use('*', async (c, next) => {
   const start = Date.now();
   await next();
-  const level = c.req.path.startsWith('/api/admin/') || c.req.path === '/health' ? 'debug' : 'info';
+  const isInternal =
+      c.req.path.startsWith('/api/admin/') ||
+      c.req.path.startsWith('/admin') ||
+      c.req.path === '/health' ||
+      c.req.path === '/favicon.ico';
+    const level = isInternal ? 'debug' : 'info';
   logRequest(c.req.method, c.req.path, c.res.status, Date.now() - start, level);
 });
 
@@ -85,7 +90,7 @@ app.route('/api/admin', adminRoute);
 
 // ─── Timers (stored for cleanup) ───────────────────────────
 let sessionCleanupTimer: NodeJS.Timeout | undefined;
-let healthCheckTimer: NodeJS.Timeout | undefined;
+let healthCheckHandle: { stop: () => void } | undefined;
 
 // ─── Bootstrap ─────────────────────────────────────────────
 async function bootstrap() {
@@ -98,39 +103,64 @@ async function bootstrap() {
   // 启动会话超时清理（每 10 分钟扫描，清理 1 小时未活跃的会话）
   sessionCleanupTimer = startSessionCleanup();
 
-  // 启动账号健康检查（每 5 分钟探测一次）
-  healthCheckTimer = startHealthCheck();
+  // 启动账号健康检查（高频本地 JWT + 低频 login status）
+  healthCheckHandle = startHealthCheck();
 
   const port = Number(process.env.PORT) || 3000;
   const server = serve({ fetch: app.fetch, port }, (info) => {
     logger.info('Nexus Codex is running', { port: info.port });
+    logger.info(`Admin panel: http://localhost:${info.port}/admin`);
+    logger.info(`API endpoint: http://localhost:${info.port}/v1`);
   });
 
   // ─── Graceful shutdown ─────────────────────────────────
+  let shuttingDown = false;
   const shutdown = (signal: string) => {
+    if (shuttingDown) {
+      logger.debug('Shutdown already in progress, ignoring duplicate signal', { signal });
+      return;
+    }
+    shuttingDown = true;
     logger.info('Starting graceful shutdown', { signal });
 
     // 停止定时器
     if (sessionCleanupTimer) clearInterval(sessionCleanupTimer);
-    if (healthCheckTimer) clearInterval(healthCheckTimer);
-    logger.info('Timers stopped');
+    if (healthCheckHandle) healthCheckHandle.stop();
+    logger.debug('Timers stopped');
 
     // 清理所有会话，释放账号池资源
     clearAllSessions();
-    logger.info('Sessions cleared');
+    logger.debug('Sessions cleared');
 
-    // 关闭 HTTP 服务器
+    // 关闭 HTTP 服务器（停止接受新连接）
     server.close((err) => {
       if (err) {
         logger.error('Error closing server', { error: err instanceof Error ? err.message : String(err) });
         process.exit(1);
       }
-      logger.info('HTTP server closed');
+      logger.debug('HTTP server closed');
       logger.info('Nexus Codex shut down gracefully');
       process.exit(0);
     });
 
-    // 强制退出超时保护（10 秒）
+    // 立即关闭空闲的 keep-alive 连接（无正在处理的请求）
+    // 注：closeIdleConnections / closeAllConnections 是 Node 18.2+ http.Server 上的方法，
+    // @hono/node-server 的 ServerType 联合类型未包含它们，需要用 as any 绕过类型检查。
+    const srv = server as any;
+    if (typeof srv.closeIdleConnections === 'function') {
+      srv.closeIdleConnections();
+      logger.debug('Idle connections closed');
+    }
+
+    // 给活跃连接（SSE 流等）一个短暂的缓冲期，然后强制关闭
+    setTimeout(() => {
+      if (typeof srv.closeAllConnections === 'function') {
+        logger.debug('Forcing remaining connections closed');
+        srv.closeAllConnections();
+      }
+    }, 3_000).unref();
+
+    // 最终兜底：强制退出超时保护（10 秒）
     setTimeout(() => {
       logger.error('Graceful shutdown timed out, forcing exit');
       process.exit(1);
