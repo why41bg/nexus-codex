@@ -1,6 +1,7 @@
 import { Codex } from '@openai/codex-sdk';
 import type { Account, PoolEntry } from '../types.js';
 import { logger } from '../utils/logger.js';
+import { emitAdminEvent } from './admin-emitter.js';
 
 /** 默认排队等待超时（毫秒） */
 const DEFAULT_ACQUIRE_TIMEOUT_MS = Number(process.env.ACQUIRE_TIMEOUT_MS) || 30_000;
@@ -25,6 +26,7 @@ export class AccountPool {
       .filter((a) => a.enabled)
       .map((a) => ({
         accountId: a.id,
+        codexHome: a.codexHome,
         codex: new Codex({ env: { CODEX_HOME: a.codexHome } }),
         activeCount: 0,
         maxConcurrency: a.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
@@ -51,6 +53,7 @@ export class AccountPool {
     this.counter++;
 
     entry.activeCount++;
+    emitAdminEvent({ type: 'pool_changed' });
     return entry;
   }
 
@@ -64,7 +67,7 @@ export class AccountPool {
 
     // 同步拿不到，进入排队等待
     const position = this.waitQueue.length + 1;
-    logger.info('Queued request', { position, timeoutMs });
+    logger.debug('Queued request', { position, timeoutMs });
 
     return new Promise<PoolEntry | null>((resolve) => {
       const item: QueueItem = {
@@ -77,13 +80,13 @@ export class AccountPool {
         // 超时：从队列中移除，返回 null
         const idx = this.waitQueue.indexOf(item);
         if (idx !== -1) this.waitQueue.splice(idx, 1);
-        logger.info('Queue timeout', { timeoutMs, remainingQueue: this.waitQueue.length });
+        logger.debug('Queue timeout', { timeoutMs, remainingQueue: this.waitQueue.length });
         resolve(null);
       }, timeoutMs);
 
       item.resolve = (entry: PoolEntry) => {
         clearTimeout(item.timer);
-        logger.info('Queue fulfilled', { accountId: entry.accountId, remainingQueue: this.waitQueue.length });
+        logger.debug('Queue fulfilled', { accountId: entry.accountId, remainingQueue: this.waitQueue.length });
         resolve(entry);
       };
 
@@ -97,6 +100,8 @@ export class AccountPool {
   release(accountId: string): void {
     const entry = this.pool.find((e) => e.accountId === accountId);
     if (entry) entry.activeCount = Math.max(0, entry.activeCount - 1);
+
+    emitAdminEvent({ type: 'pool_changed' });
 
     // 尝试唤醒队列中的下一个等待者
     this.drainQueue();
@@ -135,6 +140,7 @@ export class AccountPool {
     if (this.pool.some((e) => e.accountId === account.id)) return;
     this.pool.push({
       accountId: account.id,
+      codexHome: account.codexHome,
       codex: new Codex({ env: { CODEX_HOME: account.codexHome } }),
       activeCount: 0,
       maxConcurrency: account.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
