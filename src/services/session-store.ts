@@ -73,7 +73,7 @@ export function startSessionCleanup(
       }
     }
     if (cleaned > 0) {
-      logger.info('Cleaned idle sessions', { count: cleaned });
+      logger.debug('Cleaned idle sessions', { count: cleaned });
     }
   }, intervalMs);
   return timer;
