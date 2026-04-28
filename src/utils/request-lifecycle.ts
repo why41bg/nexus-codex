@@ -9,6 +9,7 @@ import { pool } from '../services/account-pool.js';
 import { createSession, deleteSession, type CreateSessionOptions } from '../services/session-store.js';
 import { incrementUsageCount } from '../services/account-store.js';
 import { isModelAllowedForKey } from '../services/config-store.js';
+import { triggerProbe } from '../services/health-check.js';
 import { logger, logAcquire, logRelease, logPoolExhausted } from './logger.js';
 
 /** 单次请求超时（毫秒），默认 5 分钟 */
@@ -108,6 +109,13 @@ export function releaseAccountOnError(
     entry.accountId,
     Date.now() - reqStart,
     err instanceof Error ? err.message : 'unknown error',
+  );
+  // 请求失败时立即触发一次本地探测，无需等待定时器
+  triggerProbe(entry.accountId).catch((probeErr) =>
+    logger.warn('Passive probe failed', {
+      accountId: entry.accountId,
+      error: probeErr instanceof Error ? probeErr.message : String(probeErr),
+    }),
   );
 }
 
