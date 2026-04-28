@@ -13,6 +13,25 @@ import { validateSession } from '../services/session-manager.js';
  * Basic Auth 校验 data/config.json 中的 adminAuth（username / password）。
  */
 export const adminAuthMiddleware: MiddlewareHandler = async (c, next) => {
+  // 优先从 query string 读取 token（供 EventSource 等无法设置 header 的场景使用）
+  const queryToken = c.req.query('token');
+  if (queryToken) {
+    if (validateSession(queryToken)) {
+      await next();
+      return;
+    }
+    return c.json(
+      {
+        error: {
+          message: 'Invalid or expired session token.',
+          type: 'authentication_error',
+          code: 'invalid_credentials',
+        },
+      },
+      401,
+    );
+  }
+
   const authHeader = c.req.header('Authorization');
   if (!authHeader) {
     return c.json(
