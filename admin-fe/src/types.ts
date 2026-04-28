@@ -5,6 +5,26 @@ export interface AccountRuntime {
   maxConcurrency: number;
 }
 
+/** 额度窗口信息 */
+export interface QuotaWindow {
+  /** 已使用百分比（0-100） */
+  usedPercent: number;
+  /** 窗口时长（分钟） */
+  windowDurationMins: number;
+  /** 重置时间（Unix 时间戳，秒） */
+  resetsAt: number;
+}
+
+/** 账号额度信息 */
+export interface QuotaInfo {
+  /** 5小时滚动窗口 */
+  primary: QuotaWindow;
+  /** 1周滚动窗口 */
+  secondary: QuotaWindow;
+  planType: string;
+  rateLimitReachedType: string | null;
+}
+
 /** 账号信息 */
 export interface Account {
   id: string;
