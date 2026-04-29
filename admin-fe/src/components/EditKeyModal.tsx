@@ -78,14 +78,14 @@ export default function EditKeyModal({
       });
       if (authGuard(res.status)) return;
       if (res.ok) {
-        toast('API Key \u5df2\u66f4\u65b0', 'success');
+        toast('API Key 已更新', 'success');
         onSaved();
         onClose();
       } else {
-        toast(extractErrorMessage(res.data, '\u66f4\u65b0\u5931\u8d25'), 'error');
+        toast(extractErrorMessage(res.data, '更新失败'), 'error');
       }
     } catch {
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     } finally {
       setSaving(false);
     }
@@ -104,27 +104,27 @@ export default function EditKeyModal({
         tabIndex={-1}
         className="mx-4 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-xl ring-1 ring-gray-200 dark:ring-slate-700 outline-none"
       >
-        <h3 id={titleId} className="text-base font-semibold text-gray-900 dark:text-slate-100">\u7f16\u8f91 API Key</h3>
+        <h3 id={titleId} className="text-base font-semibold text-gray-900 dark:text-slate-100">编辑 API Key</h3>
         <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
           Key: <span className="font-mono">{target.keyMasked}</span>
         </p>
 
         {/* Name */}
         <div className="mt-4">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u540d\u79f0/\u5907\u6ce8</label>
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">名称/备注</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="\u4f8b\u5982 my-app"
+            placeholder="例如 my-app"
             className={inputClass}
           />
         </div>
 
         {/* Model selection */}
         <div className="mt-4">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u53ef\u7528\u6a21\u578b</label>
-          <p className="mb-2 text-xs text-gray-400 dark:text-slate-500">\u4e0d\u52fe\u9009\u4efb\u4f55\u6a21\u578b\u8868\u793a\u7ee7\u627f\u5168\u5c40\u9ed8\u8ba4\u5217\u8868</p>
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">可用模型</label>
+          <p className="mb-2 text-xs text-gray-400 dark:text-slate-500">不勾选任何模型表示继承全局默认列表</p>
           <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700 p-3">
             {globalModels.map((m) => (
               <label key={m} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-gray-50 dark:hover:bg-slate-700">
@@ -138,7 +138,7 @@ export default function EditKeyModal({
               </label>
             ))}
             {globalModels.length === 0 && (
-              <span className="text-xs text-gray-400 dark:text-slate-500">\u6682\u65e0\u5168\u5c40\u6a21\u578b\u53ef\u9009</span>
+              <span className="text-xs text-gray-400 dark:text-slate-500">暂无全局模型可选</span>
             )}
           </div>
 
@@ -149,7 +149,7 @@ export default function EditKeyModal({
               value={customModel}
               onChange={(e) => setCustomModel(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && addCustom()}
-              placeholder="\u6dfb\u52a0\u81ea\u5b9a\u4e49\u6a21\u578b..."
+              placeholder="添加自定义模型..."
               className="flex-1 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-gray-900 dark:text-slate-100 shadow-sm placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
             />
             <button
@@ -157,7 +157,7 @@ export default function EditKeyModal({
               disabled={!customModel.trim()}
               className="rounded-lg bg-gray-100 dark:bg-slate-700 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 disabled:opacity-50"
             >
-              \u6dfb\u52a0
+              添加
             </button>
           </div>
 
@@ -177,7 +177,7 @@ export default function EditKeyModal({
               ))}
             </div>
           ) : (
-            <div className="mt-2 text-xs text-gray-400 dark:text-slate-500">\u672a\u9009\u62e9\u6a21\u578b \u2014 \u5c06\u7ee7\u627f\u5168\u5c40\u9ed8\u8ba4\u5217\u8868</div>
+            <div className="mt-2 text-xs text-gray-400 dark:text-slate-500">未选择模型 — 将继承全局默认列表</div>
           )}
         </div>
 
@@ -188,67 +188,67 @@ export default function EditKeyModal({
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors rounded-lg"
           >
-            <span>\u9ad8\u7ea7\u914d\u7f6e</span>
-            <span className="text-gray-400 dark:text-slate-500">{showAdvanced ? '\u25b2' : '\u25bc'}</span>
+            <span>高级配置</span>
+            <span className="text-gray-400 dark:text-slate-500">{showAdvanced ? '▲' : '▼'}</span>
           </button>
           {showAdvanced && (
             <div className="border-t border-gray-200 dark:border-slate-700 px-4 py-3 space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u6709\u6548\u671f</label>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">有效期</label>
                 <input
                   type="datetime-local"
                   value={expiresAt ? new Date(expiresAt).toISOString().slice(0, 16) : ''}
                   onChange={(e) => setExpiresAt(e.target.value || '')}
                   className={inputClass}
                 />
-                <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500">\u7559\u7a7a\u8868\u793a\u6c38\u4e0d\u8fc7\u671f</p>
+                <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500">留空表示永不过期</p>
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u6700\u5927\u8bf7\u6c42\u6570</label>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">最大请求数</label>
                   <input
                     type="number"
                     min="1"
                     value={rateLimitMax}
                     onChange={(e) => setRateLimitMax(e.target.value)}
-                    placeholder="\u7ee7\u627f\u5168\u5c40"
+                    placeholder="继承全局"
                     className={inputClass}
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u7a97\u53e3\u65f6\u957f (ms)</label>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">窗口时长 (ms)</label>
                   <input
                     type="number"
                     min="1000"
                     step="1000"
                     value={rateLimitWindowMs}
                     onChange={(e) => setRateLimitWindowMs(e.target.value)}
-                    placeholder="\u7ee7\u627f\u5168\u5c40"
+                    placeholder="继承全局"
                     className={inputClass}
                   />
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u6708\u8c03\u7528\u914d\u989d</label>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">月调用配额</label>
                 <input
                   type="number"
                   min="1"
                   value={monthlyQuota}
                   onChange={(e) => setMonthlyQuota(e.target.value)}
-                  placeholder="\u4e0d\u9650\u5236"
+                  placeholder="不限制"
                   className={inputClass}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">IP \u767d\u540d\u5355</label>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">IP 白名单</label>
                 <textarea
                   value={ipWhitelist}
                   onChange={(e) => setIpWhitelist(e.target.value)}
-                  placeholder={"\u6bcf\u884c\u4e00\u4e2a IP \u5730\u5740\n\u4f8b\u5982: 192.168.1.100"}
+                  placeholder={"每行一个 IP 地址\n例如: 192.168.1.100"}
                   rows={3}
                   className={inputClass + ' font-mono text-xs'}
                 />
-                <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500">\u7559\u7a7a\u8868\u793a\u4e0d\u9650\u5236 IP</p>
+                <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500">留空表示不限制 IP</p>
               </div>
             </div>
           )}
@@ -256,7 +256,7 @@ export default function EditKeyModal({
 
         <div className="mt-5 flex justify-end gap-3">
           <button onClick={onClose} className={secondaryBtnClass}>
-            \u53d6\u6d88
+            取消
           </button>
           <button
             onClick={save}
@@ -264,7 +264,7 @@ export default function EditKeyModal({
             className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50"
           >
             {saving && <Spinner className="mr-1.5 inline h-4 w-4" />}
-            \u4fdd\u5b58
+            保存
           </button>
         </div>
       </div>

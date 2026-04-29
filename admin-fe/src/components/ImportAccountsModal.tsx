@@ -53,7 +53,7 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
     try {
       data = JSON.parse(raw);
     } catch {
-      result.errors.push({ index: -1, message: 'JSON \u683c\u5f0f\u9519\u8bef\uff0c\u8bf7\u68c0\u67e5\u8f93\u5165\u5185\u5bb9' });
+      result.errors.push({ index: -1, message: 'JSON 格式错误，请检查输入内容' });
       return result;
     }
 
@@ -63,19 +63,19 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
     } else if (data && typeof data === 'object' && 'accounts' in data && Array.isArray((data as { accounts: unknown[] }).accounts)) {
       items = (data as { accounts: unknown[] }).accounts;
     } else {
-      result.errors.push({ index: -1, message: '\u6570\u636e\u683c\u5f0f\u65e0\u6548\uff0c\u9700\u8981 JSON \u6570\u7ec4\u6216 { accounts: [...] } \u683c\u5f0f' });
+      result.errors.push({ index: -1, message: '数据格式无效，需要 JSON 数组或 { accounts: [...] } 格式' });
       return result;
     }
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i] as Record<string, unknown>;
       if (!item || typeof item !== 'object') {
-        result.errors.push({ index: i, message: '\u4e0d\u662f\u6709\u6548\u7684\u5bf9\u8c61' });
+        result.errors.push({ index: i, message: '不是有效的对象' });
         continue;
       }
       const codexHome = typeof item.codexHome === 'string' ? item.codexHome.trim() : '';
       if (!codexHome) {
-        result.errors.push({ index: i, message: 'codexHome \u4e0d\u80fd\u4e3a\u7a7a' });
+        result.errors.push({ index: i, message: 'codexHome 不能为空' });
         continue;
       }
       const acc: ImportAccount = { codexHome };
@@ -106,7 +106,7 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
     if (file && file.name.endsWith('.json')) {
       handleFileSelect(file);
     } else {
-      toast('\u8bf7\u4e0a\u4f20 .json \u6587\u4ef6', 'error');
+      toast('请上传 .json 文件', 'error');
     }
   }, [handleFileSelect, toast]);
 
@@ -131,16 +131,16 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
       if (authGuard(res.status)) return;
       if (res.ok) {
         const d = res.data;
-        const parts: string[] = [`\u6210\u529f\u5bfc\u5165 ${d.imported} \u4e2a\u8d26\u53f7`];
-        if (d.skipped > 0) parts.push(`\u8df3\u8fc7 ${d.skipped} \u4e2a\u91cd\u590d`);
-        if (d.errors.length > 0) parts.push(`${d.errors.length} \u4e2a\u5931\u8d25`);
-        toast(parts.join('\uff0c'), d.errors.length > 0 ? 'error' : 'success');
+        const parts: string[] = [`成功导入 ${d.imported} 个账号`];
+        if (d.skipped > 0) parts.push(`跳过 ${d.skipped} 个重复`);
+        if (d.errors.length > 0) parts.push(`${d.errors.length} 个失败`);
+        toast(parts.join('，'), d.errors.length > 0 ? 'error' : 'success');
         onImported();
       } else {
-        toast(extractErrorMessage(res.data, '\u5bfc\u5165\u5931\u8d25'), 'error');
+        toast(extractErrorMessage(res.data, '导入失败'), 'error');
       }
     } catch {
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     } finally {
       setImporting(false);
     }
@@ -162,11 +162,11 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
         tabIndex={-1}
         className="mx-4 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-xl ring-1 ring-gray-200 dark:ring-slate-700 outline-none"
       >
-        <h3 id={titleId} className="text-base font-semibold text-gray-900 dark:text-slate-100">\u5bfc\u5165\u8d26\u53f7</h3>
+        <h3 id={titleId} className="text-base font-semibold text-gray-900 dark:text-slate-100">导入账号</h3>
 
-        {/* \u5bfc\u5165\u6a21\u5f0f */}
+        {/* 导入模式 */}
         <fieldset className="mt-4">
-          <legend className="text-xs font-medium text-gray-600 dark:text-slate-400">\u5bfc\u5165\u6a21\u5f0f</legend>
+          <legend className="text-xs font-medium text-gray-600 dark:text-slate-400">导入模式</legend>
           <div className="mt-2 flex flex-col gap-2">
             <label className="flex items-start gap-2 cursor-pointer">
               <input
@@ -177,8 +177,8 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
                 className="mt-0.5 accent-brand-600"
               />
               <div>
-                <span className="text-sm font-medium text-gray-800 dark:text-slate-200">\u5408\u5e76\u5bfc\u5165</span>
-                <p className="text-xs text-gray-500 dark:text-slate-400">\u4fdd\u7559\u73b0\u6709\u8d26\u53f7\uff0c\u4ec5\u8ffd\u52a0\u65b0\u8d26\u53f7\uff08\u6309 codexHome \u53bb\u91cd\uff09</p>
+                <span className="text-sm font-medium text-gray-800 dark:text-slate-200">合并导入</span>
+                <p className="text-xs text-gray-500 dark:text-slate-400">保留现有账号，仅追加新账号（按 codexHome 去重）</p>
               </div>
             </label>
             <label className="flex items-start gap-2 cursor-pointer">
@@ -190,30 +190,30 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
                 className="mt-0.5 accent-brand-600"
               />
               <div>
-                <span className="text-sm font-medium text-red-700 dark:text-red-400">\u66ff\u6362\u5bfc\u5165</span>
-                <p className="text-xs text-gray-500 dark:text-slate-400">\u6e05\u7a7a\u73b0\u6709\u6240\u6709\u8d26\u53f7\u540e\u5bfc\u5165\uff08\u5371\u9669\u64cd\u4f5c\uff09</p>
+                <span className="text-sm font-medium text-red-700 dark:text-red-400">替换导入</span>
+                <p className="text-xs text-gray-500 dark:text-slate-400">清空现有所有账号后导入（危险操作）</p>
               </div>
             </label>
           </div>
         </fieldset>
 
-        {/* \u8f93\u5165\u65b9\u5f0f\u5207\u6362 */}
+        {/* 输入方式切换 */}
         <div className="mt-4 flex gap-1 border-b border-gray-200 dark:border-slate-700">
           <button
             onClick={() => setInputMethod('file')}
             className={`px-3 py-1.5 text-sm font-medium transition-colors ${inputMethod === 'file' ? 'border-b-2 border-brand-600 text-brand-600 dark:text-brand-400' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'}`}
           >
-            \u6587\u4ef6\u4e0a\u4f20
+            文件上传
           </button>
           <button
             onClick={() => setInputMethod('text')}
             className={`px-3 py-1.5 text-sm font-medium transition-colors ${inputMethod === 'text' ? 'border-b-2 border-brand-600 text-brand-600 dark:text-brand-400' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'}`}
           >
-            \u6587\u672c\u7c98\u8d34
+            文本粘贴
           </button>
         </div>
 
-        {/* \u6587\u4ef6\u4e0a\u4f20 */}
+        {/* 文件上传 */}
         {inputMethod === 'file' && (
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -224,8 +224,8 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
               dragOver ? 'border-brand-500 bg-brand-50 dark:bg-brand-950' : 'border-gray-300 dark:border-slate-600 hover:border-gray-400 dark:hover:border-slate-500'
             }`}
           >
-            <p className="text-sm text-gray-600 dark:text-slate-400">\u62d6\u62fd JSON \u6587\u4ef6\u5230\u6b64\u5904\uff0c\u6216\u70b9\u51fb\u9009\u62e9\u6587\u4ef6</p>
-            <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">\u652f\u6301 .json \u683c\u5f0f</p>
+            <p className="text-sm text-gray-600 dark:text-slate-400">拖拽 JSON 文件到此处，或点击选择文件</p>
+            <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">支持 .json 格式</p>
             <input
               ref={fileInputRef}
               type="file"
@@ -239,28 +239,28 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
           </div>
         )}
 
-        {/* \u6587\u672c\u7c98\u8d34 */}
+        {/* 文本粘贴 */}
         {inputMethod === 'text' && (
           <div className="mt-3">
             <textarea
               value={textInput}
               onChange={(e) => handleTextChange(e.target.value)}
-              placeholder={`\u7c98\u8d34 JSON \u6570\u7ec4\uff0c\u4f8b\u5982\uff1a\n[\n  {\n    "codexHome": "/Users/you/.codex-pool/account-1",\n    "remark": "account-1@example.com",\n    "maxConcurrency": 3\n  }\n]`}
+              placeholder={`粘贴 JSON 数组，例如：\n[\n  {\n    "codexHome": "/Users/you/.codex-pool/account-1",\n    "remark": "account-1@example.com",\n    "maxConcurrency": 3\n  }\n]`}
               rows={8}
               className={inputClass + ' font-mono text-xs'}
             />
           </div>
         )}
 
-        {/* \u89e3\u6790\u7ed3\u679c\u9884\u89c8 */}
+        {/* 解析结果预览 */}
         {parsed && (
           <div className="mt-4">
             <div className="flex items-center gap-3 text-sm">
               {validCount > 0 && (
-                <span className="text-green-600 dark:text-green-400">{validCount} \u6761\u6709\u6548</span>
+                <span className="text-green-600 dark:text-green-400">{validCount} 条有效</span>
               )}
               {errorCount > 0 && (
-                <span className="text-red-600 dark:text-red-400">{errorCount} \u6761\u6709\u9519\u8bef</span>
+                <span className="text-red-600 dark:text-red-400">{errorCount} 条有错误</span>
               )}
             </div>
 
@@ -270,16 +270,16 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
                   <thead className="sticky top-0 bg-gray-50 dark:bg-slate-700">
                     <tr>
                       <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">codexHome</th>
-                      <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">\u5907\u6ce8</th>
-                      <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">\u5e76\u53d1</th>
+                      <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">备注</th>
+                      <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">并发</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                     {parsed.valid.map((item, i) => (
                       <tr key={i}>
                         <td className="px-3 py-1.5 font-mono text-gray-700 dark:text-slate-300 truncate max-w-[200px]">{item.codexHome}</td>
-                        <td className="px-3 py-1.5 text-gray-500 dark:text-slate-400 truncate max-w-[120px]">{item.remark || '\u2014'}</td>
-                        <td className="px-3 py-1.5 text-gray-500 dark:text-slate-400">{item.maxConcurrency ?? '\u9ed8\u8ba4'}</td>
+                        <td className="px-3 py-1.5 text-gray-500 dark:text-slate-400 truncate max-w-[120px]">{item.remark || '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-500 dark:text-slate-400">{item.maxConcurrency ?? '默认'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -291,7 +291,7 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
               <div className="mt-2 space-y-1">
                 {parsed.errors.map((err, i) => (
                   <div key={i} className="text-xs text-red-600 dark:text-red-400">
-                    {err.index >= 0 ? `\u7b2c ${err.index + 1} \u6761\uff1a` : ''}{err.message}
+                    {err.index >= 0 ? `第 ${err.index + 1} 条：` : ''}{err.message}
                   </div>
                 ))}
               </div>
@@ -299,20 +299,20 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
           </div>
         )}
 
-        {/* \u66ff\u6362\u6a21\u5f0f\u8b66\u544a */}
+        {/* 替换模式警告 */}
         {mode === 'replace' && validCount > 0 && (
           <div className="mt-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-4 py-3">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">\u26a0 \u5371\u9669\u64cd\u4f5c</p>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">⚠ 危险操作</p>
             <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-              \u6b64\u64cd\u4f5c\u5c06\u5220\u9664\u6240\u6709\u73b0\u6709\u8d26\u53f7\u5e76\u7528\u5bfc\u5165\u6570\u636e\u66ff\u6362\uff0c\u6b64\u64cd\u4f5c\u4e0d\u53ef\u64a4\u9500\uff01
+              此操作将删除所有现有账号并用导入数据替换，此操作不可撤销！
             </p>
           </div>
         )}
 
-        {/* \u64cd\u4f5c\u6309\u94ae */}
+        {/* 操作按钮 */}
         <div className="mt-5 flex justify-end gap-3">
           <button onClick={onCancel} className={secondaryBtnClass}>
-            \u53d6\u6d88
+            取消
           </button>
           <button
             onClick={doImport}
@@ -320,7 +320,7 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
             className={primaryBtnClass}
           >
             {importing && <Spinner className="mr-1.5 h-4 w-4" />}
-            {validCount > 0 ? `\u786e\u8ba4\u5bfc\u5165 (${validCount} \u6761)` : '\u786e\u8ba4\u5bfc\u5165'}
+            {validCount > 0 ? `确认导入 (${validCount} 条)` : '确认导入'}
           </button>
         </div>
       </div>

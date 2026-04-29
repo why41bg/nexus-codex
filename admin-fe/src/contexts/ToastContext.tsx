@@ -39,7 +39,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toasts, toast }}>
       {children}
-      {/* Toast \u901a\u77e5\u533a\u57df */}
+      {/* Toast 通知区域 */}
       <div className="fixed right-4 top-4 z-[60] flex flex-col gap-2">
         {toasts.map((t) => (
           <div

@@ -40,12 +40,12 @@ export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
       if (res.ok) {
         const date = new Date().toISOString().slice(0, 10);
         downloadJson(res.data, `nexus-codex-accounts-${date}.json`);
-        toast('\u5bfc\u51fa\u6210\u529f', 'success');
+        toast('导出成功', 'success');
       } else {
-        toast('\u5bfc\u51fa\u5931\u8d25', 'error');
+        toast('导出失败', 'error');
       }
     } catch {
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     } finally {
       setExporting(false);
     }
@@ -58,12 +58,12 @@ export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
       if (res.ok) {
         const date = new Date().toISOString().slice(0, 10);
         downloadJson(res.data, `nexus-codex-backup-${date}.json`);
-        toast('\u5907\u4efd\u4e0b\u8f7d\u6210\u529f', 'success');
+        toast('备份下载成功', 'success');
       } else {
-        toast('\u5907\u4efd\u5931\u8d25', 'error');
+        toast('备份失败', 'error');
       }
     } catch {
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     }
   }, [authGuard, downloadJson, toast]);
 
@@ -71,28 +71,28 @@ export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">\u8d26\u53f7\u7ba1\u7406</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">\u7ba1\u7406 Codex \u8d26\u53f7\u6c60\u4e2d\u7684\u6240\u6709\u8d26\u53f7</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">账号管理</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">管理 Codex 账号池中的所有账号</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setShowImport(true)}
             className={secondaryBtnClass}
           >
-            \u5bfc\u5165\u8d26\u53f7
+            导入账号
           </button>
           <button
             onClick={handleExport}
             disabled={exporting || accounts.length === 0}
             className={`${secondaryBtnClass} disabled:opacity-50`}
           >
-            {exporting ? '\u5bfc\u51fa\u4e2d...' : '\u5bfc\u51fa\u8d26\u53f7'}
+            {exporting ? '导出中...' : '导出账号'}
           </button>
           <button
             onClick={handleBackup}
             className={secondaryBtnClass}
           >
-            \u4e0b\u8f7d\u5907\u4efd
+            下载备份
           </button>
         </div>
       </div>

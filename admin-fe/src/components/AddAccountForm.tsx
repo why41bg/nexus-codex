@@ -29,16 +29,16 @@ export default function AddAccountForm({ onAdded }: Props) {
       });
       if (authGuard(res.status)) return;
       if (res.ok) {
-        toast('\u8d26\u53f7\u6dfb\u52a0\u6210\u529f', 'success');
+        toast('账号添加成功', 'success');
         setCodexHome('');
         setRemark('');
         setMaxConcurrency('');
         onAdded();
       } else {
-        toast(extractErrorMessage(res.data, '\u6dfb\u52a0\u5931\u8d25'), 'error');
+        toast(extractErrorMessage(res.data, '添加失败'), 'error');
       }
     } catch {
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     } finally {
       setAdding(false);
     }
@@ -46,11 +46,11 @@ export default function AddAccountForm({ onAdded }: Props) {
 
   return (
     <div className={`mt-6 ${cardClass} p-6`}>
-      <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">\u6dfb\u52a0\u8d26\u53f7</h2>
+      <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">添加账号</h2>
       <form onSubmit={handleAdd} className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
         <div className="flex-1">
           <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
-            CODEX_HOME \u8def\u5f84 <span className="text-red-400">*</span>
+            CODEX_HOME 路径 <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
@@ -61,7 +61,7 @@ export default function AddAccountForm({ onAdded }: Props) {
           />
         </div>
         <div className="md:w-56">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u5907\u6ce8</label>
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">备注</label>
           <input
             type="text"
             value={remark}
@@ -71,13 +71,13 @@ export default function AddAccountForm({ onAdded }: Props) {
           />
         </div>
         <div className="md:w-28">
-          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">\u6700\u5927\u5e76\u53d1</label>
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">最大并发</label>
           <input
             type="number"
             min="1"
             value={maxConcurrency}
             onChange={(e) => setMaxConcurrency(e.target.value)}
-            placeholder="\u9ed8\u8ba4"
+            placeholder="默认"
             className={inputClass}
           />
         </div>
@@ -87,7 +87,7 @@ export default function AddAccountForm({ onAdded }: Props) {
           className={primaryBtnClass}
         >
           {adding && <Spinner className="mr-1.5 h-4 w-4" />}
-          \u6dfb\u52a0
+          添加
         </button>
       </form>
     </div>

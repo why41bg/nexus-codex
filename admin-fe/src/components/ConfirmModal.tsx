@@ -16,7 +16,7 @@ interface ConfirmModalProps {
 export default function ConfirmModal({
   title,
   children,
-  confirmLabel = '\u786e\u8ba4',
+  confirmLabel = '确认',
   confirmColor = 'red',
   loading = false,
   onConfirm,
@@ -57,7 +57,7 @@ export default function ConfirmModal({
         <div className="mt-2 text-sm text-gray-600 dark:text-slate-400">{children}</div>
         <div className="mt-5 flex justify-end gap-3">
           <button onClick={onCancel} className={secondaryBtnClass}>
-            \u53d6\u6d88
+            取消
           </button>
           <button
             onClick={onConfirm}

@@ -52,11 +52,11 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
       else counts.online++;
     }
     return [
-      { key: 'all' as const, label: '\u5168\u90e8', count: counts.all },
-      { key: 'online' as const, label: '\u7a7a\u95f2', count: counts.online },
-      { key: 'active' as const, label: '\u4f7f\u7528\u4e2d', count: counts.active },
-      { key: 'unhealthy' as const, label: '\u4e0d\u5065\u5eb7', count: counts.unhealthy },
-      { key: 'disabled' as const, label: '\u5df2\u7981\u7528', count: counts.disabled },
+      { key: 'all' as const, label: '全部', count: counts.all },
+      { key: 'online' as const, label: '空闲', count: counts.online },
+      { key: 'active' as const, label: '使用中', count: counts.active },
+      { key: 'unhealthy' as const, label: '不健康', count: counts.unhealthy },
+      { key: 'disabled' as const, label: '已禁用', count: counts.disabled },
     ];
   }, [accounts]);
 
@@ -91,7 +91,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
           [acc.id]: { loading: false, data: res.data.quota!, error: null },
         }));
       } else {
-        const msg = extractErrorMessage(res.data, '\u83b7\u53d6\u989d\u5ea6\u5931\u8d25');
+        const msg = extractErrorMessage(res.data, '获取额度失败');
         setQuotaMap((prev) => ({
           ...prev,
           [acc.id]: { loading: false, data: null, error: msg },
@@ -101,9 +101,9 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
     } catch {
       setQuotaMap((prev) => ({
         ...prev,
-        [acc.id]: { loading: false, data: null, error: '\u8bf7\u6c42\u5931\u8d25' },
+        [acc.id]: { loading: false, data: null, error: '请求失败' },
       }));
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     }
   }, [authGuard, toast]);
 
@@ -113,13 +113,13 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
       const res = await api('PATCH', `/api/admin/accounts/${acc.id}`, { enabled: newEnabled });
       if (authGuard(res.status)) return;
       if (res.ok) {
-        toast(newEnabled ? `\u5df2\u542f\u7528 ${acc.id}` : `\u5df2\u7981\u7528 ${acc.id}`, 'success');
+        toast(newEnabled ? `已启用 ${acc.id}` : `已禁用 ${acc.id}`, 'success');
         onRefresh();
       } else {
-        toast(extractErrorMessage(res.data, '\u64cd\u4f5c\u5931\u8d25'), 'error');
+        toast(extractErrorMessage(res.data, '操作失败'), 'error');
       }
     } catch {
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     }
   };
 
@@ -130,14 +130,14 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
       const res = await api('DELETE', `/api/admin/accounts/${deleteTarget.id}`);
       if (authGuard(res.status)) return;
       if (res.ok) {
-        toast(`\u5df2\u5220\u9664 ${deleteTarget.id}`, 'success');
+        toast(`已删除 ${deleteTarget.id}`, 'success');
         setDeleteTarget(null);
         onRefresh();
       } else {
-        toast(extractErrorMessage(res.data, '\u5220\u9664\u5931\u8d25'), 'error');
+        toast(extractErrorMessage(res.data, '删除失败'), 'error');
       }
     } catch {
-      toast('\u8bf7\u6c42\u5931\u8d25', 'error');
+      toast('请求失败', 'error');
     } finally {
       setDeleting(false);
     }
@@ -168,13 +168,13 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
       {loading && accounts.length === 0 && (
         <div className="mt-4 flex items-center justify-center py-16">
           <Spinner className="h-6 w-6 text-brand-600" />
-          <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">\u52a0\u8f7d\u4e2d...</span>
+          <span className="ml-2 text-sm text-gray-500 dark:text-slate-400">加载中...</span>
         </div>
       )}
 
       {/* Empty */}
       {!loading && filtered.length === 0 && (
-        <div className="mt-4 py-16 text-center text-sm text-gray-400 dark:text-slate-500">\u6682\u65e0\u8d26\u53f7</div>
+        <div className="mt-4 py-16 text-center text-sm text-gray-400 dark:text-slate-500">暂无账号</div>
       )}
 
       {filtered.length > 0 && (
@@ -184,11 +184,11 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-gray-100 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/60">
                 <tr>
-                  <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">\u8d26\u53f7</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-medium text-gray-500 dark:text-slate-400">\u5e76\u53d1</th>
-                  <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">\u989d\u5ea6</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-slate-400">\u4f7f\u7528\u60c5\u51b5</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-slate-400">\u64cd\u4f5c</th>
+                  <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">账号</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-medium text-gray-500 dark:text-slate-400">并发</th>
+                  <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">额度</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-slate-400">使用情况</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-slate-400">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
@@ -216,7 +216,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-xs tabular-nums text-gray-700 dark:text-slate-300">
-                        {acc.runtime ? `${acc.runtime.activeCount} / ${acc.runtime.maxConcurrency}` : '\u2014'}
+                        {acc.runtime ? `${acc.runtime.activeCount} / ${acc.runtime.maxConcurrency}` : '—'}
                       </td>
 
                       <td className="px-4 py-3">
@@ -225,13 +225,13 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                             onClick={(e) => { e.stopPropagation(); fetchQuota(acc); }}
                             className="rounded px-2 py-0.5 text-xs text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950 transition-colors"
                           >
-                            \u67e5\u8be2
+                            查询
                           </button>
                         )}
                         {qs?.loading && (
                           <div className="flex items-center gap-1 text-xs text-gray-400 dark:text-slate-500">
                             <Spinner className="h-3 w-3" />
-                            <span>\u67e5\u8be2\u4e2d</span>
+                            <span>查询中</span>
                           </div>
                         )}
                         {qs?.error && (
@@ -240,7 +240,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                             className="text-xs text-red-500 dark:text-red-400 hover:underline"
                             title={qs.error}
                           >
-                            \u5931\u8d25\uff0c\u91cd\u8bd5
+                            失败，重试
                           </button>
                         )}
                         {qs?.data && (
@@ -251,7 +251,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                               onClick={(e) => { e.stopPropagation(); fetchQuota(acc, true); }}
                               className="self-start text-[10px] text-gray-400 dark:text-slate-500 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
                             >
-                              \u5237\u65b0
+                              刷新
                             </button>
                           </div>
                         )}
@@ -268,7 +268,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                             onClick={(e) => { e.stopPropagation(); setEditTarget(acc); }}
                             className="rounded-md bg-gray-50 dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-slate-600"
                           >
-                            \u7f16\u8f91
+                            编辑
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleEnabled(acc); }}
@@ -278,13 +278,13 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                                 : 'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900'
                             }`}
                           >
-                            {acc.enabled ? '\u7981\u7528' : '\u542f\u7528'}
+                            {acc.enabled ? '禁用' : '启用'}
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(acc); }}
                             className="rounded-md bg-red-50 dark:bg-red-950 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900"
                           >
-                            \u5220\u9664
+                            删除
                           </button>
                         </div>
                       </td>
@@ -317,12 +317,12 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
 
                   <div className="mt-2 flex items-center gap-4 text-xs text-gray-600 dark:text-slate-400">
                     <span>
-                      \u5e76\u53d1: <span className="font-mono tabular-nums">
-                        {acc.runtime ? `${acc.runtime.activeCount}/${acc.runtime.maxConcurrency}` : '\u2014'}
+                      并发: <span className="font-mono tabular-nums">
+                        {acc.runtime ? `${acc.runtime.activeCount}/${acc.runtime.maxConcurrency}` : '—'}
                       </span>
                     </span>
                     <span>
-                      \u4f7f\u7528: <span className="tabular-nums">{acc.usageCount}</span>
+                      使用: <span className="tabular-nums">{acc.usageCount}</span>
                     </span>
                     {acc.lastUsedAt && (
                       <span className="text-gray-400 dark:text-slate-500">{relativeTime(acc.lastUsedAt)}</span>
@@ -334,7 +334,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                       onClick={(e) => { e.stopPropagation(); setEditTarget(acc); }}
                       className="rounded-md bg-gray-50 dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-slate-600"
                     >
-                      \u7f16\u8f91
+                      编辑
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleEnabled(acc); }}
@@ -344,13 +344,13 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                           : 'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900'
                       }`}
                     >
-                      {acc.enabled ? '\u7981\u7528' : '\u542f\u7528'}
+                      {acc.enabled ? '禁用' : '启用'}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeleteTarget(acc); }}
                       className="rounded-md bg-red-50 dark:bg-red-950 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900"
                     >
-                      \u5220\u9664
+                      删除
                     </button>
                   </div>
                 </div>
@@ -378,16 +378,16 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
 
       {deleteTarget && (
         <ConfirmModal
-          title="\u786e\u8ba4\u5220\u9664"
-          confirmLabel="\u5220\u9664"
+          title="确认删除"
+          confirmLabel="删除"
           loading={deleting}
           onConfirm={doDelete}
           onCancel={() => setDeleteTarget(null)}
         >
           <p>
-            \u786e\u5b9a\u8981\u5220\u9664\u8d26\u53f7 <span className="font-mono font-semibold">{deleteTarget.id}</span>
-            {deleteTarget.remark && <span>\uff08{deleteTarget.remark}\uff09</span>}
-            \u5417\uff1f\u6b64\u64cd\u4f5c\u4e0d\u53ef\u64a4\u9500\u3002
+            确定要删除账号 <span className="font-mono font-semibold">{deleteTarget.id}</span>
+            {deleteTarget.remark && <span>（{deleteTarget.remark}）</span>}
+            吗？此操作不可撤销。
           </p>
         </ConfirmModal>
       )}
@@ -395,7 +395,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
   );
 }
 
-// \u2500\u2500\u2500 QuotaBar \u5b50\u7ec4\u4ef6 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ─── QuotaBar 子组件 ─────────────────────────────────────────────
 
 interface QuotaBarProps {
   label: string;
@@ -417,7 +417,7 @@ function QuotaBar({ label, pct, resetsAt }: QuotaBarProps) {
       <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-gray-500 dark:text-slate-400">
         {clampedPct}%
       </span>
-      <span className="text-[10px] text-gray-400 dark:text-slate-500" title={`\u91cd\u7f6e\u4e8e ${new Date(resetsAt * 1000).toLocaleString()}`}>
+      <span className="text-[10px] text-gray-400 dark:text-slate-500" title={`重置于 ${new Date(resetsAt * 1000).toLocaleString()}`}>
         {formatResetsIn(resetsAt)}
       </span>
     </div>

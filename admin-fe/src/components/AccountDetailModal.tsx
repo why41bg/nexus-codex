@@ -35,7 +35,7 @@ function QuotaRow({ label, pct, resetsAt }: { label: string; pct: number; resets
         />
       </div>
       <span className="text-xs tabular-nums text-gray-600 dark:text-slate-400">{clamped}%</span>
-      <span className="text-xs text-gray-400 dark:text-slate-500" title={`\u91cd\u7f6e\u4e8e ${new Date(resetsAt * 1000).toLocaleString()}`}>
+      <span className="text-xs text-gray-400 dark:text-slate-500" title={`重置于 ${new Date(resetsAt * 1000).toLocaleString()}`}>
         ({formatResetsIn(resetsAt)})
       </span>
     </div>
@@ -59,7 +59,7 @@ export default function AccountDetailModal({ account, quota, onClose }: Props) {
 
   const handleCopy = async (text: string, label: string) => {
     await copyToClipboard(text);
-    toast(`${label} \u5df2\u590d\u5236`, 'success');
+    toast(`${label} 已复制`, 'success');
   };
 
   return (
@@ -79,7 +79,7 @@ export default function AccountDetailModal({ account, quota, onClose }: Props) {
         <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-700 px-6 py-4">
           <div>
             <h3 id="account-detail-title" className="text-base font-semibold text-gray-900 dark:text-slate-100">
-              \u8d26\u53f7\u8be6\u60c5
+              账号详情
             </h3>
             <div className="mt-1 flex items-center gap-1.5">
               <span className={`inline-block h-2 w-2 rounded-full ${status.dot}`} />
@@ -102,8 +102,8 @@ export default function AccountDetailModal({ account, quota, onClose }: Props) {
             <span className="font-mono text-xs">{account.id}</span>
           </Field>
 
-          <Field label="\u5907\u6ce8">
-            {account.remark || <span className="text-gray-300 dark:text-slate-600">\u2014</span>}
+          <Field label="备注">
+            {account.remark || <span className="text-gray-300 dark:text-slate-600">—</span>}
           </Field>
 
           <Field label="CODEX_HOME">
@@ -112,36 +112,36 @@ export default function AccountDetailModal({ account, quota, onClose }: Props) {
               <button
                 onClick={(e) => { e.stopPropagation(); handleCopy(account.codexHome, 'CODEX_HOME'); }}
                 className="shrink-0 rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
-                title="\u590d\u5236"
+                title="复制"
               >
                 <CopyIcon />
               </button>
             </span>
           </Field>
 
-          <Field label="\u5e76\u53d1">
+          <Field label="并发">
             {account.runtime
               ? <span className="font-mono text-xs tabular-nums">{account.runtime.activeCount} / {account.runtime.maxConcurrency}</span>
-              : <span className="text-gray-300 dark:text-slate-600">\u2014</span>
+              : <span className="text-gray-300 dark:text-slate-600">—</span>
             }
           </Field>
 
-          <Field label="\u4f7f\u7528\u6b21\u6570">
+          <Field label="使用次数">
             <span className="tabular-nums">{account.usageCount}</span>
           </Field>
 
-          <Field label="\u6700\u540e\u4f7f\u7528">
+          <Field label="最后使用">
             {relativeTime(account.lastUsedAt)}
           </Field>
 
-          <Field label="\u989d\u5ea6">
+          <Field label="额度">
             {quota ? (
               <div className="flex flex-col gap-1.5">
                 <QuotaRow label="5h" pct={quota.primary.usedPercent} resetsAt={quota.primary.resetsAt} />
                 <QuotaRow label="1w" pct={quota.secondary.usedPercent} resetsAt={quota.secondary.resetsAt} />
               </div>
             ) : (
-              <span className="text-xs text-gray-400 dark:text-slate-500">\u672a\u67e5\u8be2</span>
+              <span className="text-xs text-gray-400 dark:text-slate-500">未查询</span>
             )}
           </Field>
         </div>
@@ -149,7 +149,7 @@ export default function AccountDetailModal({ account, quota, onClose }: Props) {
         {/* Footer */}
         <div className="flex justify-end border-t border-gray-100 dark:border-slate-700 px-6 py-4">
           <button onClick={onClose} className={secondaryBtnClass}>
-            \u5173\u95ed
+            关闭
           </button>
         </div>
       </div>
