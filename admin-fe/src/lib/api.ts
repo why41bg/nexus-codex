@@ -1,21 +1,22 @@
 /**
  * 带 Bearer Token 的 API 请求工具
  *
- * 会话令牌存储在 sessionStorage 中，避免 XSS 攻击窃取长期凭证。
+ * 会话令牌存储在 localStorage 中用于跨标签页持久化，
+ * 登出时清除。令牌通过 Bearer header 发送，避免 CSRF 风险。
  */
 
-const SESSION_KEY = 'nexus_session_token';
+const STORAGE_KEY = 'nexus_admin_token';
 
 export function setAuthToken(token: string) {
-  sessionStorage.setItem(SESSION_KEY, token);
+  localStorage.setItem(STORAGE_KEY, token);
 }
 
 export function getAuthToken(): string {
-  return sessionStorage.getItem(SESSION_KEY) || '';
+  return localStorage.getItem(STORAGE_KEY) || '';
 }
 
 export function clearAuthToken() {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(STORAGE_KEY);
 }
 
 export async function api<T = unknown>(
@@ -23,23 +24,24 @@ export async function api<T = unknown>(
   path: string,
   body?: unknown,
 ): Promise<{ ok: boolean; status: number; data: T }> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {};
   const token = getAuthToken();
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
   const opts: RequestInit = { method, headers };
-  if (body) {
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   }
 
   const res = await fetch(path, opts);
   let data: T;
   try {
-    data = await res.json();
+    data = (await res.json()) as T;
   } catch {
-    data = {} as T;
+    data = null as T;
   }
 
   return { ok: res.ok, status: res.status, data };
