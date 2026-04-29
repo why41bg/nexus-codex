@@ -1,10 +1,17 @@
-import type { Codex, Thread, ModelReasoningEffort } from '@openai/codex-sdk';
+import type { Codex, ModelReasoningEffort } from '@openai/codex-sdk';
 import { randomUUID } from 'node:crypto';
 import type { SessionInfo } from '../types.js';
 import { pool } from './account-pool.js';
+import { threadPool, type ThreadPoolEntry } from './thread-pool.js';
 import { logger } from '../utils/logger.js';
 
-const sessions = new Map<string, SessionInfo>();
+/** 会话记录，额外持有 ThreadPoolEntry 引用以便归还 */
+interface SessionRecord {
+  info: SessionInfo;
+  poolEntry: ThreadPoolEntry;
+}
+
+const sessions = new Map<string, SessionRecord>();
 
 export interface CreateSessionOptions {
   model?: string;
@@ -12,7 +19,7 @@ export interface CreateSessionOptions {
 }
 
 /**
- * 创建新会话：启动一个 Thread 并绑定到指定账号。
+ * 创建新会话：从 Thread 池获取（或新建）一个 Thread 并绑定到指定账号。
  * 可选传入 model 和 modelReasoningEffort 透传给 SDK。
  */
 export function createSession(
@@ -20,31 +27,47 @@ export function createSession(
   codex: Codex,
   options?: CreateSessionOptions,
 ): SessionInfo {
-  const thread: Thread = codex.startThread({
-    skipGitRepoCheck: true,
-    ...(options?.model && { model: options.model }),
-    ...(options?.modelReasoningEffort && { modelReasoningEffort: options.modelReasoningEffort }),
+  const model = options?.model ?? 'codex-mini-latest';
+
+  const tpEntry = threadPool.acquire(accountId, model, codex, {
+    modelReasoningEffort: options?.modelReasoningEffort,
   });
+
   const conversationId = `conv-${randomUUID()}`;
-  const session: SessionInfo = {
+  const info: SessionInfo = {
     conversationId,
     accountId,
-    thread,
+    thread: tpEntry.thread,
     lastActiveAt: Date.now(),
   };
-  sessions.set(conversationId, session);
-  return session;
+
+  sessions.set(conversationId, { info, poolEntry: tpEntry });
+  return info;
 }
 
 /**
- * 删除会话，同时释放关联的账号池占用。
+ * 删除会话：归还 Thread 到池中，并释放关联的账号池占用。
  */
 export function deleteSession(conversationId: string): boolean {
-  const session = sessions.get(conversationId);
-  if (!session) return false;
+  const record = sessions.get(conversationId);
+  if (!record) return false;
+
   sessions.delete(conversationId);
-  pool.release(session.accountId);
+
+  // 归还 Thread 到池（池内部决定是否保留复用）
+  threadPool.release(record.poolEntry);
+
+  // 释放账号并发槽位
+  pool.release(record.info.accountId);
   return true;
+}
+
+/**
+ * 获取指定会话的 ThreadPoolEntry（供错误处理时驱逐脏 Thread）。
+ */
+export function getSessionPoolEntry(conversationId: string): ThreadPoolEntry | null {
+  const record = sessions.get(conversationId);
+  return record?.poolEntry ?? null;
 }
 
 /**
@@ -65,10 +88,11 @@ export function startSessionCleanup(
   const timer = setInterval(() => {
     const now = Date.now();
     let cleaned = 0;
-    for (const [id, session] of sessions) {
-      if (now - session.lastActiveAt > maxIdleMs) {
+    for (const [id, record] of sessions) {
+      if (now - record.info.lastActiveAt > maxIdleMs) {
         sessions.delete(id);
-        pool.release(session.accountId);
+        threadPool.release(record.poolEntry);
+        pool.release(record.info.accountId);
         cleaned++;
       }
     }
@@ -83,8 +107,9 @@ export function startSessionCleanup(
  * 清理所有会话（优雅关闭时使用）。
  */
 export function clearAllSessions(): void {
-  for (const [id, session] of sessions) {
-    pool.release(session.accountId);
+  for (const [id, record] of sessions) {
+    threadPool.release(record.poolEntry);
+    pool.release(record.info.accountId);
     sessions.delete(id);
   }
 }

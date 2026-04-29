@@ -18,6 +18,7 @@ import {
   initRequestContext,
   releaseRequestContext,
   releaseAccountOnError,
+  evictSessionThread,
   createTimeoutController,
   formatError,
 } from '../utils/request-lifecycle.js';
@@ -79,7 +80,7 @@ chatCompletionsRoute.post(
         model: body.model,
         ...(body.reasoning_effort && { modelReasoningEffort: body.reasoning_effort }),
       };
-      const ctx = initRequestContext(entry, sessionOpts);
+      const ctx = initRequestContext(c, entry, sessionOpts);
 
       if (body.stream) {
         // ─── 流式响应 ──────────────────────────────────────
@@ -123,12 +124,13 @@ chatCompletionsRoute.post(
             await s.write(formatSSE(stopChunk));
             await s.write(SSE_DONE);
           } catch (err) {
+            evictSessionThread(ctx.session.conversationId);
             const { message, isTimeout } = formatError(err);
             const errorData = `data: ${JSON.stringify({ error: { message, type: 'server_error', code: isTimeout ? 'timeout' : 'internal_error' } })}\n\n`;
             await s.write(errorData);
             await s.write(SSE_DONE);
           } finally {
-            releaseRequestContext(ctx);
+            releaseRequestContext(ctx, body.model);
           }
         });
       } else {
@@ -149,12 +151,15 @@ chatCompletionsRoute.post(
           }
 
           return c.json(response);
+        } catch (err) {
+          evictSessionThread(ctx.session.conversationId);
+          throw err;
         } finally {
-          releaseRequestContext(ctx);
+          releaseRequestContext(ctx, body.model);
         }
       }
     } catch (err) {
-      releaseAccountOnError(entry, Date.now(), err);
+      releaseAccountOnError(entry, Date.now(), err, body.model);
       const { message } = formatError(err);
       return c.json(
         {

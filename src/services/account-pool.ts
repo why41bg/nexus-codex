@@ -2,6 +2,7 @@ import { Codex } from '@openai/codex-sdk';
 import type { Account, PoolEntry } from '../types.js';
 import { logger } from '../utils/logger.js';
 import { emitAdminEvent } from './admin-emitter.js';
+import { threadPool } from './thread-pool.js';
 
 /** 默认排队等待超时（毫秒） */
 const DEFAULT_ACQUIRE_TIMEOUT_MS = Number(process.env.ACQUIRE_TIMEOUT_MS) || 30_000;
@@ -158,12 +159,14 @@ export class AccountPool {
   }
 
   /**
-   * 运行时从池中移除一个账号。
+   * 运行时从池中移除一个账号，同时驱逐该账号关联的所有 Thread。
    */
   removeEntry(accountId: string): void {
     const index = this.pool.findIndex((e) => e.accountId === accountId);
     if (index !== -1) {
       this.pool.splice(index, 1);
+      // 联动清理该账号在 Thread 池中的所有缓存
+      threadPool.evict(accountId);
       logger.info('Account removed from pool', { accountId });
     }
   }

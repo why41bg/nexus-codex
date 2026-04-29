@@ -24,6 +24,7 @@ import {
   initRequestContext,
   releaseRequestContext,
   releaseAccountOnError,
+  evictSessionThread,
   createTimeoutController,
   formatError,
 } from '../utils/request-lifecycle.js';
@@ -98,7 +99,7 @@ responsesRoute.post(
         model: body.model,
         ...(body.reasoning_effort && { modelReasoningEffort: body.reasoning_effort }),
       };
-      const ctx = initRequestContext(entry, sessionOpts);
+      const ctx = initRequestContext(c, entry, sessionOpts);
 
       if (body.stream) {
         // ─── 流式响应 ──────────────────────────────────────
@@ -164,11 +165,12 @@ responsesRoute.post(
               ),
             );
           } catch (err) {
+            evictSessionThread(ctx.session.conversationId);
             const { message, isTimeout } = formatError(err);
             const errorEvent = `event: error\ndata: ${JSON.stringify({ type: isTimeout ? 'timeout' : 'server_error', message })}\n\n`;
             await s.write(errorEvent);
           } finally {
-            releaseRequestContext(ctx);
+            releaseRequestContext(ctx, body.model);
           }
         });
       } else {
@@ -190,12 +192,15 @@ responsesRoute.post(
             outputTokens,
           );
           return c.json(response);
+        } catch (err) {
+          evictSessionThread(ctx.session.conversationId);
+          throw err;
         } finally {
-          releaseRequestContext(ctx);
+          releaseRequestContext(ctx, body.model);
         }
       }
     } catch (err) {
-      releaseAccountOnError(entry, Date.now(), err);
+      releaseAccountOnError(entry, Date.now(), err, body.model);
       const { message } = formatError(err);
       return c.json(
         {

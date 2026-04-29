@@ -6,10 +6,12 @@
 import type { Context } from 'hono';
 import type { AppEnv, PoolEntry } from '../types.js';
 import { pool } from '../services/account-pool.js';
-import { createSession, deleteSession, type CreateSessionOptions } from '../services/session-store.js';
+import { createSession, deleteSession, getSessionPoolEntry, type CreateSessionOptions } from '../services/session-store.js';
 import { incrementUsageCount } from '../services/account-store.js';
-import { isModelAllowedForKey } from '../services/config-store.js';
+import { isModelAllowedForKey, incrementKeyMonthlyUsage } from '../services/config-store.js';
 import { triggerProbe } from '../services/health-check.js';
+import { metricsCollector } from '../services/metrics-collector.js';
+import { threadPool } from '../services/thread-pool.js';
 import { logger, logAcquire, logRelease, logPoolExhausted, type PoolSnapshot } from './logger.js';
 
 /** 由调用方生成池快照，避免 logger.ts 直接导入 pool 产生循环依赖 */
@@ -86,6 +88,7 @@ export interface RequestContext {
  * 初始化请求上下文：获取账号、创建会话、触发使用统计更新。
  */
 export function initRequestContext(
+  c: Context<AppEnv>,
   entry: PoolEntry,
   sessionOpts: CreateSessionOptions,
 ): RequestContext {
@@ -99,15 +102,32 @@ export function initRequestContext(
     logger.error('Failed to update usage stats', { error: err instanceof Error ? err.message : String(err) }),
   );
 
+  // 异步递增 API Key 月配额计数
+  const apiKey = c.get('apiKey');
+  if (apiKey) {
+    incrementKeyMonthlyUsage(apiKey).catch((err) =>
+      logger.error('Failed to update key monthly usage', { error: err instanceof Error ? err.message : String(err) }),
+    );
+  }
+
   return { entry, session, reqStart };
 }
 
 /**
  * 释放请求上下文中的资源（删除会话、记录日志）。
  */
-export function releaseRequestContext(ctx: RequestContext): void {
+export function releaseRequestContext(ctx: RequestContext, model?: string): void {
+  const latencyMs = Date.now() - ctx.reqStart;
   deleteSession(ctx.session.conversationId);
-  logRelease(ctx.entry.accountId, Date.now() - ctx.reqStart, getPoolSnapshot());
+  logRelease(ctx.entry.accountId, latencyMs, getPoolSnapshot());
+
+  // 记录成功请求指标
+  metricsCollector.record({
+    model: model ?? 'unknown',
+    accountId: ctx.entry.accountId,
+    latencyMs,
+    success: true,
+  });
 }
 
 /**
@@ -117,14 +137,25 @@ export function releaseAccountOnError(
   entry: PoolEntry,
   reqStart: number,
   err: unknown,
+  model?: string,
 ): void {
+  const latencyMs = Date.now() - reqStart;
   pool.release(entry.accountId);
   logRelease(
     entry.accountId,
-    Date.now() - reqStart,
+    latencyMs,
     getPoolSnapshot(),
     err instanceof Error ? err.message : 'unknown error',
   );
+
+  // 记录失败请求指标
+  metricsCollector.record({
+    model: model ?? 'unknown',
+    accountId: entry.accountId,
+    latencyMs,
+    success: false,
+  });
+
   // 请求失败时立即触发一次本地探测，无需等待定时器
   triggerProbe(entry.accountId).catch((probeErr) =>
     logger.warn('Passive probe failed', {
@@ -132,6 +163,17 @@ export function releaseAccountOnError(
       error: probeErr instanceof Error ? probeErr.message : String(probeErr),
     }),
   );
+}
+
+/**
+ * 在请求失败后驱逐当前会话关联的 Thread（标记为脏，不再复用）。
+ * 应在 releaseRequestContext 之前调用。
+ */
+export function evictSessionThread(conversationId: string): void {
+  const poolEntry = getSessionPoolEntry(conversationId);
+  if (poolEntry) {
+    threadPool.evictEntry(poolEntry);
+  }
 }
 
 /**

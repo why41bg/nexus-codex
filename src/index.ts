@@ -8,6 +8,7 @@ import { startHealthCheck } from './services/health-check.js';
 import { loadConfig } from './services/config-store.js';
 import { adminAuthMiddleware, apiKeyAuthMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
+import { threadPool, THREAD_POOL_ENABLED } from './services/thread-pool.js';
 import { logger, logRequest } from './utils/logger.js';
 import chatCompletionsRoute from './routes/chat-completions.js';
 import responsesRoute from './routes/responses.js';
@@ -91,6 +92,7 @@ app.route('/api/admin', adminRoute);
 // ─── Timers (stored for cleanup) ───────────────────────────
 let sessionCleanupTimer: NodeJS.Timeout | undefined;
 let healthCheckHandle: { stop: () => void } | undefined;
+let threadPoolCleanupTimer: NodeJS.Timeout | undefined;
 
 // ─── Bootstrap ─────────────────────────────────────────────
 async function bootstrap() {
@@ -105,6 +107,12 @@ async function bootstrap() {
 
   // 启动账号健康检查（高频本地 JWT + 低频 login status）
   healthCheckHandle = startHealthCheck();
+
+  // 启动 Thread 池清理定时器（仅在池化启用时）
+  if (THREAD_POOL_ENABLED) {
+    threadPoolCleanupTimer = threadPool.startCleanup();
+    logger.info('Thread pool enabled');
+  }
 
   const port = Number(process.env.PORT) || 3000;
   const server = serve({ fetch: app.fetch, port }, (info) => {
@@ -126,11 +134,17 @@ async function bootstrap() {
     // 停止定时器
     if (sessionCleanupTimer) clearInterval(sessionCleanupTimer);
     if (healthCheckHandle) healthCheckHandle.stop();
+    if (threadPoolCleanupTimer) clearInterval(threadPoolCleanupTimer);
+    threadPool.stopCleanup();
     logger.debug('Timers stopped');
 
     // 清理所有会话，释放账号池资源
     clearAllSessions();
     logger.debug('Sessions cleared');
+
+    // 驱逐所有池化的 Thread
+    threadPool.evictAll();
+    logger.debug('Thread pool evicted');
 
     // 关闭 HTTP 服务器（停止接受新连接）
     server.close((err) => {
