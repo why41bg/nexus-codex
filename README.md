@@ -12,7 +12,7 @@ OpenAI API 兼容的 Codex 账号池网关。将多个 ChatGPT Plus 账号的 Co
 ```bash
 git clone <repo-url> nexus-codex
 cd nexus-codex
-npm ci
+pnpm install
 ```
 
 ## 账号准备
@@ -82,7 +82,7 @@ CODEX_HOME=~/.codex-pool/account-2 codex login
 带热重载，修改代码自动重启：
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 ### 生产部署
@@ -90,14 +90,15 @@ npm run dev
 先编译 TypeScript，再用 Node.js 运行编译产物：
 
 ```bash
-npm run build
-npm start
+pnpm install --frozen-lockfile
+pnpm build
+pnpm start
 ```
 
 带环境变量启动示例：
 
 ```bash
-PORT=8080 npm start
+PORT=8080 pnpm start
 ```
 
 服务启动后日志会输出账号池初始化、健康检查启动和服务监听地址等信息。
