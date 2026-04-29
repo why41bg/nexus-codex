@@ -45,6 +45,39 @@ export interface Dashboard {
   unhealthy?: number;
   disabled?: number;
   totalUsage?: number;
+  /** 最近 1 小时请求数 */
+  recentRequests1h?: number;
+  /** 最近 1 小时错误数 */
+  recentErrors1h?: number;
+  /** 最近 1 小时平均延迟 (ms) */
+  avgLatency1h?: number;
+}
+
+/** 时间序列单个桶 */
+export interface TimeSeriesBucket {
+  timestamp: number;
+  requestCount: number;
+  errorCount: number;
+  avgLatencyMs: number;
+}
+
+/** 时间序列响应 */
+export interface TimeSeriesResponse {
+  buckets: TimeSeriesBucket[];
+  range: string;
+}
+
+/** 聚合分解响应 */
+export interface MetricsBreakdown {
+  byModel: Array<{ model: string; count: number; percentage: number }>;
+  byAccount: Array<{ accountId: string; count: number; percentage: number }>;
+  totals: {
+    requests: number;
+    errors: number;
+    avgLatencyMs: number;
+    errorRate: number;
+  };
+  since: number;
 }
 
 /** API Key 信息 */
@@ -58,4 +91,18 @@ export interface ApiKey {
   models: string[];
   effectiveModels: string[];
   createdAt?: string;
+
+  // ——— 权限粒度扩展字段 ———
+  /** ISO 8601 过期时间，null 表示永不过期 */
+  expiresAt?: string | null;
+  /** 独立速率限制（req/window），null 继承全局 */
+  rateLimitMax?: number | null;
+  /** 独立限流窗口（ms），null 继承全局 */
+  rateLimitWindowMs?: number | null;
+  /** 月调用次数上限，null 不限制 */
+  monthlyQuota?: number | null;
+  /** 当月已用次数 */
+  monthlyUsage?: number;
+  /** IP 白名单 */
+  ipWhitelist?: string[];
 }
