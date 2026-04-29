@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, useEffect, useId, useRef } from 'react';
 import Spinner from './Spinner';
+import { useFocusTrap } from '../lib/use-focus-trap';
 
 interface ConfirmModalProps {
   title: string;
@@ -26,7 +27,8 @@ export default function ConfirmModal({
       : 'bg-brand-600 hover:bg-brand-700';
 
   const dialogRef = useRef<HTMLDivElement>(null);
-  const titleId = 'confirm-modal-title';
+  const titleId = useId();
+  useFocusTrap(dialogRef);
 
   // Escape 键关闭 + 焦点管理
   useEffect(() => {

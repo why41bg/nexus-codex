@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ApiKey } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass } from '@/lib/styles';
@@ -6,6 +6,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import { CloseIcon } from './icons';
 import Spinner from './Spinner';
+import { useFocusTrap } from '../lib/use-focus-trap';
 
 interface EditKeyModalProps {
   target: ApiKey;
@@ -26,6 +27,20 @@ export default function EditKeyModal({
   const [selectedModels, setSelectedModels] = useState<string[]>([...target.models]);
   const [customModel, setCustomModel] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = 'edit-key-modal-title';
+  useFocusTrap(dialogRef);
+
+  // Escape 键关闭 + 焦点管理
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    dialogRef.current?.focus();
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const toggleModel = (m: string) => {
     setSelectedModels((prev) =>
@@ -68,9 +83,16 @@ export default function EditKeyModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
     >
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-200">
-        <h3 className="text-base font-semibold text-gray-900">编辑 API Key</h3>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-200 outline-none"
+      >
+        <h3 id={titleId} className="text-base font-semibold text-gray-900">编辑 API Key</h3>
         <p className="mt-1 text-xs text-gray-500">
           Key: <span className="font-mono">{target.keyMasked}</span>
         </p>

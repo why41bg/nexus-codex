@@ -5,6 +5,7 @@ import { inputClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import Spinner from './Spinner';
+import { useFocusTrap } from '../lib/use-focus-trap';
 
 interface Props {
   account: Account;
@@ -21,6 +22,7 @@ export default function EditAccountModal({ account, onSaved, onCancel }: Props) 
   );
   const [saving, setSaving] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -9,11 +9,30 @@ import AccountsTab from './AccountsTab';
 import ApiKeysTab from './ApiKeysTab';
 import Spinner from './Spinner';
 
+function getTabFromHash(): TabKey {
+  const hash = window.location.hash.slice(1);
+  if (hash === 'accounts' || hash === 'apikeys') return hash;
+  return 'dashboard';
+}
+
 export default function DashboardPage() {
   const { toast } = useToast();
   const authGuard = useAuthGuard();
 
-  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabKey>(getTabFromHash);
+
+  // URL hash ↔ Tab 状态双向同步
+  useEffect(() => {
+    const onHashChange = () => setActiveTab(getTabFromHash());
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const switchTab = useCallback((tab: TabKey) => {
+    window.location.hash = tab;
+    // hashchange 事件会自动触发 setActiveTab
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard>({});
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -63,6 +82,7 @@ export default function DashboardPage() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 1000;
     let destroyed = false;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     function connect() {
       if (destroyed) return;
@@ -80,9 +100,13 @@ export default function DashboardPage() {
       es.onmessage = (e) => {
         try {
           const event = JSON.parse(e.data) as { type: string };
-          // 任何事件都触发一次数据刷新（数据量小，全量拉取即可）
           if (event.type === 'pool_changed' || event.type === 'health_changed') {
-            refreshRef.current();
+            // debounce: 500ms 内合并多次事件，避免请求风暴
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+              refreshRef.current();
+              debounceTimer = null;
+            }, 500);
           }
         } catch {
           // 忽略解析失败的消息
@@ -108,6 +132,7 @@ export default function DashboardPage() {
     return () => {
       destroyed = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (debounceTimer) clearTimeout(debounceTimer);
       es?.close();
       setConnected(false);
     };
@@ -146,7 +171,7 @@ export default function DashboardPage() {
   return (
     <div className="flex h-full">
       {/* Sidebar */}
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <Sidebar activeTab={activeTab} onTabChange={switchTab} />
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">

@@ -2,42 +2,15 @@ import { useEffect, useRef } from 'react';
 import type { Account, QuotaInfo } from '@/types';
 import { relativeTime } from '@/lib/time';
 import { copyToClipboard } from '@/lib/clipboard';
+import { getAccountStatus, formatResetsIn, quotaBarColor } from '@/lib/account-utils';
 import { useToast } from '@/contexts/ToastContext';
 import { CopyIcon } from './icons';
+import { useFocusTrap } from '../lib/use-focus-trap';
 
 interface Props {
   account: Account;
   quota: QuotaInfo | null;
   onClose: () => void;
-}
-
-function getAccountStatus(acc: Account): { dot: string; text: string; label: string } {
-  if (!acc.enabled) return { dot: 'bg-gray-400', text: 'text-gray-400', label: '已禁用' };
-  if (!acc.runtime?.healthy) return { dot: 'bg-red-500', text: 'text-red-600', label: '不健康' };
-  const active = acc.runtime?.activeCount ?? 0;
-  const max = acc.runtime?.maxConcurrency ?? 0;
-  if (active >= max) return { dot: 'bg-amber-400', text: 'text-amber-600', label: '满载' };
-  if (active > 0) return { dot: 'bg-blue-400', text: 'text-blue-600', label: '部分占用' };
-  return { dot: 'bg-green-500', text: 'text-green-600', label: '空闲' };
-}
-
-function formatResetsIn(resetsAt: number): string {
-  const diffMs = resetsAt * 1000 - Date.now();
-  if (diffMs <= 0) return '已重置';
-  const totalMins = Math.floor(diffMs / 60_000);
-  if (totalMins < 60) return `${totalMins}m`;
-  const hours = Math.floor(totalMins / 60);
-  const mins = totalMins % 60;
-  if (hours < 24) return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
-}
-
-function quotaBarColor(pct: number): string {
-  if (pct >= 90) return 'bg-red-500';
-  if (pct >= 60) return 'bg-amber-400';
-  return 'bg-green-500';
 }
 
 /** 详情面板中的一行 label-value */
@@ -72,6 +45,7 @@ function QuotaRow({ label, pct, resetsAt }: { label: string; pct: number; resets
 export default function AccountDetailModal({ account, quota, onClose }: Props) {
   const { toast } = useToast();
   const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   const status = getAccountStatus(account);
 
   useEffect(() => {

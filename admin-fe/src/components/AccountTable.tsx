@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Account, QuotaInfo } from '@/types';
 import { relativeTime } from '@/lib/time';
 import { api, extractErrorMessage } from '@/lib/api';
+import { getAccountStatus, formatResetsIn, quotaBarColor } from '@/lib/account-utils';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import ConfirmModal from './ConfirmModal';
@@ -10,37 +11,6 @@ import AccountDetailModal from './AccountDetailModal';
 import Spinner from './Spinner';
 
 type FilterKey = 'all' | 'online' | 'active' | 'unhealthy' | 'disabled';
-
-function getAccountStatus(acc: Account): { dot: string; text: string; label: string } {
-  if (!acc.enabled) return { dot: 'bg-gray-400', text: 'text-gray-400', label: '已禁用' };
-  if (!acc.runtime?.healthy) return { dot: 'bg-red-500', text: 'text-red-600', label: '不健康' };
-  const active = acc.runtime?.activeCount ?? 0;
-  const max = acc.runtime?.maxConcurrency ?? 0;
-  if (active >= max) return { dot: 'bg-amber-400', text: 'text-amber-600', label: '满载' };
-  if (active > 0) return { dot: 'bg-blue-400', text: 'text-blue-600', label: '部分占用' };
-  return { dot: 'bg-green-500', text: 'text-green-600', label: '空闲' };
-}
-
-/** 将 Unix 时间戳（秒）格式化为剩余时间字符串 */
-function formatResetsIn(resetsAt: number): string {
-  const diffMs = resetsAt * 1000 - Date.now();
-  if (diffMs <= 0) return '已重置';
-  const totalMins = Math.floor(diffMs / 60_000);
-  if (totalMins < 60) return `${totalMins}m`;
-  const hours = Math.floor(totalMins / 60);
-  const mins = totalMins % 60;
-  if (hours < 24) return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
-}
-
-/** 额度进度条颜色 */
-function quotaBarColor(pct: number): string {
-  if (pct >= 90) return 'bg-red-500';
-  if (pct >= 60) return 'bg-amber-400';
-  return 'bg-green-500';
-}
 
 interface QuotaState {
   loading: boolean;
@@ -65,6 +35,13 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
 
   // 每个账号的额度状态，key = accountId
   const [quotaMap, setQuotaMap] = useState<Record<string, QuotaState>>({});
+
+  // 每分钟强制刷新一次，更新相对时间显示（如"3 分钟前"→"4 分钟前"）
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // 计算筛选项统计
   const filterTabs = useMemo(() => {
