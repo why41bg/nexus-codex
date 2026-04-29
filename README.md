@@ -12,7 +12,7 @@ OpenAI API 兼容的 Codex 账号池网关。将多个 ChatGPT Plus 账号的 Co
 ```bash
 git clone <repo-url> nexus-codex
 cd nexus-codex
-npm install
+npm ci
 ```
 
 ## 账号准备
@@ -67,7 +67,9 @@ CODEX_HOME=~/.codex-pool/account-2 codex login
 | `DEFAULT_MAX_CONCURRENCY` | 单账号默认最大并发数（每账号可独立覆盖） | `1` |
 | `ADMIN_USERNAME` | 管理面板登录用户名 | `admin` |
 | `ADMIN_PASSWORD` | 管理面板登录密码（生产环境务必修改） | `admin` |
+| `ADMIN_SESSION_TTL_MS` | 管理面板 session 过期时间（毫秒） | `86400000`（24 小时） |
 | `LOG_LEVEL` | 日志级别（`debug` / `info` / `warn` / `error`） | `info` |
+| `LOG_FORMAT` | 日志输出格式，设为 `json` 强制 JSON 格式（适合日志采集） | 自动检测（TTY 彩色 / 非 TTY 纯文本） |
 | `RATE_LIMIT_MAX` | 单个 API Key 在时间窗口内的最大请求数 | `60` |
 | `RATE_LIMIT_WINDOW_MS` | 速率限制滑动窗口大小（毫秒） | `60000`（1 分钟） |
 
@@ -188,7 +190,7 @@ http://localhost:3000/admin
 
 面板提供以下功能：
 
-- **全局概览**：账号总数、并发槽位（使用中/总数）、空闲槽位、不健康、已禁用、总请求数一目了然，30 秒自动刷新
+- **全局概览**：账号总数、并发槽位（使用中/总数）、空闲槽位、不健康、已禁用、总请求数一目了然，通过 SSE 实时事件驱动刷新
 - **账号管理**：查看每个账号的状态、使用次数、最后使用时间，支持按状态筛选；添加、启用/禁用、删除账号，操作即时生效无需重启
 - **模型白名单**：查看和管理允许客户端使用的模型列表，动态添加或移除模型
-- **API Key 管理**：创建、编辑、删除 API Key，支持为每个 Key 配置独立的模型权限和过期时间
+- **API Key 管理**：创建、编辑、删除 API Key，支持为每个 Key 配置独立的模型权限（过期时间功能计划中，尚未实现）

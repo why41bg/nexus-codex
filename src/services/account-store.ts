@@ -1,4 +1,4 @@
-import { readFile, writeFile, rename } from 'node:fs/promises';
+import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,10 +10,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DATA_PATH = join(__dirname, '..', '..', 'data', 'accounts.json');
 
+// ─── 内存缓存，避免每次请求都读磁盘 ──────────────────────
+let accountsCache: Account[] | null = null;
+
 // ─── 写入互斥锁，防止并发写入导致数据丢失 ─────────────────
 let writeLock = Promise.resolve();
 
 export async function loadAccounts(): Promise<Account[]> {
+  if (accountsCache) {
+    return accountsCache.map((a) => ({ ...a }));
+  }
   try {
     if (!existsSync(DATA_PATH)) {
       return [];
@@ -24,7 +30,8 @@ export async function loadAccounts(): Promise<Account[]> {
       logger.warn('accounts.json contains non-array data, resetting to empty');
       return [];
     }
-    return parsed as Account[];
+    accountsCache = parsed as Account[];
+    return accountsCache.map((a) => ({ ...a }));
   } catch (err) {
     logger.error('Failed to load accounts.json, falling back to empty array', { error: err instanceof Error ? err.message : String(err) });
     return [];
@@ -39,10 +46,13 @@ async function saveAccounts(accounts: Account[]): Promise<void> {
 
   await prevLock;
   try {
+    // 确保 data/ 目录存在（全新机器首次启动时目录可能不存在）
+    await mkdir(dirname(DATA_PATH), { recursive: true });
     // 先写临时文件再 rename，保证原子写入
     const tmpPath = DATA_PATH + '.tmp';
     await writeFile(tmpPath, JSON.stringify(accounts, null, 2) + '\n', 'utf-8');
     await rename(tmpPath, DATA_PATH);
+    accountsCache = accounts.map((a) => ({ ...a }));
   } finally {
     releaseLock!();
   }
@@ -51,7 +61,7 @@ async function saveAccounts(accounts: Account[]): Promise<void> {
 export async function addAccount(codexHome: string, remark: string, maxConcurrency?: number): Promise<Account> {
   const accounts = await loadAccounts();
   const newAccount: Account = {
-    id: `acc-${randomUUID().slice(0, 8)}`,
+    id: `acc-${randomUUID().slice(0, 12)}`,
     codexHome,
     enabled: true,
     healthy: true,

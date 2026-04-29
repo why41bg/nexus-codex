@@ -6,11 +6,11 @@
  * - defaultModels：全局默认模型列表（Key 未单独配置模型时使用）
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, createHmac } from 'node:crypto';
 import { logger } from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -73,6 +73,9 @@ function createDefaultConfig(): AppConfig {
 
 let config: AppConfig = createDefaultConfig();
 
+// ─── 写入互斥锁，防止并发写入导致配置丢失 ─────────────────
+let writeLock = Promise.resolve();
+
 // ─── File I/O ───────────────────────────────────────────────
 
 export async function loadConfig(): Promise<AppConfig> {
@@ -101,7 +104,21 @@ export async function loadConfig(): Promise<AppConfig> {
 }
 
 async function saveConfig(): Promise<void> {
-  await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  const prevLock = writeLock;
+  let releaseLock: () => void;
+  writeLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+
+  await prevLock;
+  try {
+    // 确保 data/ 目录存在（全新机器首次启动时目录可能不存在）
+    await mkdir(dirname(CONFIG_PATH), { recursive: true });
+    // 先写临时文件再 rename，保证原子写入
+    const tmpPath = CONFIG_PATH + '.tmp';
+    await writeFile(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    await rename(tmpPath, CONFIG_PATH);
+  } finally {
+    releaseLock!();
+  }
 }
 
 // ─── API Key Set 缓存（避免每次请求重建） ──────────────────
@@ -150,19 +167,22 @@ export function isModelAllowedForKey(key: string, modelId: string): boolean {
   return models.includes(modelId);
 }
 
-export function verifyAdminAuth(username: string, password: string): boolean {
-  const expectedUser = Buffer.from(config.adminAuth.username);
-  const expectedPass = Buffer.from(config.adminAuth.password);
-  const inputUser = Buffer.from(username);
-  const inputPass = Buffer.from(password);
+/**
+ * 常量时间比较两个字符串。
+ * 先对双方做 HMAC-SHA256 归一化到固定 32 字节，再用 timingSafeEqual 比较，
+ * 从而避免泄露原始值的长度信息。
+ */
+const HMAC_KEY = 'nexus-codex-constant-time-cmp';
 
-  // 长度不同时仍需执行 timingSafeEqual 以避免泄露长度信息
-  const userMatch =
-    expectedUser.length === inputUser.length &&
-    timingSafeEqual(expectedUser, inputUser);
-  const passMatch =
-    expectedPass.length === inputPass.length &&
-    timingSafeEqual(expectedPass, inputPass);
+function constantTimeEqual(a: string, b: string): boolean {
+  const ha = createHmac('sha256', HMAC_KEY).update(a).digest();
+  const hb = createHmac('sha256', HMAC_KEY).update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+export function verifyAdminAuth(username: string, password: string): boolean {
+  const userMatch = constantTimeEqual(username, config.adminAuth.username);
+  const passMatch = constantTimeEqual(password, config.adminAuth.password);
   return userMatch && passMatch;
 }
 

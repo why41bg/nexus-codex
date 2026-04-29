@@ -8,7 +8,8 @@
     "build": "tsc && cd admin-fe && npm run build",
     "build:api": "tsc",
     "build:admin": "cd admin-fe && npm run build",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "dev": "tsc --watch & node --watch dist/index.js"
   },
   "keywords": [
     "codex",
@@ -26,6 +27,6 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "typescript": "^6.0.3"
+    "typescript": "^5.8.3"
   }
 }
