@@ -109,3 +109,86 @@ export async function removeAccount(id: string): Promise<boolean> {
   await saveAccounts(accounts);
   return true;
 }
+
+// ─── 批量导入 ─────────────────────────────────────────────────
+
+interface ImportItem {
+  codexHome: string;
+  remark?: string;
+  maxConcurrency?: number;
+  enabled?: boolean;
+}
+
+interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: Array<{ index: number; message: string }>;
+  importedAccounts: Account[];
+}
+
+export async function bulkImportAccounts(
+  items: ImportItem[],
+  mode: 'merge' | 'replace',
+): Promise<ImportResult> {
+  const result: ImportResult = { imported: 0, skipped: 0, errors: [], importedAccounts: [] };
+
+  if (mode === 'replace') {
+    // 清空现有账号，全量导入
+    const newAccounts: Account[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.codexHome?.trim()) {
+        result.errors.push({ index: i, message: 'codexHome is required' });
+        continue;
+      }
+      const acc: Account = {
+        id: `acc-${randomUUID().slice(0, 12)}`,
+        codexHome: item.codexHome.trim(),
+        enabled: item.enabled ?? true,
+        healthy: true,
+        remark: item.remark?.trim() ?? '',
+        usageCount: 0,
+        lastUsedAt: null,
+        ...(item.maxConcurrency !== undefined && { maxConcurrency: item.maxConcurrency }),
+      };
+      newAccounts.push(acc);
+      result.importedAccounts.push(acc);
+      result.imported++;
+    }
+    await saveAccounts(newAccounts);
+  } else {
+    // merge 模式：按 codexHome 去重追加
+    const accounts = await loadAccounts();
+    const existingHomes = new Set(accounts.map((a) => a.codexHome));
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.codexHome?.trim()) {
+        result.errors.push({ index: i, message: 'codexHome is required' });
+        continue;
+      }
+      const trimmedHome = item.codexHome.trim();
+      if (existingHomes.has(trimmedHome)) {
+        result.skipped++;
+        continue;
+      }
+      const acc: Account = {
+        id: `acc-${randomUUID().slice(0, 12)}`,
+        codexHome: trimmedHome,
+        enabled: item.enabled ?? true,
+        healthy: true,
+        remark: item.remark?.trim() ?? '',
+        usageCount: 0,
+        lastUsedAt: null,
+        ...(item.maxConcurrency !== undefined && { maxConcurrency: item.maxConcurrency }),
+      };
+      accounts.push(acc);
+      existingHomes.add(trimmedHome);
+      result.importedAccounts.push(acc);
+      result.imported++;
+    }
+    await saveAccounts(accounts);
+  }
+
+  return result;
+}
