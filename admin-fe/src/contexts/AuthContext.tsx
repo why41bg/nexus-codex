@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-import { api, setAuthToken, clearAuthToken } from '@/lib/api';
+import { api, setAuthToken, getAuthToken, clearAuthToken } from '@/lib/api';
 
 interface AuthContextValue {
   /** 是否已登录 */
@@ -12,7 +12,6 @@ interface AuthContextValue {
   restore: () => Promise<boolean>;
 }
 
-const STORAGE_KEY = 'nexus_admin_token';
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
@@ -41,9 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await loginWithBasicAuth(username, password);
       if (result.ok && result.token) {
-        // 存储会话令牌到 sessionStorage（用于 API 请求）和 localStorage（用于跨标签页持久化）
         setAuthToken(result.token);
-        localStorage.setItem(STORAGE_KEY, result.token);
         setAuthenticated(true);
         return null; // 无错误
       } else {
@@ -57,18 +54,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     // 调用后端登出接口销毁会话（忽略错误）
     api('POST', '/api/admin/logout').catch(() => {});
-    // 清除本地存储的令牌
-    localStorage.removeItem(STORAGE_KEY);
     clearAuthToken();
     setAuthenticated(false);
   }, []);
 
   const restore = useCallback(async (): Promise<boolean> => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = getAuthToken();
     if (!saved) return false;
-
-    // 设置令牌到 sessionStorage
-    setAuthToken(saved);
 
     try {
       // 通过调用 dashboard 接口验证会话是否有效
@@ -81,8 +73,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 恢复失败，忽略
     }
 
-    // 会话无效，清除本地存储
-    localStorage.removeItem(STORAGE_KEY);
     clearAuthToken();
     return false;
   }, []);

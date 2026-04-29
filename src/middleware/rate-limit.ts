@@ -54,6 +54,11 @@ export const rateLimitMiddleware = createMiddleware<{
   // Clean up expired timestamps
   timestamps = cleanupTimestamps(timestamps, RATE_LIMIT_WINDOW_MS);
 
+  // 清除不再活跃的 Key 条目，避免内存泄漏
+  if (timestamps.length === 0 && requestStore.has(apiKey)) {
+    requestStore.delete(apiKey);
+  }
+
   // Calculate remaining requests
   const currentCount = timestamps.length;
   const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
@@ -89,3 +94,22 @@ export const rateLimitMiddleware = createMiddleware<{
 
   await next();
 });
+
+/**
+ * 定期清理不再活跃的 API Key 条目，避免长期运行后内存泄漏。
+ * 每 10 分钟扫描一次，删除窗口期内无请求记录的条目。
+ */
+const CLEANUP_INTERVAL_MS = 10 * 60_000; // 10 minutes
+
+setInterval(() => {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  for (const [key, timestamps] of requestStore) {
+    const active = timestamps.filter((ts) => ts > cutoff);
+    if (active.length === 0) {
+      requestStore.delete(key);
+    } else {
+      requestStore.set(key, active);
+    }
+  }
+}, CLEANUP_INTERVAL_MS).unref();
