@@ -13,6 +13,13 @@ export default defineConfig({
   build: {
     outDir: '../public/admin',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-recharts': ['recharts'],
+        },
+      },
+    },
   },
   server: {
     proxy: {
