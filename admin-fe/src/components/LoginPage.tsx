@@ -21,16 +21,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-6 rounded-2xl bg-white p-8 shadow-lg ring-1 ring-gray-200">
+    <div className="flex min-h-screen items-center justify-center px-4 bg-gray-50 dark:bg-slate-900">
+      <div className="w-full max-w-sm space-y-6 rounded-2xl bg-white dark:bg-slate-800 p-8 shadow-lg ring-1 ring-gray-200 dark:ring-slate-700">
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Nexus Codex</h1>
-          <p className="mt-1 text-sm text-gray-500">登录管理面板</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-slate-100">Nexus Codex</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">登录管理面板</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">用户名</label>
+            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">用户名</label>
             <input
               type="text"
               value={username}
@@ -41,7 +41,7 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">密码</label>
+            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">密码</label>
             <input
               ref={passwordRef}
               type="password"
@@ -52,7 +52,7 @@ export default function LoginPage() {
               className={inputClass}
             />
           </div>
-          {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+          {error && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
           <button
             type="submit"

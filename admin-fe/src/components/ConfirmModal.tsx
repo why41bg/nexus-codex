@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useId, useRef } from 'react';
+import { secondaryBtnClass } from '@/lib/styles';
 import Spinner from './Spinner';
 import { useFocusTrap } from '../lib/use-focus-trap';
 
@@ -15,7 +16,7 @@ interface ConfirmModalProps {
 export default function ConfirmModal({
   title,
   children,
-  confirmLabel = '确认',
+  confirmLabel = '\u786e\u8ba4',
   confirmColor = 'red',
   loading = false,
   onConfirm,
@@ -30,16 +31,12 @@ export default function ConfirmModal({
   const titleId = useId();
   useFocusTrap(dialogRef);
 
-  // Escape 键关闭 + 焦点管理
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
     };
     document.addEventListener('keydown', handleKeyDown);
-
-    // 打开时聚焦到对话框
     dialogRef.current?.focus();
-
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onCancel]);
 
@@ -54,16 +51,13 @@ export default function ConfirmModal({
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-200 outline-none"
+        className="mx-4 w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-xl ring-1 ring-gray-200 dark:ring-slate-700 outline-none"
       >
-        <h3 id={titleId} className="text-base font-semibold text-gray-900">{title}</h3>
-        <div className="mt-2 text-sm text-gray-600">{children}</div>
+        <h3 id={titleId} className="text-base font-semibold text-gray-900 dark:text-slate-100">{title}</h3>
+        <div className="mt-2 text-sm text-gray-600 dark:text-slate-400">{children}</div>
         <div className="mt-5 flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            取消
+          <button onClick={onCancel} className={secondaryBtnClass}>
+            \u53d6\u6d88
           </button>
           <button
             onClick={onConfirm}

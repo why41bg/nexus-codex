@@ -17,7 +17,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
-  // 组件卸载时清除所有定时器
   useEffect(() => {
     return () => {
       for (const timer of timersRef.current.values()) {
@@ -40,13 +39,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toasts, toast }}>
       {children}
-      {/* Toast 通知区域 */}
+      {/* Toast \u901a\u77e5\u533a\u57df */}
       <div className="fixed right-4 top-4 z-[60] flex flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`toast-enter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg ${
-              t.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+            className={`toast-enter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg ring-1 ${
+              t.type === 'success'
+                ? 'bg-green-600 text-white ring-green-700'
+                : 'bg-red-600 text-white ring-red-700'
             }`}
           >
             {t.message}
