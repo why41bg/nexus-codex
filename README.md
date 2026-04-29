@@ -25,8 +25,8 @@ mkdir -p ~/.codex-pool/account-1
 mkdir -p ~/.codex-pool/account-2
 
 # 用对应账号分别登录
-CODEX_HOME=~/.codex-pool/account-1 codex login
-CODEX_HOME=~/.codex-pool/account-2 codex login
+CODEX_HOME=~/.codex-pool/account-1 codex login --device-auth
+CODEX_HOME=~/.codex-pool/account-2 codex login --device-auth
 ```
 
 登录成功后，将账号信息写入 `data/accounts.json`：
@@ -97,13 +97,13 @@ pnpm install --frozen-lockfile
 
 ```bash
 pnpm build
-pnpm start
+node dist/index.js
 ```
 
 带环境变量启动示例：
 
 ```bash
-PORT=8080 pnpm start
+PORT=8080 node dist/index.js
 ```
 
 服务启动后日志会输出账号池初始化、健康检查启动和服务监听地址等信息。
@@ -193,10 +193,3 @@ http://localhost:3000/admin
 ```
 
 访问面板需要输入管理员用户名和密码登录（通过 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量配置，默认 `admin/admin`）。登录后服务端签发 session token，前端通过 Bearer token 鉴权。
-
-面板提供以下功能：
-
-- **全局概览**：账号总数、并发槽位（使用中/总数）、空闲槽位、不健康、已禁用、总请求数一目了然，通过 SSE 实时事件驱动刷新
-- **账号管理**：查看每个账号的状态、使用次数、最后使用时间，支持按状态筛选；添加、启用/禁用、删除账号，操作即时生效无需重启
-- **模型白名单**：查看和管理允许客户端使用的模型列表，动态添加或移除模型
-- **API Key 管理**：创建、编辑、删除 API Key，支持为每个 Key 配置独立的模型权限（过期时间功能计划中，尚未实现）
