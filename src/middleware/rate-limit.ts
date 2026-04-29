@@ -1,4 +1,5 @@
 import { createMiddleware } from 'hono/factory';
+import { findApiKey } from '../services/config-store.js';
 
 /**
  * Rate limit configuration from environment variables.
@@ -45,14 +46,19 @@ export const rateLimitMiddleware = createMiddleware<{
     return next();
   }
 
+  // 读取当前 Key 的独立限流配置，未配置则使用全局默认
+  const keyConfig = findApiKey(apiKey);
+  const limitMax = keyConfig?.rateLimitMax ?? RATE_LIMIT_MAX;
+  const limitWindowMs = keyConfig?.rateLimitWindowMs ?? RATE_LIMIT_WINDOW_MS;
+
   const now = Date.now();
-  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+  const windowStart = now - limitWindowMs;
 
   // Get or initialize timestamps for this API key
   let timestamps = requestStore.get(apiKey) || [];
 
   // Clean up expired timestamps
-  timestamps = cleanupTimestamps(timestamps, RATE_LIMIT_WINDOW_MS);
+  timestamps = cleanupTimestamps(timestamps, limitWindowMs);
 
   // 清除不再活跃的 Key 条目，避免内存泄漏
   if (timestamps.length === 0 && requestStore.has(apiKey)) {
@@ -61,19 +67,19 @@ export const rateLimitMiddleware = createMiddleware<{
 
   // Calculate remaining requests
   const currentCount = timestamps.length;
-  const remaining = Math.max(0, RATE_LIMIT_MAX - currentCount);
+  const remaining = Math.max(0, limitMax - currentCount);
 
   // Calculate reset time (oldest timestamp in window + window duration)
   const oldestTimestamp = timestamps.length > 0 ? Math.min(...timestamps) : now;
-  const resetTime = oldestTimestamp + RATE_LIMIT_WINDOW_MS;
+  const resetTime = oldestTimestamp + limitWindowMs;
 
   // Set rate limit headers
-  c.header('X-RateLimit-Limit', String(RATE_LIMIT_MAX));
+  c.header('X-RateLimit-Limit', String(limitMax));
   c.header('X-RateLimit-Remaining', String(remaining));
   c.header('X-RateLimit-Reset', String(Math.ceil(resetTime / 1000))); // Unix timestamp in seconds
 
   // Check if rate limit exceeded
-  if (currentCount >= RATE_LIMIT_MAX) {
+  if (currentCount >= limitMax) {
     const retryAfterSeconds = Math.ceil((resetTime - now) / 1000);
 
     return c.json(

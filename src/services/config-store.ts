@@ -28,6 +28,22 @@ interface ApiKeyEntry {
   models: string[];
   /** 创建时间 */
   createdAt: string;
+
+  // ——— 权限粒度扩展字段 ———
+  /** ISO 8601 过期时间，null 表示永不过期 */
+  expiresAt?: string | null;
+  /** 独立速率限制（req/window），null 继承全局 */
+  rateLimitMax?: number | null;
+  /** 独立限流窗口（ms），null 继承全局 */
+  rateLimitWindowMs?: number | null;
+  /** 月调用次数上限，null 不限制 */
+  monthlyQuota?: number | null;
+  /** 当月已用次数 */
+  monthlyUsage?: number;
+  /** 月配额重置时间（每月 1 日 00:00 UTC） */
+  monthlyResetAt?: string;
+  /** IP 白名单，空数组表示不限制 */
+  ipWhitelist?: string[];
 }
 
 interface AdminAuth {
@@ -91,6 +107,17 @@ export async function loadConfig(): Promise<AppConfig> {
       defaultModels: parsed.defaultModels ?? [...DEFAULT_MODELS],
       apiKeys: parsed.apiKeys ?? [],
     };
+
+    // 向后兼容：为已有 apiKey 条目补齐新增权限字段
+    for (const k of config.apiKeys) {
+      k.expiresAt ??= null;
+      k.rateLimitMax ??= null;
+      k.rateLimitWindowMs ??= null;
+      k.monthlyQuota ??= null;
+      k.monthlyUsage ??= 0;
+      k.monthlyResetAt ??= getNextMonthReset();
+      k.ipWhitelist ??= [];
+    }
   }
 
   // 检测默认密码并发出安全警告
@@ -188,12 +215,24 @@ export function verifyAdminAuth(username: string, password: string): boolean {
 
 // ─── API Key CRUD ───────────────────────────────────────────
 
-export async function addApiKey(key: string, name: string, models: string[] = []): Promise<ApiKeyEntry> {
+export async function addApiKey(
+  key: string,
+  name: string,
+  models: string[] = [],
+  extra: Partial<Pick<ApiKeyEntry, 'expiresAt' | 'rateLimitMax' | 'rateLimitWindowMs' | 'monthlyQuota' | 'ipWhitelist'>> = {},
+): Promise<ApiKeyEntry> {
   const entry: ApiKeyEntry = {
     key,
     name,
     models,
     createdAt: new Date().toISOString(),
+    expiresAt: extra.expiresAt ?? null,
+    rateLimitMax: extra.rateLimitMax ?? null,
+    rateLimitWindowMs: extra.rateLimitWindowMs ?? null,
+    monthlyQuota: extra.monthlyQuota ?? null,
+    monthlyUsage: 0,
+    monthlyResetAt: getNextMonthReset(),
+    ipWhitelist: extra.ipWhitelist ?? [],
   };
   config.apiKeys.push(entry);
   invalidateApiKeyCache();
@@ -203,12 +242,17 @@ export async function addApiKey(key: string, name: string, models: string[] = []
 
 export async function updateApiKey(
   key: string,
-  partial: Partial<Pick<ApiKeyEntry, 'name' | 'models'>>,
+  partial: Partial<Pick<ApiKeyEntry, 'name' | 'models' | 'expiresAt' | 'rateLimitMax' | 'rateLimitWindowMs' | 'monthlyQuota' | 'ipWhitelist'>>,
 ): Promise<ApiKeyEntry | null> {
   const index = config.apiKeys.findIndex((k) => k.key === key);
   if (index === -1) return null;
   if (partial.name !== undefined) config.apiKeys[index].name = partial.name;
   if (partial.models !== undefined) config.apiKeys[index].models = partial.models;
+  if (partial.expiresAt !== undefined) config.apiKeys[index].expiresAt = partial.expiresAt;
+  if (partial.rateLimitMax !== undefined) config.apiKeys[index].rateLimitMax = partial.rateLimitMax;
+  if (partial.rateLimitWindowMs !== undefined) config.apiKeys[index].rateLimitWindowMs = partial.rateLimitWindowMs;
+  if (partial.monthlyQuota !== undefined) config.apiKeys[index].monthlyQuota = partial.monthlyQuota;
+  if (partial.ipWhitelist !== undefined) config.apiKeys[index].ipWhitelist = partial.ipWhitelist;
   invalidateApiKeyCache();
   await saveConfig();
   return config.apiKeys[index];
@@ -238,4 +282,32 @@ export async function removeDefaultModel(modelId: string): Promise<boolean> {
   config.defaultModels.splice(index, 1);
   await saveConfig();
   return true;
+}
+
+// ─── 月配额辅助方法 ─────────────────────────────────────────
+
+/** 计算下个月 1 日 00:00 UTC 的 ISO 字符串 */
+function getNextMonthReset(): string {
+  const now = new Date();
+  const year = now.getUTCMonth() === 11 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+  const month = now.getUTCMonth() === 11 ? 0 : now.getUTCMonth() + 1;
+  return new Date(Date.UTC(year, month, 1)).toISOString();
+}
+
+/**
+ * 递增指定 API Key 的月使用计数。
+ * 如果当前时间已过重置时间，先重置计数。
+ */
+export async function incrementKeyMonthlyUsage(key: string): Promise<void> {
+  const entry = config.apiKeys.find((k) => k.key === key);
+  if (!entry) return;
+
+  // 检查是否需要重置月计数
+  if (entry.monthlyResetAt && new Date() >= new Date(entry.monthlyResetAt)) {
+    entry.monthlyUsage = 0;
+    entry.monthlyResetAt = getNextMonthReset();
+  }
+
+  entry.monthlyUsage = (entry.monthlyUsage ?? 0) + 1;
+  await saveConfig();
 }

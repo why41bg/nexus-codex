@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
-import { getApiKeySet, verifyAdminAuth } from '../services/config-store.js';
+import { getApiKeySet, findApiKey, verifyAdminAuth } from '../services/config-store.js';
 import { validateSession } from '../services/session-manager.js';
 
 /**
@@ -182,6 +182,61 @@ export const apiKeyAuthMiddleware: MiddlewareHandler = async (c, next) => {
       },
       401,
     );
+  }
+
+  // ——— 权限粒度检查 ———
+  const entry = findApiKey(apiKey);
+  if (entry) {
+    // 1. 有效期检查
+    if (entry.expiresAt && new Date(entry.expiresAt) < new Date()) {
+      return c.json(
+        {
+          error: {
+            message: 'API key has expired.',
+            type: 'invalid_request_error',
+            code: 'api_key_expired',
+          },
+        },
+        401,
+      );
+    }
+
+    // 2. IP 白名单检查
+    if (entry.ipWhitelist && entry.ipWhitelist.length > 0) {
+      const clientIP =
+        c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+        c.req.header('x-real-ip') ||
+        '';
+      if (clientIP && !entry.ipWhitelist.includes(clientIP)) {
+        return c.json(
+          {
+            error: {
+              message: 'IP not allowed for this API key.',
+              type: 'invalid_request_error',
+              code: 'ip_not_allowed',
+            },
+          },
+          403,
+        );
+      }
+    }
+
+    // 3. 月配额检查
+    if (entry.monthlyQuota != null && (entry.monthlyUsage ?? 0) >= entry.monthlyQuota) {
+      // 检查是否需要先重置（月份翻转场景）
+      if (!entry.monthlyResetAt || new Date() < new Date(entry.monthlyResetAt)) {
+        return c.json(
+          {
+            error: {
+              message: 'Monthly quota exceeded for this API key.',
+              type: 'rate_limit_error',
+              code: 'monthly_quota_exceeded',
+            },
+          },
+          429,
+        );
+      }
+    }
   }
 
   // 将当前 API Key 注入上下文，供下游路由使用

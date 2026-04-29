@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { randomUUID } from 'node:crypto';
-import { loadAccounts, addAccount, updateAccount, removeAccount } from '../services/account-store.js';
+import { loadAccounts, addAccount, updateAccount, removeAccount, bulkImportAccounts } from '../services/account-store.js';
 import { pool } from '../services/account-pool.js';
 import { sessionCount } from '../services/session-store.js';
 import { createSession, destroySession } from '../services/session-manager.js';
@@ -19,6 +19,8 @@ import {
   removeApiKey,
   getModelsForKey,
 } from '../services/config-store.js';
+import { metricsCollector } from '../services/metrics-collector.js';
+import { threadPool } from '../services/thread-pool.js';
 
 const adminRoute = new Hono();
 
@@ -115,6 +117,8 @@ adminRoute.get('/dashboard', async (c) => {
   const availableSlots = totalSlots - activeSlots;
   const totalUsage = accounts.reduce((sum, a) => sum + a.usageCount, 0);
 
+  const recent1h = metricsCollector.getRecentSnapshot(3600_000);
+
   return c.json({
     total,
     enabled,
@@ -126,6 +130,31 @@ adminRoute.get('/dashboard', async (c) => {
     unhealthy,
     totalUsage,
     activeSessions: sessionCount(),
+    recentRequests1h: recent1h.requests,
+    recentErrors1h: recent1h.errors,
+    avgLatency1h: recent1h.avgLatencyMs,
+    threadPool: threadPool.getStats(),
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Metrics (time series & breakdown)
+// ═══════════════════════════════════════════════════════════════
+
+adminRoute.get('/metrics/timeseries', (c) => {
+  const range = c.req.query('range');
+  const validRanges = ['1h', '6h', '24h'] as const;
+  const r = validRanges.includes(range as (typeof validRanges)[number])
+    ? (range as '1h' | '6h' | '24h')
+    : '1h';
+  return c.json(metricsCollector.getTimeSeries(r));
+});
+
+adminRoute.get('/metrics/breakdown', (c) => {
+  const breakdown = metricsCollector.getBreakdown();
+  return c.json({
+    ...breakdown,
+    threadPool: threadPool.getStats(),
   });
 });
 
@@ -342,6 +371,125 @@ adminRoute.post('/accounts/:id/quota/refresh', async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// Account Import / Export
+// ═══════════════════════════════════════════════════════════════
+
+adminRoute.get('/accounts/export', async (c) => {
+  const accounts = await loadAccounts();
+  const exportData = accounts.map((a) => ({
+    id: a.id,
+    codexHome: a.codexHome,
+    enabled: a.enabled,
+    healthy: a.healthy,
+    remark: a.remark,
+    usageCount: a.usageCount,
+    lastUsedAt: a.lastUsedAt,
+    maxConcurrency: a.maxConcurrency,
+  }));
+
+  const filename = `nexus-codex-accounts-${new Date().toISOString().slice(0, 10)}.json`;
+  c.header('Content-Disposition', `attachment; filename="${filename}"`);
+  return c.json({ accounts: exportData });
+});
+
+const importAccountSchema = z.object({
+  codexHome: z.string().min(1, 'codexHome is required'),
+  remark: z.string().optional().default(''),
+  maxConcurrency: z.number().int().min(1).optional(),
+  enabled: z.boolean().optional().default(true),
+});
+
+const importRequestSchema = z.object({
+  accounts: z.array(importAccountSchema).min(1, 'At least one account is required').max(100, 'Maximum 100 accounts per import'),
+  mode: z.enum(['merge', 'replace']),
+});
+
+adminRoute.post(
+  '/accounts/import',
+  zValidator('json', importRequestSchema, (result, c) => {
+    if (!result.success) {
+      return c.json(
+        {
+          error: {
+            message: result.error.issues.map((i) => `[${i.path.join('.')}] ${i.message}`).join('; '),
+            type: 'invalid_request_error',
+            code: 'invalid_request',
+          },
+        },
+        400,
+      );
+    }
+  }),
+  async (c) => {
+    const body = c.req.valid('json');
+
+    // replace 模式下，检查是否有正在使用的账号
+    if (body.mode === 'replace') {
+      const poolStatus = pool.getStatus();
+      const activeCount = poolStatus.reduce((sum, p) => sum + p.activeCount, 0);
+      if (activeCount > 0) {
+        return c.json(
+          {
+            error: {
+              message: `Cannot replace while ${activeCount} account(s) are in use. Please try again later.`,
+              type: 'invalid_request_error',
+              code: 'conflict',
+            },
+          },
+          409,
+        );
+      }
+    }
+
+    const result = await bulkImportAccounts(body.accounts, body.mode);
+
+    // 同步到 account pool
+    if (body.mode === 'replace') {
+      // replace 模式：重新初始化 pool
+      const accounts = await loadAccounts();
+      pool.init(accounts);
+    } else {
+      // merge 模式：仅添加新账号到 pool
+      for (const acc of result.importedAccounts) {
+        pool.addEntry(acc);
+      }
+    }
+
+    return c.json({
+      imported: result.imported,
+      skipped: result.skipped,
+      errors: result.errors,
+    });
+  },
+);
+
+adminRoute.get('/backup', async (c) => {
+  const accounts = await loadAccounts();
+  const exportData = {
+    version: '1.0',
+    exportedAt: new Date().toISOString(),
+    accounts: accounts.map((a) => ({
+      id: a.id,
+      codexHome: a.codexHome,
+      enabled: a.enabled,
+      healthy: a.healthy,
+      remark: a.remark,
+      usageCount: a.usageCount,
+      lastUsedAt: a.lastUsedAt,
+      maxConcurrency: a.maxConcurrency,
+    })),
+    config: {
+      defaultModels: getDefaultModels(),
+      apiKeys: getApiKeys(),
+    },
+  };
+
+  const filename = `nexus-codex-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  c.header('Content-Disposition', `attachment; filename="${filename}"`);
+  return c.json(exportData);
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Default Models (global whitelist)
 // ═══════════════════════════════════════════════════════════════
 
@@ -419,6 +567,12 @@ adminRoute.get('/keys', (c) => {
     models: k.models,
     effectiveModels: getModelsForKey(k.key),
     createdAt: k.createdAt,
+    expiresAt: k.expiresAt ?? null,
+    rateLimitMax: k.rateLimitMax ?? null,
+    rateLimitWindowMs: k.rateLimitWindowMs ?? null,
+    monthlyQuota: k.monthlyQuota ?? null,
+    monthlyUsage: k.monthlyUsage ?? 0,
+    ipWhitelist: k.ipWhitelist ?? [],
   }));
   return c.json({ keys });
 });
@@ -427,6 +581,12 @@ const addKeySchema = z.object({
   key: z.string().optional(),
   name: z.string().optional().default(''),
   models: z.array(z.string()).optional().default([]),
+  // 新增权限字段
+  expiresAt: z.string().datetime().nullable().optional(),
+  rateLimitMax: z.number().int().min(1).nullable().optional(),
+  rateLimitWindowMs: z.number().int().min(1000).nullable().optional(),
+  monthlyQuota: z.number().int().min(1).nullable().optional(),
+  ipWhitelist: z.array(z.string()).optional().default([]),
 });
 
 adminRoute.post(
@@ -464,7 +624,13 @@ adminRoute.post(
       );
     }
 
-    const entry = await addApiKey(key, body.name, body.models);
+    const entry = await addApiKey(key, body.name, body.models, {
+      expiresAt: body.expiresAt,
+      rateLimitMax: body.rateLimitMax,
+      rateLimitWindowMs: body.rateLimitWindowMs,
+      monthlyQuota: body.monthlyQuota,
+      ipWhitelist: body.ipWhitelist,
+    });
     return c.json(
       {
         key: entry.key,
@@ -473,6 +639,12 @@ adminRoute.post(
         models: entry.models,
         effectiveModels: getModelsForKey(entry.key),
         createdAt: entry.createdAt,
+        expiresAt: entry.expiresAt,
+        rateLimitMax: entry.rateLimitMax,
+        rateLimitWindowMs: entry.rateLimitWindowMs,
+        monthlyQuota: entry.monthlyQuota,
+        monthlyUsage: entry.monthlyUsage,
+        ipWhitelist: entry.ipWhitelist,
       },
       201,
     );
@@ -482,6 +654,12 @@ adminRoute.post(
 const patchKeySchema = z.object({
   name: z.string().optional(),
   models: z.array(z.string()).optional(),
+  // 新增权限字段
+  expiresAt: z.string().datetime().nullable().optional(),
+  rateLimitMax: z.number().int().min(1).nullable().optional(),
+  rateLimitWindowMs: z.number().int().min(1000).nullable().optional(),
+  monthlyQuota: z.number().int().min(1).nullable().optional(),
+  ipWhitelist: z.array(z.string()).optional(),
 });
 
 adminRoute.patch(
@@ -526,6 +704,12 @@ adminRoute.patch(
       models: updated.models,
       effectiveModels: getModelsForKey(updated.key),
       createdAt: updated.createdAt,
+      expiresAt: updated.expiresAt,
+      rateLimitMax: updated.rateLimitMax,
+      rateLimitWindowMs: updated.rateLimitWindowMs,
+      monthlyQuota: updated.monthlyQuota,
+      monthlyUsage: updated.monthlyUsage,
+      ipWhitelist: updated.ipWhitelist,
     });
   },
 );
