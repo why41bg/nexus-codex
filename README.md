@@ -87,10 +87,15 @@ pnpm dev
 
 ### 生产部署
 
-先编译 TypeScript，再用 Node.js 运行编译产物：
+在项目根目录和 admin-fe 目录下各执行一次：
 
 ```bash
 pnpm install --frozen-lockfile
+```
+
+回到根目录编译并运行编译产物：
+
+```bash
 pnpm build
 pnpm start
 ```
