@@ -73,3 +73,15 @@ export function validateSession(token: string): boolean {
 export function destroySession(token: string): boolean {
   return sessions.delete(token);
 }
+
+// ─── 定期清理过期 session ────────────────────────────────
+const CLEANUP_INTERVAL_MS = 10 * 60_000; // 每 10 分钟清理一次
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions) {
+    if (now > session.expiresAt) {
+      sessions.delete(token);
+    }
+  }
+}, CLEANUP_INTERVAL_MS).unref();

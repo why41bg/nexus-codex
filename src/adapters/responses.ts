@@ -11,9 +11,9 @@ export function extractPromptFromInput(input: string | ResponsesInputItem[]): st
     return input;
   }
 
-  // 数组输入：收集 system/developer 指令和最后一条 user message
+  // 数组输入：收集 system/developer 指令和所有 user message
   const systemParts: string[] = [];
-  let lastUserText = '';
+  const userParts: string[] = [];
 
   for (const item of input) {
     const text = extractTextFromContent(item.content);
@@ -21,14 +21,15 @@ export function extractPromptFromInput(input: string | ResponsesInputItem[]): st
     if (item.role === 'system' || item.role === 'developer') {
       systemParts.push(text);
     } else if (item.role === 'user') {
-      lastUserText = text;
+      userParts.push(text);
     }
   }
 
+  const userText = userParts.join('\n');
   if (systemParts.length > 0) {
-    return `${systemParts.join('\n')}\n\n${lastUserText}`;
+    return `${systemParts.join('\n')}\n\n${userText}`;
   }
-  return lastUserText;
+  return userText;
 }
 
 /**

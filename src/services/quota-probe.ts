@@ -6,7 +6,7 @@
  * 只需 Authorization + 显式 User-Agent 即可通过 Cloudflare，
  * 无需子进程、TLS 伪装或浏览器解题，单次延迟 < 1s。
  */
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { logger } from '../utils/logger.js';
 
@@ -62,9 +62,9 @@ const inflight = new Map<string, Promise<QuotaInfo | null>>();
 // ─── Helpers ────────────────────────────────────────────────
 
 /** 从 auth.json 读取 access_token */
-function readAccessToken(codexHome: string): string | null {
+async function readAccessToken(codexHome: string): Promise<string | null> {
   try {
-    const raw = readFileSync(join(codexHome, 'auth.json'), 'utf-8');
+    const raw = await readFile(join(codexHome, 'auth.json'), 'utf-8');
     const auth = JSON.parse(raw) as {
       tokens?: { access_token?: string };
     };
@@ -175,7 +175,7 @@ async function fetchQuota(
   codexHome: string,
   timeoutMs: number,
 ): Promise<QuotaInfo | null> {
-  const token = readAccessToken(codexHome);
+  const token = await readAccessToken(codexHome);
   if (!token) {
     logger.warn('quota-probe: no access_token found', { codexHome });
     return null;

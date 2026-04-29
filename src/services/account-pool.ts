@@ -12,7 +12,6 @@ const DEFAULT_MAX_CONCURRENCY = Number(process.env.DEFAULT_MAX_CONCURRENCY) || 1
 /** 等待队列中的一个排队项 */
 interface QueueItem {
   resolve: (entry: PoolEntry) => void;
-  reject: (err: Error) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -72,7 +71,6 @@ export class AccountPool {
     return new Promise<PoolEntry | null>((resolve) => {
       const item: QueueItem = {
         resolve: null!,
-        reject: null!,
         timer: null!,
       };
 

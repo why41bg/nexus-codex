@@ -186,20 +186,22 @@ export function startHealthCheck(options?: HealthCheckOptions): { stop: () => vo
 
   // 低频：login status 检查（跳过满载账号，避免干扰正在处理的请求）
   const remoteTimer = setInterval(async () => {
-    for (const entry of pool.entries()) {
-      if (entry.activeCount >= entry.maxConcurrency) continue;
-      try {
-        const healthy = await probeRemote(entry.codexHome, remoteTimeoutMs);
-        await handleProbeResult(entry.accountId, healthy, failThreshold, 'remote');
-      } catch (err) {
-        const count = (failCounts.get(entry.accountId) ?? 0) + 1;
-        failCounts.set(entry.accountId, count);
-        logger.warn('Remote probe error', {
-          accountId: entry.accountId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+    const entries = pool.entries().filter((e) => e.activeCount < e.maxConcurrency);
+    await Promise.allSettled(
+      entries.map(async (entry) => {
+        try {
+          const healthy = await probeRemote(entry.codexHome, remoteTimeoutMs);
+          await handleProbeResult(entry.accountId, healthy, failThreshold, 'remote');
+        } catch (err) {
+          const count = (failCounts.get(entry.accountId) ?? 0) + 1;
+          failCounts.set(entry.accountId, count);
+          logger.warn('Remote probe error', {
+            accountId: entry.accountId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }),
+    );
   }, remoteIntervalMs);
 
   return {
