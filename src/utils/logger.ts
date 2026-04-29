@@ -1,5 +1,3 @@
-import { pool } from '../services/account-pool.js';
-
 // ─── Log levels ─────────────────────────────────────────────
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -191,19 +189,14 @@ export const logger = {
   error: (msg: string, extra?: Record<string, unknown>) => log('error', msg, extra),
 };
 
-// ─── Pool snapshot helper ───────────────────────────────────
+// ─── Pool snapshot type ─────────────────────────────────────
 
-function poolSnapshot(): Record<string, number> {
-  const entries = pool.getStatus();
-  const totalSlots = entries.reduce((sum, e) => sum + e.maxConcurrency, 0);
-  const activeSlots = entries.reduce((sum, e) => sum + e.activeCount, 0);
-  return {
-    total: entries.length,
-    totalSlots,
-    activeSlots,
-    availableSlots: totalSlots - activeSlots,
-    unhealthy: entries.filter((e) => !e.healthy).length,
-  };
+export interface PoolSnapshot {
+  total: number;
+  totalSlots: number;
+  activeSlots: number;
+  availableSlots: number;
+  unhealthy: number;
 }
 
 // ─── Domain-specific log helpers ────────────────────────────
@@ -219,25 +212,25 @@ export function logRequest(method: string, path: string, status: number, duratio
 /**
  * 请求开始时：打印分配到的账号 + 池快照。
  */
-export function logAcquire(accountId: string): void {
-  logger.info('acquire account', { accountId, pool: poolSnapshot() });
+export function logAcquire(accountId: string, snapshot: PoolSnapshot): void {
+  logger.info('acquire account', { accountId, pool: snapshot });
 }
 
 /**
  * 请求结束时：打印释放的账号 + 池快照 + 耗时。
  */
-export function logRelease(accountId: string, durationMs: number, error?: string): void {
+export function logRelease(accountId: string, durationMs: number, snapshot: PoolSnapshot, error?: string): void {
   logger.info('release account', {
     accountId,
     durationMs,
     ...(error ? { error } : {}),
-    pool: poolSnapshot(),
+    pool: snapshot,
   });
 }
 
 /**
  * 排队超时后仍无可用账号（返回 429）时打印。
  */
-export function logPoolExhausted(): void {
-  logger.warn('pool exhausted (queue timed out)', { pool: poolSnapshot() });
+export function logPoolExhausted(snapshot: PoolSnapshot): void {
+  logger.warn('pool exhausted (queue timed out)', { pool: snapshot });
 }

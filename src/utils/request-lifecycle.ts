@@ -10,7 +10,21 @@ import { createSession, deleteSession, type CreateSessionOptions } from '../serv
 import { incrementUsageCount } from '../services/account-store.js';
 import { isModelAllowedForKey } from '../services/config-store.js';
 import { triggerProbe } from '../services/health-check.js';
-import { logger, logAcquire, logRelease, logPoolExhausted } from './logger.js';
+import { logger, logAcquire, logRelease, logPoolExhausted, type PoolSnapshot } from './logger.js';
+
+/** 由调用方生成池快照，避免 logger.ts 直接导入 pool 产生循环依赖 */
+function getPoolSnapshot(): PoolSnapshot {
+  const entries = pool.getStatus();
+  const totalSlots = entries.reduce((sum, e) => sum + e.maxConcurrency, 0);
+  const activeSlots = entries.reduce((sum, e) => sum + e.activeCount, 0);
+  return {
+    total: entries.length,
+    totalSlots,
+    activeSlots,
+    availableSlots: totalSlots - activeSlots,
+    unhealthy: entries.filter((e) => !e.healthy).length,
+  };
+}
 
 /** 单次请求超时（毫秒），默认 5 分钟 */
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 5 * 60 * 1000;
@@ -45,7 +59,7 @@ export async function acquireAccount(
 ): Promise<{ entry: PoolEntry } | { error: Response }> {
   const entry = await pool.acquireAsync();
   if (!entry) {
-    logPoolExhausted();
+    logPoolExhausted(getPoolSnapshot());
     return {
       error: c.json(
         {
@@ -76,7 +90,7 @@ export function initRequestContext(
   sessionOpts: CreateSessionOptions,
 ): RequestContext {
   const reqStart = Date.now();
-  logAcquire(entry.accountId);
+  logAcquire(entry.accountId, getPoolSnapshot());
 
   const session = createSession(entry.accountId, entry.codex, sessionOpts);
 
@@ -93,7 +107,7 @@ export function initRequestContext(
  */
 export function releaseRequestContext(ctx: RequestContext): void {
   deleteSession(ctx.session.conversationId);
-  logRelease(ctx.entry.accountId, Date.now() - ctx.reqStart);
+  logRelease(ctx.entry.accountId, Date.now() - ctx.reqStart, getPoolSnapshot());
 }
 
 /**
@@ -108,6 +122,7 @@ export function releaseAccountOnError(
   logRelease(
     entry.accountId,
     Date.now() - reqStart,
+    getPoolSnapshot(),
     err instanceof Error ? err.message : 'unknown error',
   );
   // 请求失败时立即触发一次本地探测，无需等待定时器

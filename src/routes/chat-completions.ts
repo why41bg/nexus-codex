@@ -83,11 +83,10 @@ chatCompletionsRoute.post(
 
       if (body.stream) {
         // ─── 流式响应 ──────────────────────────────────────
+        c.header('Content-Type', 'text/event-stream');
+        c.header('Cache-Control', 'no-cache');
+        c.header('Connection', 'keep-alive');
         return stream(c, async (s) => {
-          c.header('Content-Type', 'text/event-stream');
-          c.header('Cache-Control', 'no-cache');
-          c.header('Connection', 'keep-alive');
-
           try {
             // 发送初始 chunk（role）
             const initChunk = wrapChunk(completionId, body.model, { role: 'assistant' });

@@ -102,11 +102,10 @@ responsesRoute.post(
 
       if (body.stream) {
         // ─── 流式响应 ──────────────────────────────────────
+        c.header('Content-Type', 'text/event-stream');
+        c.header('Cache-Control', 'no-cache');
+        c.header('Connection', 'keep-alive');
         return stream(c, async (s) => {
-          c.header('Content-Type', 'text/event-stream');
-          c.header('Cache-Control', 'no-cache');
-          c.header('Connection', 'keep-alive');
-
           try {
             // 1. response.created
             await s.write(buildResponseCreatedEvent(responseId, body.model));
