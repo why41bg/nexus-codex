@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-import { api, setAuthToken, getAuthToken, clearAuthToken } from '@/lib/api';
+import { api, API_BASE, setAuthToken, getAuthToken, clearAuthToken } from '@/lib/api';
 
 interface AuthContextValue {
   /** 是否已登录 */
@@ -15,16 +15,15 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
- * 使用 Basic Auth 调用登录接口获取会话令牌
+ * 调用登录接口获取会话令牌
  */
-async function loginWithBasicAuth(username: string, password: string): Promise<{ ok: boolean; token?: string }> {
-  const basicToken = btoa(username + ':' + password);
-  const res = await fetch('/api/admin/login', {
+async function loginRequest(username: string, password: string): Promise<{ ok: boolean; token?: string }> {
+  const res = await fetch(`${API_BASE}/api/admin/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Basic ${basicToken}`,
     },
+    body: JSON.stringify({ username, password }),
   });
   if (res.ok) {
     const data = await res.json();
@@ -38,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string): Promise<string | null> => {
     try {
-      const result = await loginWithBasicAuth(username, password);
+      const result = await loginRequest(username, password);
       if (result.ok && result.token) {
         setAuthToken(result.token);
         setAuthenticated(true);

@@ -93,8 +93,6 @@ export interface ApiKey {
   createdAt?: string;
 
   // ——— 权限粒度扩展字段 ———
-  /** ISO 8601 过期时间，null 表示永不过期 */
-  expiresAt?: string | null;
   /** 独立速率限制（req/window），null 继承全局 */
   rateLimitMax?: number | null;
   /** 独立限流窗口（ms），null 继承全局 */

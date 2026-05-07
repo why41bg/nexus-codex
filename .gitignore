@@ -1,15 +1,38 @@
-node_modules/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
 dist/
-*.js.map
-*.tsbuildinfo
+build/
 
+# Virtual environment (uv)
+.venv/
+
+# Data directory (runtime state)
 data/
 
+# Environment
 .env
 .env.*
-!.env.example
+!**/.env.example
 
+# Logs
 *.log
 
-# React admin UI build output
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node (admin-fe)
+node_modules/
+
+# Admin panel build output
 public/admin/

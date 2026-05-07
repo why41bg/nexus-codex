@@ -11,11 +11,9 @@ import {
   Legend,
 } from 'recharts';
 import type { TimeSeriesResponse, MetricsBreakdown } from '@/types';
-import { getAuthToken } from '@/lib/api';
+import { getAuthToken, API_BASE } from '@/lib/api';
 import { cardClass } from '@/lib/styles';
 import { useTheme } from '@/contexts/ThemeContext';
-
-const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 type Range = '1h' | '6h' | '24h';
 
 function formatTime(ts: number): string {
