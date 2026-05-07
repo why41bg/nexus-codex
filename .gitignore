@@ -33,6 +33,7 @@ data/
 
 # Node (admin-fe)
 node_modules/
+*.tsbuildinfo
 
 # Admin panel build output
 public/admin/
