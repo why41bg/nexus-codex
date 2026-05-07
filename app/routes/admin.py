@@ -16,6 +16,7 @@ from app.models import (
     AddApiKeyRequest,
     BulkImportRequest,
     LoginRequest,
+    RevealApiKeyRequest,
     UpdateAccountRequest,
     UpdateApiKeyRequest,
 )
@@ -40,6 +41,7 @@ from app.services.config_store import (
     save_banned_ips,
     update_api_key,
     verify_admin_auth,
+    verify_admin_password,
 )
 from app.services.ip_ban_store import (
     ban_ip,
@@ -365,7 +367,7 @@ async def refresh_account_quota(account_id: str):
 
 @router.get("/keys", dependencies=[Depends(admin_auth_dependency)])
 async def list_api_keys():
-    """List all API keys."""
+    """List all API keys (no full key returned for security)."""
     keys = get_api_keys()
     result = []
     for k in keys:
@@ -373,7 +375,6 @@ async def list_api_keys():
         prefix = k.key[:12] if len(k.key) >= 12 else k.key
         effective_models = k.models if k.models else get_default_models()
         result.append({
-            "key": k.key,
             "keyMasked": masked,
             "keyPrefix": prefix,
             "name": k.name,
@@ -387,6 +388,20 @@ async def list_api_keys():
             "ipWhitelist": k.ip_whitelist,
         })
     return JSONResponse(content={"keys": result})
+
+
+@router.post("/keys/reveal", dependencies=[Depends(admin_auth_dependency)])
+async def reveal_api_key(body: RevealApiKeyRequest):
+    """Reveal full API key after admin password verification."""
+    if not verify_admin_password(body.password):
+        return JSONResponse(
+            status_code=403,
+            content={"error": {"message": "密码错误", "type": "authentication_error", "code": "invalid_password"}},
+        )
+    full_key = _resolve_key(body.key_prefix)
+    if not full_key:
+        return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
+    return JSONResponse(content={"key": full_key})
 
 
 @router.post("/keys", dependencies=[Depends(admin_auth_dependency)])
@@ -485,7 +500,7 @@ async def get_metrics_breakdown():
     return JSONResponse(content=metrics_collector.get_breakdown())
 
 
-# ─── IP Ban Management ────────────────────────────────────
+# ─── IP Ban Management ────────────────────────────────────────
 
 
 @router.get("/banned-ips", dependencies=[Depends(admin_auth_dependency)])

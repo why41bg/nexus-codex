@@ -159,6 +159,13 @@ def verify_admin_auth(username: str, password: str) -> bool:
     return user_match and pass_match
 
 
+def verify_admin_password(password: str) -> bool:
+    """Verify admin password only (for sensitive operations like key reveal)."""
+    if _config is None:
+        return False
+    return _constant_time_equal(password, _config.admin_auth.password)
+
+
 # ─── API Key CRUD ───────────────────────────────────────────
 
 
@@ -263,7 +270,7 @@ async def increment_key_monthly_usage(key: str) -> None:
     await _save_config()
 
 
-# ─── Banned IPs persistence ──────────────────────────
+# ─── Banned IPs persistence ──────────────────────────────
 
 
 def get_banned_ips_from_config() -> list[BannedIP]:

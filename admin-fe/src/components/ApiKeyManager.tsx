@@ -9,6 +9,7 @@ import { useAuthGuard } from '@/contexts/AuthContext';
 import { CopyIcon } from './icons';
 import EditKeyModal from './EditKeyModal';
 import ConfirmModal from './ConfirmModal';
+import PasswordConfirmModal from './PasswordConfirmModal';
 import Spinner from './Spinner';
 
 interface Props {
@@ -30,9 +31,38 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
   const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
   const [deletingKey, setDeletingKey] = useState(false);
 
+  // Reveal key with password
+  const [revealTarget, setRevealTarget] = useState<ApiKey | null>(null);
+  const [revealLoading, setRevealLoading] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+
   const handleCopy = async (text: string) => {
     await copyToClipboard(text);
     toast('已复制到剪贴板', 'success');
+  };
+
+  const handleRevealAndCopy = async (password: string) => {
+    if (!revealTarget) return;
+    setRevealLoading(true);
+    setRevealError(null);
+    try {
+      const res = await api<{ key: string }>('POST', '/api/admin/keys/reveal', {
+        keyPrefix: revealTarget.keyPrefix,
+        password,
+      });
+      if (authGuard(res.status)) return;
+      if (res.ok) {
+        await copyToClipboard(res.data.key);
+        toast('完整 Key 已复制到剪贴板', 'success');
+        setRevealTarget(null);
+      } else {
+        setRevealError(extractErrorMessage(res.data, '验证失败'));
+      }
+    } catch {
+      setRevealError('请求失败');
+    } finally {
+      setRevealLoading(false);
+    }
   };
 
   const addKey = async (e?: React.FormEvent) => {
@@ -124,9 +154,9 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-xs text-gray-600 dark:text-slate-400">{k.keyMasked}</span>
                         <button
-                          onClick={() => handleCopy(k.keyMasked)}
+                          onClick={() => { setRevealError(null); setRevealTarget(k); }}
                           className="rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
-                          title="复制脱敏 Key"
+                          title="复制完整 Key（需验证密码）"
                         >
                           <CopyIcon />
                         </button>
@@ -185,8 +215,9 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono text-xs text-gray-500 dark:text-slate-400">{k.keyMasked}</span>
                     <button
-                      onClick={() => handleCopy(k.keyMasked)}
+                      onClick={() => { setRevealError(null); setRevealTarget(k); }}
                       className="rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
+                      title="复制完整 Key（需验证密码）"
                     >
                       <CopyIcon />
                     </button>
@@ -265,7 +296,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         {lastCreatedKey && (
           <div className="mt-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950 p-3">
             <p className="text-xs font-medium text-green-800 dark:text-green-300">
-              Key 已生成，请立即复制保存（之后将无法再次查看完整内容）：
+              Key 已生成，请立即复制保存（后续复制需验证管理员密码）：
             </p>
             <div className="mt-1.5 flex items-center gap-2">
               <code className="flex-1 rounded bg-white dark:bg-slate-800 px-3 py-1.5 font-mono text-sm text-green-900 dark:text-green-200 ring-1 ring-green-200 dark:ring-green-800">
@@ -281,6 +312,18 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
           </div>
         )}
       </div>
+
+      {revealTarget && (
+        <PasswordConfirmModal
+          title="复制完整 API Key"
+          description={`验证管理员密码后将复制 ${revealTarget.keyMasked} 的完整内容到剪贴板。`}
+          confirmLabel="验证并复制"
+          loading={revealLoading}
+          error={revealError}
+          onConfirm={handleRevealAndCopy}
+          onCancel={() => setRevealTarget(null)}
+        />
+      )}
 
       {editTarget && (
         <EditKeyModal

@@ -254,6 +254,11 @@ class UpdateApiKeyRequest(CamelModel):
     ip_whitelist: list[str] | None = None
 
 
+class RevealApiKeyRequest(CamelModel):
+    key_prefix: str
+    password: str
+
+
 # ─── Error ─────────────────────────────────────────────────
 
 
