@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Account, Dashboard, ApiKey, BannedIP } from '@/types';
-import { api, getAuthToken } from '@/lib/api';
+import { api, getAuthToken, API_BASE } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import Sidebar, { type TabKey } from './Sidebar';
@@ -93,7 +93,7 @@ export default function DashboardPage() {
 
       // EventSource 不支持自定义 header，通过 query string 传 token
       const token = getAuthToken();
-      const url = `/api/admin/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const url = `${API_BASE}/api/admin/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       es = new EventSource(url);
 
       es.onopen = () => {
