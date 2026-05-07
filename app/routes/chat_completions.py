@@ -11,7 +11,7 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.models import ChatCompletionRequest, ChatMessage
+from app.models import ChatCompletionRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import pool, PoolEntry
@@ -19,34 +19,12 @@ from app.services.account_store import increment_usage_count
 from app.services.config_store import is_model_allowed_for_key, increment_key_monthly_usage
 from app.services.metrics_collector import metrics_collector
 from app.services.health_check import trigger_probe
-from app.services.admin_emitter import emit_admin_event
+from app.services.chatgpt_adapter import ChatGPTAdapter
+from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError
 from app.config import settings
 from app.utils.logger import log
 
 router = APIRouter()
-
-
-def _extract_prompt(messages: list[ChatMessage]) -> str:
-    """Extract prompt text from messages array, preserving multi-turn context."""
-    system_parts: list[str] = []
-    conversation_parts: list[str] = []
-
-    for m in messages:
-        if m.role == "system":
-            system_parts.append(m.content)
-        elif m.role == "user":
-            conversation_parts.append(f"[user]\n{m.content}")
-        elif m.role == "assistant":
-            conversation_parts.append(f"[assistant]\n{m.content}")
-        elif m.role == "tool":
-            conversation_parts.append(f"[tool]\n{m.content}")
-
-    parts = []
-    if system_parts:
-        parts.append("\n".join(system_parts))
-    if conversation_parts:
-        parts.append("\n\n".join(conversation_parts))
-    return "\n\n".join(parts)
 
 
 def _generate_completion_id() -> str:
@@ -72,11 +50,9 @@ async def chat_completions(
     body: ChatCompletionRequest,
     api_key: str = Depends(api_key_auth_dependency),
 ):
-    """Handle chat completion requests with OpenAI Python SDK streaming."""
-    # Rate limit
+    """Handle chat completion requests with ChatGPT Plus backend streaming."""
     await rate_limit_dependency(request, api_key)
 
-    # Validate model
     if not is_model_allowed_for_key(api_key, body.model):
         return _error_response(
             f"The model '{body.model}' does not exist or is not available.",
@@ -84,7 +60,6 @@ async def chat_completions(
             404,
         )
 
-    # Acquire account from pool
     entry = await pool.acquire_async()
     if not entry:
         return _error_response(
@@ -96,7 +71,6 @@ async def chat_completions(
     req_start = time.time()
     completion_id = _generate_completion_id()
 
-    # Increment usage counters (fire-and-forget)
     asyncio.create_task(_increment_counters(entry.account_id, api_key))
 
     try:
@@ -119,7 +93,6 @@ async def chat_completions(
 
 
 async def _increment_counters(account_id: str, api_key: str) -> None:
-    """Increment usage counters in background."""
     try:
         await increment_usage_count(account_id)
     except Exception as e:
@@ -136,74 +109,64 @@ async def _stream_completion(
     completion_id: str,
     req_start: float,
 ) -> AsyncGenerator[str, None]:
-    """
-    Stream chat completion using OpenAI Python SDK's native streaming.
-    This gives true token-level streaming.
-    """
+    """Stream chat completion via ChatGPTClient + ChatGPTAdapter."""
     try:
-        # Send initial chunk with role
-        init_chunk = {
-            "id": completion_id,
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": body.model,
-            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
-        }
-        yield f"data: {json.dumps(init_chunk)}\n\n"
-
-        # Use OpenAI SDK streaming
         messages = [{"role": m.role, "content": m.content} for m in body.messages]
+        client = entry.chatgpt_client
+        if not client:
+            raise RuntimeError("ChatGPT client not initialized")
 
-        kwargs = {
-            "model": body.model,
-            "messages": messages,
-            "stream": True,
-        }
-        if body.temperature is not None:
-            kwargs["temperature"] = body.temperature
-        if body.max_tokens is not None:
-            kwargs["max_tokens"] = body.max_tokens
+        # Yield initial role chunk
+        init_chunk = ChatGPTAdapter.build_chat_chunk(
+            completion_id, body.model, role="assistant"
+        )
+        init_line = f"data: {json.dumps(init_chunk)}\n\n"
+        log.debug("ChatCompletions yield init", extra={"line": init_line[:200]})
+        yield init_line
 
-        # Create streaming completion using official OpenAI Python SDK
-        stream = entry.client.chat.completions.create(**kwargs)
+        # Stream from ChatGPT backend
+        async for raw_data in client.chat(
+            model=body.model,
+            messages=messages,
+            stream=True,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+        ):
+            try:
+                event_data = json.loads(raw_data)
+                text = ChatGPTAdapter.extract_text_from_event(event_data)
+                if text:
+                    chunk = ChatGPTAdapter.build_chat_chunk(
+                        completion_id, body.model, content=text
+                    )
+                    out_line = f"data: {json.dumps(chunk)}\n\n"
+                    log.debug("ChatCompletions yield text", extra={"text": text, "line": out_line[:200]})
+                    yield out_line
+            except json.JSONDecodeError:
+                pass
 
-        for chunk in stream:
-            if chunk.choices:
-                choice = chunk.choices[0]
-                delta = {}
-                if choice.delta and choice.delta.content:
-                    delta["content"] = choice.delta.content
-
-                if delta:
-                    out_chunk = {
-                        "id": completion_id,
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": body.model,
-                        "choices": [
-                            {"index": 0, "delta": delta, "finish_reason": None}
-                        ],
-                    }
-                    yield f"data: {json.dumps(out_chunk)}\n\n"
-
-                if choice.finish_reason:
-                    stop_chunk = {
-                        "id": completion_id,
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": body.model,
-                        "choices": [
-                            {"index": 0, "delta": {}, "finish_reason": choice.finish_reason}
-                        ],
-                    }
-                    yield f"data: {json.dumps(stop_chunk)}\n\n"
-
+        # Yield stop chunk
+        stop_chunk = ChatGPTAdapter.build_chat_chunk(
+            completion_id, body.model, finish_reason="stop"
+        )
+        stop_line = f"data: {json.dumps(stop_chunk)}\n\n"
+        log.debug("ChatCompletions yield stop", extra={"line": stop_line[:200]})
+        yield stop_line
         yield "data: [DONE]\n\n"
 
-        # Record success metrics
         latency_ms = int((time.time() - req_start) * 1000)
         metrics_collector.record(body.model, entry.account_id, latency_ms, True)
 
+    except (CloudflareChallengeError, TokenExpiredError) as e:
+        log.warn("ChatGPT backend error", extra={"account_id": entry.account_id, "error": str(e)})
+        error_data = {
+            "error": {"message": str(e), "type": "server_error", "code": "api_error"}
+        }
+        yield f"data: {json.dumps(error_data)}\n\n"
+        yield "data: [DONE]\n\n"
+        latency_ms = int((time.time() - req_start) * 1000)
+        metrics_collector.record(body.model, entry.account_id, latency_ms, False)
+        asyncio.create_task(_trigger_probe_safe(entry.account_id))
     except Exception as e:
         log.error("Stream error", extra={"error": str(e)})
         error_data = {
@@ -211,7 +174,6 @@ async def _stream_completion(
         }
         yield f"data: {json.dumps(error_data)}\n\n"
         yield "data: [DONE]\n\n"
-
         latency_ms = int((time.time() - req_start) * 1000)
         metrics_collector.record(body.model, entry.account_id, latency_ms, False)
         asyncio.create_task(_trigger_probe_safe(entry.account_id))
@@ -225,50 +187,33 @@ async def _non_stream_completion(
     completion_id: str,
     req_start: float,
 ) -> JSONResponse:
-    """Non-streaming completion."""
+    """Non-streaming completion via ChatGPTClient."""
     try:
         messages = [{"role": m.role, "content": m.content} for m in body.messages]
+        client = entry.chatgpt_client
+        if not client:
+            raise RuntimeError("ChatGPT client not initialized")
 
-        kwargs = {
-            "model": body.model,
-            "messages": messages,
-        }
-        if body.temperature is not None:
-            kwargs["temperature"] = body.temperature
-        if body.max_tokens is not None:
-            kwargs["max_tokens"] = body.max_tokens
+        full_text = ""
+        async for raw_data in client.chat(
+            model=body.model,
+            messages=messages,
+            stream=False,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+        ):
+            try:
+                response_data = json.loads(raw_data)
+                full_text = ChatGPTAdapter.extract_text_from_response(response_data)
+            except json.JSONDecodeError:
+                pass
 
-        # Use OpenAI Python SDK (synchronous call in thread pool)
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None, lambda: entry.client.chat.completions.create(**kwargs)
+        result = ChatGPTAdapter.build_chat_response(
+            completion_id, body.model, full_text
         )
-
-        content = response.choices[0].message.content if response.choices else ""
-        usage = {
-            "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-            "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-            "total_tokens": response.usage.total_tokens if response.usage else 0,
-        }
-
-        result = {
-            "id": completion_id,
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": body.model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": usage,
-        }
 
         latency_ms = int((time.time() - req_start) * 1000)
         metrics_collector.record(body.model, entry.account_id, latency_ms, True)
-
         return JSONResponse(content=result)
 
     except Exception as e:

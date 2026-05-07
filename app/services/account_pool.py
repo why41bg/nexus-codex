@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
-
-from openai import OpenAI
 
 from app.config import settings
 from app.models import Account
+from app.services.token_manager import TokenManager
+from app.services.chatgpt_client import ChatGPTClient
 from app.utils.logger import log
 
 
@@ -23,7 +20,11 @@ class PoolEntry:
 
     account_id: str
     codex_home: str
-    client: OpenAI
+
+    # ChatGPT client (Plus quota path)
+    token_manager: TokenManager | None = None
+    chatgpt_client: ChatGPTClient | None = None
+
     active_count: int = 0
     max_concurrency: int = 1
     healthy: bool = True
@@ -31,8 +32,9 @@ class PoolEntry:
 
 class AccountPool:
     """
-    Manages a pool of OpenAI accounts with concurrency control.
+    Manages a pool of ChatGPT Plus accounts with concurrency control.
 
+    Each account uses the ChatGPT Plus API endpoint (not OpenAI API).
     Scheduling strategy: least-loaded first, round-robin tie-breaker.
     """
 
@@ -44,20 +46,25 @@ class AccountPool:
         )
         self._event_handlers: list[Callable[[dict[str, Any]], None]] = []
 
-    def init(self, accounts: list[Account]) -> None:
+    async def init_async(self, accounts: list[Account]) -> None:
         """Initialize the pool with accounts."""
-        self._pool = [
-            PoolEntry(
-                account_id=acc.id,
-                codex_home=acc.codex_home,
-                client=self._create_client(acc.codex_home),
-                active_count=0,
-                max_concurrency=acc.max_concurrency or settings.default_max_concurrency,
-                healthy=acc.healthy,
+        self._pool = []
+        for acc in accounts:
+            if not acc.enabled:
+                continue
+            token_mgr = TokenManager(acc.codex_home)
+            chatgpt = ChatGPTClient(token_mgr)
+            self._pool.append(
+                PoolEntry(
+                    account_id=acc.id,
+                    codex_home=acc.codex_home,
+                    token_manager=token_mgr,
+                    chatgpt_client=chatgpt,
+                    active_count=0,
+                    max_concurrency=acc.max_concurrency or settings.default_max_concurrency,
+                    healthy=acc.healthy,
+                )
             )
-            for acc in accounts
-            if acc.enabled
-        ]
         log.info(
             "Account pool initialized",
             extra={
@@ -65,40 +72,6 @@ class AccountPool:
                 "default_max_concurrency": settings.default_max_concurrency,
             },
         )
-
-    def _create_client(self, codex_home: str) -> OpenAI:
-        """Create an OpenAI client configured to use a specific codex home."""
-        auth_path = Path(codex_home) / "auth.json"
-        config_path = Path(codex_home) / "config.toml"
-        api_key = "dummy"
-        base_url = None
-
-        if auth_path.exists():
-            try:
-                auth_data = json.loads(auth_path.read_text())
-                tokens = auth_data.get("tokens", {})
-                api_key = tokens.get("access_token", "dummy")
-            except Exception:
-                pass
-
-        if config_path.exists():
-            try:
-                config_data = tomllib.loads(config_path.read_text())
-                # base_url is nested under [model_providers.<provider>]
-                provider_name = config_data.get("model_provider")
-                if provider_name:
-                    provider_cfg = (
-                        config_data.get("model_providers", {}).get(provider_name, {})
-                    )
-                    base_url = provider_cfg.get("base_url") or base_url
-            except Exception:
-                pass
-
-        kwargs: dict[str, Any] = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
-
-        return OpenAI(**kwargs)
 
     def acquire(self) -> PoolEntry | None:
         """
@@ -171,6 +144,7 @@ class AccountPool:
                 "active_count": e.active_count,
                 "max_concurrency": e.max_concurrency,
                 "healthy": e.healthy,
+                "token_info": e.token_manager.get_account_info() if e.token_manager else {},
             }
             for e in self._pool
         ]
@@ -179,11 +153,14 @@ class AccountPool:
         """Add an account to the pool at runtime."""
         if any(e.account_id == account.id for e in self._pool):
             return
+        token_mgr = TokenManager(account.codex_home)
+        chatgpt = ChatGPTClient(token_mgr)
         self._pool.append(
             PoolEntry(
                 account_id=account.id,
                 codex_home=account.codex_home,
-                client=self._create_client(account.codex_home),
+                token_manager=token_mgr,
+                chatgpt_client=chatgpt,
                 active_count=0,
                 max_concurrency=(
                     account.max_concurrency or settings.default_max_concurrency
@@ -235,6 +212,10 @@ class AccountPool:
                 handler(event)
             except Exception:
                 pass
+
+    async def close(self) -> None:
+        """Clean up resources."""
+        pass
 
 
 # Global singleton

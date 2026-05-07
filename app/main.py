@@ -8,8 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
 from app.services.account_pool import pool
+from app.config import settings
 from app.services.account_store import load_accounts
 from app.services.config_store import get_banned_ips_from_config, load_config
 from app.services.health_check import start_health_check, stop_health_check
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize account pool
     accounts = await load_accounts()
-    pool.init(accounts)
+    await pool.init_async(accounts)
 
     # Start health check background tasks
     start_health_check()
@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
     log.info("Shutting down Nexus Codex")
     stop_health_check()
     cleanup_task.cancel()
+    await pool.close()
     log.info("Nexus Codex shut down gracefully")
 
 

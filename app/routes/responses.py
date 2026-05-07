@@ -19,6 +19,8 @@ from app.services.account_store import increment_usage_count
 from app.services.config_store import is_model_allowed_for_key, increment_key_monthly_usage
 from app.services.metrics_collector import metrics_collector
 from app.services.health_check import trigger_probe
+from app.services.chatgpt_adapter import ChatGPTAdapter
+from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError
 from app.config import settings
 from app.utils.logger import log
 
@@ -60,14 +62,6 @@ def _generate_response_id() -> str:
     return f"resp-nexus-{uuid.uuid4()}"
 
 
-def _generate_item_id() -> str:
-    return f"msg-nexus-{uuid.uuid4()}"
-
-
-def _encode_named_event(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
-
-
 def _error_response(message: str, code: str, status: int = 500) -> JSONResponse:
     return JSONResponse(
         status_code=status,
@@ -81,7 +75,7 @@ async def responses(
     body: ResponsesRequest,
     api_key: str = Depends(api_key_auth_dependency),
 ):
-    """Handle Responses API requests with OpenAI Python SDK streaming."""
+    """Handle Responses API requests with ChatGPT Plus backend streaming."""
     await rate_limit_dependency(request, api_key)
 
     if not is_model_allowed_for_key(api_key, body.model):
@@ -140,158 +134,85 @@ async def _stream_response(
     response_id: str,
     req_start: float,
 ) -> AsyncGenerator[str, None]:
+    """Stream Responses API by forwarding all SSE events from ChatGPT backend.
+
+    The ChatGPT backend returns properly formatted Responses API SSE named events.
+    We forward them all (not just text deltas) so the Codex CLI receives the full
+    event sequence it expects (output_item.added, content_part.added, etc.).
     """
-    Stream Responses API using OpenAI Python SDK's native streaming.
-    Emits token-level deltas via SSE named events.
-    """
-    item_id = _generate_item_id()
+    item_id = f"msg-nexus-{uuid.uuid4()}"
     full_text = ""
+    seen_completed = False
 
     try:
-        # Emit response.created
-        yield _encode_named_event("response.created", {
-            "type": "response.created",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": body.model,
-                "output": [],
-                "status": "in_progress",
-            },
-        })
-
-        # Emit output_item.added
-        yield _encode_named_event("response.output_item.added", {
-            "type": "response.output_item.added",
-            "output_index": 0,
-            "item": {
-                "id": item_id,
-                "type": "message",
-                "role": "assistant",
-                "content": [],
-            },
-        })
-
-        # Emit content_part.added
-        yield _encode_named_event("response.content_part.added", {
-            "type": "response.content_part.added",
-            "output_index": 0,
-            "content_index": 0,
-            "part": {"type": "output_text", "text": ""},
-        })
-
-        # Build messages for the OpenAI SDK
         prompt = _extract_prompt_from_input(body.input)
         if body.instructions:
             prompt = f"{body.instructions}\n\n{prompt}"
 
         messages = [{"role": "user", "content": prompt}]
+        client = entry.chatgpt_client
+        if not client:
+            raise RuntimeError("ChatGPT client not initialized")
 
-        kwargs = {
-            "model": body.model,
-            "messages": messages,
-            "stream": True,
-        }
-        if body.temperature is not None:
-            kwargs["temperature"] = body.temperature
-        if body.max_output_tokens is not None:
-            kwargs["max_tokens"] = body.max_output_tokens
+        # Forward all SSE events from ChatGPT backend
+        async for raw_data in client.chat(
+            model=body.model,
+            messages=messages,
+            stream=True,
+            temperature=body.temperature,
+            max_tokens=body.max_output_tokens,
+        ):
+            try:
+                event_data = json.loads(raw_data)
+                event_type = event_data.get("type", "")
 
-        # Stream using official OpenAI Python SDK - token-level deltas!
-        stream = entry.client.chat.completions.create(**kwargs)
+                # Rewrite response ID in response-level events
+                if "response" in event_data and isinstance(event_data["response"], dict):
+                    event_data["response"]["id"] = response_id
 
-        input_tokens = 0
-        output_tokens = 0
+                # Track full text from deltas
+                if event_type == "response.output_text.delta":
+                    text = ChatGPTAdapter.extract_text_from_event(event_data)
+                    if text:
+                        full_text += text
 
-        for chunk in stream:
-            if chunk.choices:
-                choice = chunk.choices[0]
-                if choice.delta and choice.delta.content:
-                    delta_text = choice.delta.content
-                    full_text += delta_text
+                # Track completion
+                if event_type == "response.completed":
+                    seen_completed = True
+                    # Ensure output has our item_id
+                    output = event_data.get("response", {}).get("output", [])
+                    for item in output:
+                        if item.get("type") == "message":
+                            item["id"] = item_id
 
-                    # Emit response.output_text.delta - token level!
-                    yield _encode_named_event("response.output_text.delta", {
-                        "type": "response.output_text.delta",
-                        "output_index": 0,
-                        "content_index": 0,
-                        "delta": delta_text,
-                    })
+                # Forward as named SSE event
+                line = ChatGPTAdapter.build_named_event(event_type, event_data)
+                log.debug("Responses forward event", extra={"type": event_type, "line": line[:200]})
+                yield line
 
-            # Track usage from the final chunk
-            if chunk.usage:
-                input_tokens = chunk.usage.prompt_tokens or 0
-                output_tokens = chunk.usage.completion_tokens or 0
+            except json.JSONDecodeError:
+                pass
 
-        # Emit completion events
-        yield _encode_named_event("response.output_text.done", {
-            "type": "response.output_text.done",
-            "output_index": 0,
-            "content_index": 0,
-            "text": full_text,
-        })
-
-        yield _encode_named_event("response.content_part.done", {
-            "type": "response.content_part.done",
-            "output_index": 0,
-            "content_index": 0,
-            "part": {"type": "output_text", "text": full_text},
-        })
-
-        yield _encode_named_event("response.output_item.done", {
-            "type": "response.output_item.done",
-            "output_index": 0,
-            "item": {
-                "id": item_id,
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": full_text}],
-            },
-        })
-
-        yield _encode_named_event("response.completed", {
-            "type": "response.completed",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": body.model,
-                "output": [
-                    {
-                        "id": item_id,
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{"type": "output_text", "text": full_text}],
-                    }
-                ],
-                "status": "completed",
-                "usage": {
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "total_tokens": input_tokens + output_tokens,
-                },
-            },
-        })
+        # If backend didn't send response.completed, emit our own
+        if not seen_completed:
+            completed_line = ChatGPTAdapter.build_response_completed(
+                response_id, body.model, item_id, full_text
+            )
+            log.debug("Responses yield completed (fallback)", extra={"line": completed_line[:200]})
+            yield completed_line
 
         latency_ms = int((time.time() - req_start) * 1000)
         metrics_collector.record(body.model, entry.account_id, latency_ms, True)
 
+    except (CloudflareChallengeError, TokenExpiredError) as e:
+        log.warn("ChatGPT backend error", extra={"account_id": entry.account_id, "error": str(e)})
+        yield ChatGPTAdapter.build_response_failed(response_id, body.model, str(e))
+        latency_ms = int((time.time() - req_start) * 1000)
+        metrics_collector.record(body.model, entry.account_id, latency_ms, False)
+        asyncio.create_task(_trigger_probe_safe(entry.account_id))
     except Exception as e:
         log.error("Response stream error", extra={"error": str(e)})
-        yield _encode_named_event("response.failed", {
-            "type": "response.failed",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": body.model,
-                "output": [],
-                "status": "failed",
-            },
-            "error": {"message": str(e), "type": "server_error", "code": "internal_error"},
-        })
-
+        yield ChatGPTAdapter.build_response_failed(response_id, body.model, str(e))
         latency_ms = int((time.time() - req_start) * 1000)
         metrics_collector.record(body.model, entry.account_id, latency_ms, False)
         asyncio.create_task(_trigger_probe_safe(entry.account_id))
@@ -305,33 +226,32 @@ async def _non_stream_response(
     response_id: str,
     req_start: float,
 ) -> JSONResponse:
-    """Non-streaming Responses API."""
+    """Non-streaming Responses API via ChatGPTClient."""
     try:
         prompt = _extract_prompt_from_input(body.input)
         if body.instructions:
             prompt = f"{body.instructions}\n\n{prompt}"
 
         messages = [{"role": "user", "content": prompt}]
+        client = entry.chatgpt_client
+        if not client:
+            raise RuntimeError("ChatGPT client not initialized")
 
-        kwargs = {
-            "model": body.model,
-            "messages": messages,
-        }
-        if body.temperature is not None:
-            kwargs["temperature"] = body.temperature
-        if body.max_output_tokens is not None:
-            kwargs["max_tokens"] = body.max_output_tokens
+        full_text = ""
+        async for raw_data in client.chat(
+            model=body.model,
+            messages=messages,
+            stream=False,
+            temperature=body.temperature,
+            max_tokens=body.max_output_tokens,
+        ):
+            try:
+                response_data = json.loads(raw_data)
+                full_text = ChatGPTAdapter.extract_text_from_response(response_data)
+            except json.JSONDecodeError:
+                pass
 
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None, lambda: entry.client.chat.completions.create(**kwargs)
-        )
-
-        content = response.choices[0].message.content if response.choices else ""
-        input_tokens = response.usage.prompt_tokens if response.usage else 0
-        output_tokens = response.usage.completion_tokens if response.usage else 0
-        item_id = _generate_item_id()
-
+        item_id = f"msg-nexus-{uuid.uuid4()}"
         result = {
             "id": response_id,
             "object": "response",
@@ -342,14 +262,14 @@ async def _non_stream_response(
                     "id": item_id,
                     "type": "message",
                     "role": "assistant",
-                    "content": [{"type": "output_text", "text": content}],
+                    "content": [{"type": "output_text", "text": full_text}],
                 }
             ],
             "status": "completed",
             "usage": {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
             },
         }
 

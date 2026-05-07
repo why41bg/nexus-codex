@@ -101,16 +101,24 @@ _inflight: dict[str, asyncio.Task[QuotaInfo | None]] = {}
 # ─── Helpers ────────────────────────────────────────────────
 
 
-def _read_access_token(codex_home: str) -> str | None:
-    """Read access_token from auth.json in codex_home directory."""
+def _read_auth_info(codex_home: str) -> tuple[str | None, str | None]:
+    """Read access_token and account_id from auth.json in codex_home directory.
+
+    Returns a (access_token, account_id) tuple.
+    """
     try:
         auth_path = Path(codex_home) / "auth.json"
         raw = auth_path.read_text(encoding="utf-8")
         auth = json.loads(raw)
-        tokens = auth.get("tokens", {})
-        return tokens.get("access_token")
+        tokens = auth.get("tokens") or {}
+        access_token = tokens.get("access_token")
+        if not access_token:
+            return None, None
+
+        account_id = tokens.get("account_id")
+        return access_token, account_id
     except Exception:
-        return None
+        return None, None
 
 
 def _to_window(w: dict[str, Any]) -> QuotaWindow:
@@ -153,21 +161,24 @@ def _transform_response(data: dict[str, Any]) -> QuotaInfo | None:
 
 async def _fetch_quota(codex_home: str, timeout_ms: int) -> QuotaInfo | None:
     """Fetch quota from API, store in cache on success."""
-    token = _read_access_token(codex_home)
+    token, account_id = _read_auth_info(codex_home)
     if not token:
         log.warn("quota-probe: no access_token found", extra={"codexHome": codex_home})
         return None
 
     try:
         timeout = httpx.Timeout(timeout_ms / 1000.0)
+        headers: dict[str, str] = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        }
+        if account_id:
+            headers["ChatGPT-Account-Id"] = account_id
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(
                 USAGE_URL,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/json",
-                    "User-Agent": USER_AGENT,
-                },
+                headers=headers,
             )
 
         if resp.status_code != 200:

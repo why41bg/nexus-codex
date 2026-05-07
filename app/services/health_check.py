@@ -1,14 +1,14 @@
+"""Health check service - JWT local probe + remote status check.
+
+Uses TokenManager for token validation and auto-refresh.
+"""
+
 from __future__ import annotations
 
-"""Health check service - JWT local probe + remote status check."""
-
 import asyncio
-import base64
-import json
-from pathlib import Path
 
 from app.config import settings
-from app.services.account_pool import pool, PoolEntry
+from app.services.account_pool import pool
 from app.services.account_store import update_account
 from app.services.admin_emitter import emit_admin_event
 from app.utils.logger import log
@@ -42,57 +42,40 @@ async def _handle_probe_result(
             log.warn("Account marked unhealthy", extra={"account_id": account_id, "source": source, "fail_count": count})
 
 
-def probe_local(codex_home: str, expiry_buffer_sec: int) -> bool:
+async def probe_local(entry) -> bool:
+    """Check token validity using TokenManager.
+
+    Returns True if token is valid (not expired beyond buffer).
+    Attempts auto-refresh if token is within refresh window.
     """
-    Read CODEX_HOME/auth.json and check JWT expiry.
-    Pure local I/O, no network.
-    """
-    try:
-        auth_path = Path(codex_home) / "auth.json"
-        if not auth_path.exists():
-            return False
-        raw = auth_path.read_text(encoding="utf-8")
-        auth = json.loads(raw)
-        access_token = auth.get("tokens", {}).get("access_token")
-        if not access_token:
-            return False
-
-        # Parse JWT payload (no signature verification - just expiry check)
-        parts = access_token.split(".")
-        if len(parts) != 3:
-            return False
-
-        # Add padding
-        payload_b64 = parts[1]
-        padding = 4 - len(payload_b64) % 4
-        if padding != 4:
-            payload_b64 += "=" * padding
-
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        exp = payload.get("exp", 0)
-        import time
-
-        expires_in = exp - time.time()
-        return expires_in > expiry_buffer_sec
-    except Exception:
+    token_mgr = entry.token_manager
+    if not token_mgr:
         return False
+
+    # Try to get a valid token (auto-refreshes if needed)
+    token = await token_mgr.get_access_token()
+    if token:
+        return True
+
+    # No valid token and not refreshable
+    return False
 
 
 async def trigger_probe(account_id: str) -> None:
-    """Trigger an immediate local probe for a specific account."""
+    """Trigger an immediate probe for a specific account."""
     entry = next((e for e in pool.entries() if e.account_id == account_id), None)
     if not entry:
         return
-    healthy = probe_local(entry.codex_home, settings.health_token_expiry_buffer_sec)
+    healthy = await probe_local(entry)
     await _handle_probe_result(account_id, healthy, settings.health_fail_threshold, "local")
 
 
 async def _local_check_loop() -> None:
-    """High-frequency local JWT check."""
+    """High-frequency local token check with auto-refresh."""
     while _running:
         for entry in pool.entries():
             try:
-                healthy = probe_local(entry.codex_home, settings.health_token_expiry_buffer_sec)
+                healthy = await probe_local(entry)
                 await _handle_probe_result(
                     entry.account_id, healthy, settings.health_fail_threshold, "local"
                 )
@@ -102,11 +85,27 @@ async def _local_check_loop() -> None:
 
 
 async def _remote_check_loop() -> None:
-    """Low-frequency remote login status check (placeholder)."""
+    """Low-frequency remote connectivity check.
+
+    Verifies that the ChatGPT backend is reachable with the current token.
+    """
     while _running:
         await asyncio.sleep(settings.health_remote_interval_ms / 1000.0)
-        # Remote probe would call codex login status - skipped in Python version
-        # as it requires spawning the codex binary
+        for entry in pool.entries():
+            try:
+                client = entry.chatgpt_client
+                if not client:
+                    continue
+                # Quick connectivity check via /me endpoint
+                await client.get_account_info()
+                await _handle_probe_result(
+                    entry.account_id, True, settings.health_fail_threshold, "remote"
+                )
+            except Exception as e:
+                log.warn("Remote probe error", extra={"account_id": entry.account_id, "error": str(e)})
+                await _handle_probe_result(
+                    entry.account_id, False, settings.health_fail_threshold, "remote"
+                )
 
 
 def start_health_check() -> None:
