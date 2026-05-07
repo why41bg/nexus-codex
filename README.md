@@ -1,10 +1,13 @@
 # Nexus Codex
 
-OpenAI API 兼容的 Codex 账号池网关。将多个 ChatGPT Plus 账号的 Codex CLI 实例统一调度，对外暴露标准 OpenAI API 接口，支持 Codex CLI、opencode、OpenAI SDK 等客户端直接接入。
+OpenAI API 兼容的 Codex 账号池网关。将多个 ChatGPT Plus 账号统一调度，对外暴露标准 OpenAI API 接口（含原生 token 级流式输出），支持 Codex CLI、opencode、OpenAI SDK 等客户端直接接入。
+
+基于 **Python + FastAPI + OpenAI 官方 Python SDK** 实现，通过 SDK 原生的 `stream=True` 提供真正的 token 级流式响应。
 
 ## 环境要求
 
-- Node.js 18+
+- Python 3.10+（推荐 3.12）
+- [uv](https://docs.astral.sh/uv/) 包管理器
 - 每个要接入池的 ChatGPT Plus 账号需提前完成 Codex CLI 登录
 
 ## 安装
@@ -12,7 +15,7 @@ OpenAI API 兼容的 Codex 账号池网关。将多个 ChatGPT Plus 账号的 Co
 ```bash
 git clone <repo-url> nexus-codex
 cd nexus-codex
-pnpm install
+uv sync
 ```
 
 ## 账号准备
@@ -35,22 +38,22 @@ CODEX_HOME=~/.codex-pool/account-2 codex login --device-auth
 [
   {
     "id": "acc-1",
-    "codexHome": "/Users/you/.codex-pool/account-1",
+    "codex_home": "/Users/you/.codex-pool/account-1",
     "enabled": true,
     "healthy": true,
     "remark": "account-a@gmail.com",
-    "usageCount": 0,
-    "lastUsedAt": null,
-    "maxConcurrency": 3
+    "usage_count": 0,
+    "last_used_at": null,
+    "max_concurrency": 3
   },
   {
     "id": "acc-2",
-    "codexHome": "/Users/you/.codex-pool/account-2",
+    "codex_home": "/Users/you/.codex-pool/account-2",
     "enabled": true,
     "healthy": true,
     "remark": "account-b@gmail.com",
-    "usageCount": 0,
-    "lastUsedAt": null
+    "usage_count": 0,
+    "last_used_at": null
   }
 ]
 ```
@@ -59,9 +62,16 @@ CODEX_HOME=~/.codex-pool/account-2 codex login --device-auth
 
 ## 环境变量
 
+复制 `.env.example` 为 `.env` 并按需修改：
+
+```bash
+cp .env.example .env
+```
+
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `PORT` | 服务监听端口 | `3000` |
+| `HOST` | 服务监听地址 | `0.0.0.0` |
 | `REQUEST_TIMEOUT_MS` | 单次请求超时时间（毫秒） | `300000`（5 分钟） |
 | `ACQUIRE_TIMEOUT_MS` | 账号池排队超时时间（毫秒） | `30000`（30 秒） |
 | `DEFAULT_MAX_CONCURRENCY` | 单账号默认最大并发数（每账号可独立覆盖） | `1` |
@@ -69,41 +79,32 @@ CODEX_HOME=~/.codex-pool/account-2 codex login --device-auth
 | `ADMIN_PASSWORD` | 管理面板登录密码（生产环境务必修改） | `admin` |
 | `ADMIN_SESSION_TTL_MS` | 管理面板 session 过期时间（毫秒） | `86400000`（24 小时） |
 | `LOG_LEVEL` | 日志级别（`debug` / `info` / `warn` / `error`） | `info` |
-| `LOG_FORMAT` | 日志输出格式，设为 `json` 强制 JSON 格式（适合日志采集） | 自动检测（TTY 彩色 / 非 TTY 纯文本） |
+| `LOG_FORMAT` | 日志输出格式（`pretty` / `json`） | `pretty` |
 | `RATE_LIMIT_MAX` | 单个 API Key 在时间窗口内的最大请求数 | `60` |
 | `RATE_LIMIT_WINDOW_MS` | 速率限制滑动窗口大小（毫秒） | `60000`（1 分钟） |
 
-> API Key 和模型白名单已迁移到 `data/config.json`，通过管理面板配置。首次启动时访问 `http://localhost:3000/admin` 进行初始化设置。
+> API Key 和模型白名单存储在 `data/config.json`，通过管理面板配置。首次启动时访问管理面板进行初始化设置。
 
 ## 启动
 
 ### 开发模式
 
-带热重载，修改代码自动重启：
+带热重载：
 
 ```bash
-pnpm dev
+uv run uvicorn app.main:app --reload --port 3000
 ```
 
 ### 生产部署
 
-在项目根目录和 admin-fe 目录下各执行一次：
-
 ```bash
-pnpm install --frozen-lockfile
+uv run python run.py
 ```
 
-回到根目录编译并运行编译产物：
+或直接使用 uvicorn：
 
 ```bash
-pnpm build
-node dist/index.js
-```
-
-带环境变量启动示例：
-
-```bash
-PORT=8080 node dist/index.js
+uv run uvicorn app.main:app --host 0.0.0.0 --port 3000
 ```
 
 服务启动后日志会输出账号池初始化、健康检查启动和服务监听地址等信息。
@@ -172,7 +173,7 @@ codex --provider nexus "你的问题"
 curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer sk-key1" \
   -H "Content-Type: application/json" \
-  -d '{"model":"codex-mini","messages":[{"role":"user","content":"Hello!"}]}'
+  -d '{"model":"codex-mini","messages":[{"role":"user","content":"Hello!"}],"stream":true}'
 ```
 
 指定 `reasoning_effort` 控制模型思考深度（可选值：`minimal`、`low`、`medium`、`high`、`xhigh`）：
@@ -186,10 +187,21 @@ curl http://localhost:3000/v1/chat/completions \
 
 ## 管理面板
 
-服务内置了一个 Web 管理面板（React + Tailwind CSS），可以在浏览器中直观地管理账号池。服务启动后访问：
+服务配套一个 Web 管理面板（React + Tailwind CSS），可以在浏览器中直观地管理账号池、API Key 和模型白名单。
 
-```
-http://localhost:3000/admin
+前端独立部署，详见 [admin-fe/README.md](./admin-fe/README.md)。
+
+快速开始：
+
+```bash
+cd admin-fe
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-访问面板需要输入管理员用户名和密码登录（通过 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量配置，默认 `admin/admin`）。登录后服务端签发 session token，前端通过 Bearer token 鉴权。
+生产构建：
+
+```bash
+VITE_API_BASE=https://api.yourdomain.com pnpm build
+# 将 dist/ 部署到 Nginx / CDN / Vercel 等
+```

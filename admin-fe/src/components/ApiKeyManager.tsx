@@ -316,22 +316,6 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
 function KeyRestrictionTags({ apiKey }: { apiKey: ApiKey }) {
   const tags: Array<{ label: string; color: string }> = [];
 
-  if (apiKey.expiresAt) {
-    const exp = new Date(apiKey.expiresAt);
-    const now = new Date();
-    const daysLeft = Math.ceil((exp.getTime() - now.getTime()) / 86400000);
-    const isNearExpiry = daysLeft <= 7 && daysLeft > 0;
-    const isExpired = daysLeft <= 0;
-    const dateStr = exp.toLocaleDateString();
-    if (isExpired) {
-      tags.push({ label: '已过期', color: 'bg-red-50 text-red-700 ring-red-200 dark:bg-red-950 dark:text-red-400 dark:ring-red-800' });
-    } else if (isNearExpiry) {
-      tags.push({ label: `${daysLeft}天后过期`, color: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:ring-amber-800' });
-    } else {
-      tags.push({ label: `有效期至 ${dateStr}`, color: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:ring-blue-800' });
-    }
-  }
-
   if (apiKey.rateLimitMax != null) {
     const windowSec = (apiKey.rateLimitWindowMs ?? 60000) / 1000;
     const unit = windowSec >= 60 ? `${windowSec / 60}min` : `${windowSec}s`;

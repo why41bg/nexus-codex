@@ -29,7 +29,6 @@ export default function EditKeyModal({
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const [expiresAt, setExpiresAt] = useState(target.expiresAt ?? '');
   const [rateLimitMax, setRateLimitMax] = useState(target.rateLimitMax != null ? String(target.rateLimitMax) : '');
   const [rateLimitWindowMs, setRateLimitWindowMs] = useState(target.rateLimitWindowMs != null ? String(target.rateLimitWindowMs) : '');
   const [monthlyQuota, setMonthlyQuota] = useState(target.monthlyQuota != null ? String(target.monthlyQuota) : '');
@@ -70,7 +69,6 @@ export default function EditKeyModal({
       const res = await api('PATCH', `/api/admin/keys/${encodeURIComponent(target.keyPrefix)}`, {
         name,
         models: selectedModels,
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
         rateLimitMax: rateLimitMax ? Number(rateLimitMax) : null,
         rateLimitWindowMs: rateLimitWindowMs ? Number(rateLimitWindowMs) : null,
         monthlyQuota: monthlyQuota ? Number(monthlyQuota) : null,
@@ -193,16 +191,6 @@ export default function EditKeyModal({
           </button>
           {showAdvanced && (
             <div className="border-t border-gray-200 dark:border-slate-700 px-4 py-3 space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">有效期</label>
-                <input
-                  type="datetime-local"
-                  value={expiresAt ? new Date(expiresAt).toISOString().slice(0, 16) : ''}
-                  onChange={(e) => setExpiresAt(e.target.value || '')}
-                  className={inputClass}
-                />
-                <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500">留空表示永不过期</p>
-              </div>
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">最大请求数</label>

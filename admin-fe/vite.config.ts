@@ -4,14 +4,14 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/admin/',
+  base: '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
     },
   },
   build: {
-    outDir: '../public/admin',
+    outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
       output: {
@@ -22,6 +22,7 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5173,
     proxy: {
       '/api': 'http://localhost:3000',
     },

@@ -3,7 +3,13 @@
  *
  * 会话令牌存储在 localStorage 中用于跨标签页持久化，
  * 登出时清除。令牌通过 Bearer header 发送，避免 CSRF 风险。
+ *
+ * 通过环境变量 VITE_API_BASE 配置后端地址，支持前后端分离部署。
+ * 开发时留空即可（Vite 代理会转发请求）。
  */
+
+/** 后端 API 基础地址，生产环境设为后端完整 URL，如 https://api.example.com */
+export const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 const STORAGE_KEY = 'nexus_admin_token';
 
@@ -36,7 +42,7 @@ export async function api<T = unknown>(
     opts.body = JSON.stringify(body);
   }
 
-  const res = await fetch(path, opts);
+  const res = await fetch(`${API_BASE}${path}`, opts);
   let data: T;
   try {
     data = (await res.json()) as T;
