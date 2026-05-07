@@ -10,7 +10,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.models import AdminAuth, ApiKeyEntry, AppConfig
+from app.models import AdminAuth, ApiKeyEntry, AppConfig, BannedIP
 from app.config import settings
 from app.utils.logger import log
 
@@ -57,6 +57,7 @@ async def load_config() -> AppConfig:
             admin_auth=AdminAuth(**admin_auth_data),
             default_models=parsed.get("default_models", AppConfig().default_models),
             api_keys=[ApiKeyEntry(**k) for k in parsed.get("api_keys", [])],
+            banned_ips=[BannedIP(**b) for b in parsed.get("banned_ips", [])],
         )
         # Fill missing fields for backward compat
         for k in _config.api_keys:
@@ -259,4 +260,22 @@ async def increment_key_monthly_usage(key: str) -> None:
             entry.monthly_usage = 0
             entry.monthly_reset_at = _get_next_month_reset()
     entry.monthly_usage += 1
+    await _save_config()
+
+
+# ─── Banned IPs persistence ──────────────────────────
+
+
+def get_banned_ips_from_config() -> list[BannedIP]:
+    """Get banned IPs from config."""
+    if _config is None:
+        return []
+    return list(_config.banned_ips)
+
+
+async def save_banned_ips(banned_ips: list[BannedIP]) -> None:
+    """Persist banned IPs list to config."""
+    if _config is None:
+        return
+    _config.banned_ips = list(banned_ips)
     await _save_config()

@@ -80,6 +80,14 @@ export interface MetricsBreakdown {
   since: number;
 }
 
+/** 被拉黑的 IP */
+export interface BannedIP {
+  ip: string;
+  reason: string;
+  bannedAt: string;
+  hitCount: number;
+}
+
 /** API Key 信息 */
 export interface ApiKey {
   /** 完整 key（仅创建时返回，列表接口不返回） */

@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # Quota probe
     quota_cache_ttl_ms: int = 10 * 60 * 1000
 
+    # IP Ban
+    ban_threshold: int = 5  # number of 404 hits before auto-ban
+    ban_window_seconds: int = 60  # sliding window for counting hits
+    ban_duration_hours: int = 0  # 0 = permanent until manually removed
+
     # Logging
     log_level: str = "info"
     log_format: str = "pretty"  # "json" or "pretty"

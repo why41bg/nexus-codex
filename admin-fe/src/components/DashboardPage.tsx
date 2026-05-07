@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Account, Dashboard, ApiKey } from '@/types';
+import type { Account, Dashboard, ApiKey, BannedIP } from '@/types';
 import { api, getAuthToken } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
@@ -7,11 +7,12 @@ import Sidebar, { type TabKey } from './Sidebar';
 import DashboardTab from './DashboardTab';
 import AccountsTab from './AccountsTab';
 import ApiKeysTab from './ApiKeysTab';
+import BannedIpsTab from './BannedIpsTab';
 import Spinner from './Spinner';
 
 function getTabFromHash(): TabKey {
   const hash = window.location.hash.slice(1);
-  if (hash === 'accounts' || hash === 'apikeys') return hash;
+  if (hash === 'accounts' || hash === 'apikeys' || hash === 'banned-ips') return hash;
   return 'dashboard';
 }
 
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [bannedIps, setBannedIps] = useState<BannedIP[]>([]);
   const [connected, setConnected] = useState(false);
 
   // 用 ref 持有最新的 refresh，避免 SSE 回调闭包捕获旧值
@@ -46,11 +48,12 @@ export default function DashboardPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, accRes, modelsRes, keysRes] = await Promise.all([
+      const [dashRes, accRes, modelsRes, keysRes, bannedRes] = await Promise.all([
         api<Dashboard>('GET', '/api/admin/dashboard'),
         api<{ accounts: Account[] }>('GET', '/api/admin/accounts'),
         api<{ models: string[] }>('GET', '/api/admin/models'),
         api<{ keys: ApiKey[] }>('GET', '/api/admin/keys'),
+        api<{ bannedIps: BannedIP[] }>('GET', '/api/admin/banned-ips'),
       ]);
 
       if (authGuard(dashRes.status) || authGuard(accRes.status)) return;
@@ -59,6 +62,7 @@ export default function DashboardPage() {
       if (accRes.ok) setAccounts(accRes.data.accounts || []);
       if (modelsRes.ok) setModels(modelsRes.data.models || []);
       if (keysRes.ok) setApiKeys(keysRes.data.keys || []);
+      if (bannedRes.ok) setBannedIps(bannedRes.data.bannedIps || []);
     } catch {
       toast('数据加载失败', 'error');
     } finally {
@@ -100,7 +104,7 @@ export default function DashboardPage() {
       es.onmessage = (e) => {
         try {
           const event = JSON.parse(e.data) as { type: string };
-          if (event.type === 'pool_changed' || event.type === 'health_changed') {
+          if (event.type === 'pool_changed' || event.type === 'health_changed' || event.type === 'banned_ips_changed') {
             // debounce: 500ms 内合并多次事件，避免请求风暴
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
@@ -161,6 +165,14 @@ export default function DashboardPage() {
           <ApiKeysTab
             apiKeys={apiKeys}
             models={models}
+            loading={loading}
+            onRefresh={refresh}
+          />
+        );
+      case 'banned-ips':
+        return (
+          <BannedIpsTab
+            bannedIps={bannedIps}
             loading={loading}
             onRefresh={refresh}
           />

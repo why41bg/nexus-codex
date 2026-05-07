@@ -11,8 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.services.account_pool import pool
 from app.services.account_store import load_accounts
-from app.services.config_store import load_config
+from app.services.config_store import get_banned_ips_from_config, load_config
 from app.services.health_check import start_health_check, stop_health_check
+from app.services.ip_ban_store import get_client_ip, init_banned_ips, record_suspicious_hit
 from app.services.session_manager import cleanup_expired_sessions
 from app.utils.logger import log
 
@@ -25,6 +26,9 @@ async def lifespan(app: FastAPI):
 
     # Load persistent config
     await load_config()
+
+    # Initialize IP ban list from persisted config
+    init_banned_ips(get_banned_ips_from_config())
 
     # Initialize account pool
     accounts = await load_accounts()
@@ -78,6 +82,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# IP Ban middleware (checked before routing)
+from app.middleware.ip_ban import IPBanMiddleware  # noqa: E402
+
+app.add_middleware(IPBanMiddleware)
+
 
 # ─── Global exception handler ────────────────────────────────
 
@@ -129,7 +138,19 @@ app.include_router(admin_router, prefix="/api/admin")
 
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def catch_all(request: Request, path_name: str):
-    """Catch-all 404 handler."""
+    """Catch-all 404 handler. Records suspicious hits for auto-banning."""
+    client_ip = get_client_ip(request)
+    reason = f"{request.method} /{path_name}"
+
+    # Record the suspicious hit (may trigger auto-ban)
+    was_banned = record_suspicious_hit(client_ip, reason)
+    if was_banned:
+        # Persist the updated ban list
+        from app.services.config_store import save_banned_ips
+        from app.services.ip_ban_store import get_banned_ips
+
+        await save_banned_ips(get_banned_ips())
+
     return JSONResponse(
         status_code=404,
         content={

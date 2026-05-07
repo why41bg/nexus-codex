@@ -52,6 +52,13 @@ class AdminAuth(BaseModel):
     password: str = "admin"
 
 
+class BannedIP(BaseModel):
+    ip: str
+    reason: str = ""
+    banned_at: str = ""
+    hit_count: int = 1
+
+
 class AppConfig(BaseModel):
     admin_auth: AdminAuth = Field(default_factory=AdminAuth)
     default_models: list[str] = Field(
@@ -64,6 +71,7 @@ class AppConfig(BaseModel):
         ]
     )
     api_keys: list[ApiKeyEntry] = Field(default_factory=list)
+    banned_ips: list[BannedIP] = Field(default_factory=list)
 
 
 # ─── Chat Completions API ──────────────────────────────────

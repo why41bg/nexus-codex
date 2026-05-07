@@ -37,8 +37,14 @@ from app.services.config_store import (
     get_models_for_key,
     remove_api_key,
     remove_default_model,
+    save_banned_ips,
     update_api_key,
     verify_admin_auth,
+)
+from app.services.ip_ban_store import (
+    ban_ip,
+    get_banned_ips,
+    unban_ip,
 )
 from app.services.metrics_collector import metrics_collector
 from app.services.quota_probe import probe_quota, refresh_quota
@@ -477,3 +483,64 @@ async def get_metrics_time_series(range: str = "1h"):
 async def get_metrics_breakdown():
     """Get metrics breakdown."""
     return JSONResponse(content=metrics_collector.get_breakdown())
+
+
+# ─── IP Ban Management ────────────────────────────────────
+
+
+@router.get("/banned-ips", dependencies=[Depends(admin_auth_dependency)])
+async def list_banned_ips():
+    """List all banned IPs."""
+    banned = get_banned_ips()
+    result = [
+        {
+            "ip": entry.ip,
+            "reason": entry.reason,
+            "bannedAt": entry.banned_at,
+            "hitCount": entry.hit_count,
+        }
+        for entry in banned
+    ]
+    return JSONResponse(content={"bannedIps": result})
+
+
+@router.post("/banned-ips", dependencies=[Depends(admin_auth_dependency)])
+async def add_banned_ip(request: Request):
+    """Manually ban an IP address."""
+    body = await request.json()
+    ip = body.get("ip", "").strip()
+    reason = body.get("reason", "Manually banned")
+
+    if not ip:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"message": "IP address is required.", "type": "invalid_request_error", "code": "missing_ip"}},
+        )
+
+    entry = ban_ip(ip, reason=reason)
+    if not entry:
+        return JSONResponse(
+            status_code=409,
+            content={"error": {"message": "IP is already banned.", "type": "conflict", "code": "already_banned"}},
+        )
+
+    # Persist
+    await save_banned_ips(get_banned_ips())
+    emit_admin_event({"type": "banned_ips_changed"})
+    return JSONResponse(content={"ok": True, "ip": entry.ip})
+
+
+@router.delete("/banned-ips/{ip}", dependencies=[Depends(admin_auth_dependency)])
+async def remove_banned_ip(ip: str):
+    """Unban an IP address."""
+    removed = unban_ip(ip)
+    if not removed:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"message": "IP not found in ban list.", "type": "invalid_request_error", "code": "not_found"}},
+        )
+
+    # Persist
+    await save_banned_ips(get_banned_ips())
+    emit_admin_event({"type": "banned_ips_changed"})
+    return JSONResponse(content={"ok": True})
