@@ -1,21 +1,19 @@
 """Quota probe service - query ChatGPT Plus account usage/quota via HTTP.
 
-Reads access_token from CODEX_HOME/auth.json, requests
-chatgpt.com/backend-api/codex/usage to get quota data.
-Only needs Authorization + User-Agent headers to pass through Cloudflare.
+Uses TokenManager to get a valid access_token (with auto-refresh support),
+then requests chatgpt.com/backend-api/codex/usage to get quota data.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import time
-from pathlib import Path
 from typing import Any
 
 import httpx
 
 from app.config import settings
+from app.services.token_manager import TokenManager
 from app.utils.logger import log
 
 # ─── Types ──────────────────────────────────────────────────
@@ -101,26 +99,6 @@ _inflight: dict[str, asyncio.Task[QuotaInfo | None]] = {}
 # ─── Helpers ────────────────────────────────────────────────
 
 
-def _read_auth_info(codex_home: str) -> tuple[str | None, str | None]:
-    """Read access_token and account_id from auth.json in codex_home directory.
-
-    Returns a (access_token, account_id) tuple.
-    """
-    try:
-        auth_path = Path(codex_home) / "auth.json"
-        raw = auth_path.read_text(encoding="utf-8")
-        auth = json.loads(raw)
-        tokens = auth.get("tokens") or {}
-        access_token = tokens.get("access_token")
-        if not access_token:
-            return None, None
-
-        account_id = tokens.get("account_id")
-        return access_token, account_id
-    except Exception:
-        return None, None
-
-
 def _to_window(w: dict[str, Any]) -> QuotaWindow:
     """Transform raw API window data to QuotaWindow."""
     return QuotaWindow(
@@ -160,11 +138,17 @@ def _transform_response(data: dict[str, Any]) -> QuotaInfo | None:
 
 
 async def _fetch_quota(codex_home: str, timeout_ms: int) -> QuotaInfo | None:
-    """Fetch quota from API, store in cache on success."""
-    token, account_id = _read_auth_info(codex_home)
+    """Fetch quota from API, store in cache on success.
+
+    Uses TokenManager to get a valid access_token with auto-refresh support,
+    so expired tokens are refreshed before the quota request.
+    """
+    token_mgr = TokenManager(codex_home)
+    token = await token_mgr.get_access_token()
     if not token:
-        log.warn("quota-probe: no access_token found", extra={"codexHome": codex_home})
+        log.warn("quota-probe: no valid access_token", extra={"codexHome": codex_home})
         return None
+    account_id = token_mgr.get_account_id()
 
     try:
         timeout = httpx.Timeout(timeout_ms / 1000.0)
