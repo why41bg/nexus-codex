@@ -1,71 +1,48 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Account, Dashboard, ApiKey, BannedIP } from '@/types';
 import { api, getAuthToken, API_BASE } from '@/lib/api';
-import { useToast } from '@/contexts/ToastContext';
-import { useAuthGuard } from '@/contexts/AuthContext';
 
-interface DashboardData {
-  dashboard: Dashboard;
-  accounts: Account[];
-  models: string[];
-  apiKeys: ApiKey[];
-  bannedIps: BannedIP[];
+async function fetchDashboardData() {
+  const [dashRes, accRes, modelsRes, keysRes, bannedRes] = await Promise.all([
+    api<Dashboard>('GET', '/api/admin/dashboard'),
+    api<{ accounts: Account[] }>('GET', '/api/admin/accounts'),
+    api<{ models: string[] }>('GET', '/api/admin/models'),
+    api<{ keys: ApiKey[] }>('GET', '/api/admin/keys'),
+    api<{ bannedIps: BannedIP[] }>('GET', '/api/admin/banned-ips'),
+  ]);
+
+  return {
+    dashboard: dashRes.ok ? dashRes.data : ({} as Dashboard),
+    accounts: accRes.ok ? (accRes.data.accounts || []) : [],
+    models: modelsRes.ok ? (modelsRes.data.models || []) : [],
+    apiKeys: keysRes.ok ? (keysRes.data.keys || []) : [],
+    bannedIps: bannedRes.ok ? (bannedRes.data.bannedIps || []) : [],
+  };
 }
 
 export function useDashboardData() {
-  const { toast } = useToast();
-  const authGuard = useAuthGuard();
+  const queryClient = useQueryClient();
 
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<DashboardData>({
-    dashboard: {},
-    accounts: [],
-    models: [],
-    apiKeys: [],
-    bannedIps: [],
+  const { data, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ['dashboardData'],
+    queryFn: fetchDashboardData,
+    staleTime: 30_000,
   });
-  const [connected, setConnected] = useState(false);
 
-  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const defaultData = {
+    dashboard: {} as Dashboard,
+    accounts: [] as Account[],
+    models: [] as string[],
+    apiKeys: [] as ApiKey[],
+    bannedIps: [] as BannedIP[],
+  };
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [dashRes, accRes, modelsRes, keysRes, bannedRes] = await Promise.all([
-        api<Dashboard>('GET', '/api/admin/dashboard'),
-        api<{ accounts: Account[] }>('GET', '/api/admin/accounts'),
-        api<{ models: string[] }>('GET', '/api/admin/models'),
-        api<{ keys: ApiKey[] }>('GET', '/api/admin/keys'),
-        api<{ bannedIps: BannedIP[] }>('GET', '/api/admin/banned-ips'),
-      ]);
+  const dashboardData = data ?? defaultData;
 
-      if (authGuard(dashRes.status) || authGuard(accRes.status)) return;
+  // SSE connection for real-time invalidation
+  const connectedRef = useRef(false);
 
-      setData({
-        dashboard: dashRes.ok ? dashRes.data : data.dashboard,
-        accounts: accRes.ok ? (accRes.data.accounts || []) : data.accounts,
-        models: modelsRes.ok ? (modelsRes.data.models || []) : data.models,
-        apiKeys: keysRes.ok ? (keysRes.data.keys || []) : data.apiKeys,
-        bannedIps: bannedRes.ok ? (bannedRes.data.bannedIps || []) : data.bannedIps,
-      });
-    } catch {
-      toast('数据加载失败', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [authGuard, toast]);
-
-  // Keep ref in sync
-  useEffect(() => {
-    refreshRef.current = refresh;
-  }, [refresh]);
-
-  // Initial load
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  // SSE connection
   useEffect(() => {
     let es: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -81,17 +58,21 @@ export function useDashboardData() {
       es = new EventSource(url);
 
       es.onopen = () => {
-        setConnected(true);
+        connectedRef.current = true;
         retryDelay = 1000;
       };
 
       es.onmessage = (e) => {
         try {
           const event = JSON.parse(e.data) as { type: string };
-          if (event.type === 'pool_changed' || event.type === 'health_changed' || event.type === 'banned_ips_changed') {
+          if (
+            event.type === 'pool_changed' ||
+            event.type === 'health_changed' ||
+            event.type === 'banned_ips_changed'
+          ) {
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-              refreshRef.current();
+              queryClient.invalidateQueries({ queryKey: ['dashboardData'] });
               debounceTimer = null;
             }, 500);
           }
@@ -101,7 +82,7 @@ export function useDashboardData() {
       };
 
       es.onerror = () => {
-        setConnected(false);
+        connectedRef.current = false;
         es?.close();
         es = null;
         if (!destroyed) {
@@ -120,9 +101,15 @@ export function useDashboardData() {
       if (retryTimer) clearTimeout(retryTimer);
       if (debounceTimer) clearTimeout(debounceTimer);
       es?.close();
-      setConnected(false);
+      connectedRef.current = false;
     };
-  }, []);
+  }, [queryClient]);
 
-  return { data, loading, connected, refresh };
+  return {
+    data: dashboardData,
+    loading: isLoading,
+    refreshing: isFetching && !isLoading,
+    connected: connectedRef.current,
+    refresh: async () => { await refetch(); },
+  };
 }

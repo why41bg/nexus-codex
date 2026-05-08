@@ -1,11 +1,23 @@
 import { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import LoginPage from '@/components/LoginPage';
 import DashboardPage from '@/components/DashboardPage';
 import Spinner from '@/components/Spinner';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,      // 30s before data is considered stale
+      gcTime: 5 * 60_000,     // 5min garbage collection (formerly cacheTime)
+      retry: 2,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function AppContent() {
   const { authenticated, restore } = useAuth();
@@ -44,13 +56,15 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <ToastProvider>
-          <HashRouter>
-            <AppContent />
-          </HashRouter>
-        </ToastProvider>
-      </AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ToastProvider>
+            <HashRouter>
+              <AppContent />
+            </HashRouter>
+          </ToastProvider>
+        </AuthProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }
