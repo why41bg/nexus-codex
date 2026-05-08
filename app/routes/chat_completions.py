@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.dependencies import AppDependencies, get_deps
+from app.exceptions import ModelNotFoundError, RateLimitError
 from app.models import ChatCompletionRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
@@ -21,7 +22,7 @@ from app.services.chatgpt_adapter import ChatGPTAdapter
 from app.config import settings
 from app.utils.logger import log
 from app.utils.retry import with_retry, is_retryable
-from app.utils.route_helpers import error_response, increment_counters, trigger_probe_safe
+from app.utils.route_helpers import increment_counters, trigger_probe_safe
 
 router = APIRouter()
 
@@ -41,11 +42,7 @@ async def chat_completions(
     await rate_limit_dependency(request, api_key)
 
     if not is_model_allowed_for_key(api_key, body.model):
-        return error_response(
-            f"The model '{body.model}' does not exist or is not available.",
-            "model_not_found",
-            404,
-        )
+        raise ModelNotFoundError(body.model)
 
     req_start = time.time()
     completion_id = _generate_completion_id()
@@ -69,10 +66,10 @@ async def chat_completions(
             return result
         except RuntimeError as e:
             log.error("Chat completion exhausted retries", extra={"error": str(e)})
-            return error_response(str(e), "rate_limit_exceeded", 429)
+            raise RateLimitError(str(e))
         except Exception as e:
             log.error("Chat completion error", extra={"error": str(e)})
-            return error_response(str(e), "internal_error")
+            raise
 
 
 async def _do_non_stream(

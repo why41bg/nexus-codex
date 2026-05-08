@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.dependencies import AppDependencies, get_deps
+from app.exceptions import AccountNotFoundError
 from app.middleware.auth import admin_auth_dependency
 from app.models import (
     AddAccountRequest,
@@ -209,7 +210,7 @@ async def update_account_route(account_id: str, body: UpdateAccountRequest, deps
     updates = body.model_dump(exclude_none=True)
     acc = await update_account(account_id, **updates)
     if not acc:
-        return JSONResponse(status_code=404, content={"error": {"message": "Account not found"}})
+        raise AccountNotFoundError(account_id)
 
     # Update pool entry
     if body.healthy is not None:

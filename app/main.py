@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.services.account_pool import pool
 from app.config import settings
 from app.dependencies import AppDependencies
+from app.exceptions import NexusError
 from app.services.account_store import load_accounts
 from app.services.config_store import get_banned_ips_from_config, load_config
 from app.services.health_check import start_health_check, stop_health_check
@@ -105,7 +106,31 @@ from app.middleware.ip_ban import IPBanMiddleware  # noqa: E402
 app.add_middleware(IPBanMiddleware)
 
 
-# ─── Global exception handler ────────────────────────────────
+# ─── Global exception handlers ───────────────────────────────
+
+
+@app.exception_handler(NexusError)
+async def nexus_exception_handler(request: Request, exc: NexusError):
+    """Handle NexusError with proper OpenAI-compatible error response."""
+    log.warn(
+        "Application error",
+        extra={
+            "error": exc.message,
+            "code": exc.code,
+            "status": exc.status_code,
+            "path": request.url.path,
+        },
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "message": exc.message,
+                "type": "server_error",
+                "code": exc.code,
+            }
+        },
+    )
 
 
 @app.exception_handler(Exception)
