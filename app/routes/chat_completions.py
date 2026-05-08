@@ -29,10 +29,9 @@ from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import PoolEntry
 from app.services.config_store import is_model_allowed_for_key
 from app.services.chatgpt_adapter import ChatGPTAdapter
-from app.config import settings
 from app.utils.logger import log
-from app.utils.retry import with_retry, is_retryable
-from app.utils.route_helpers import increment_counters, trigger_probe_safe
+from app.utils.retry import with_retry, with_stream_retry
+from app.utils.route_helpers import increment_counters
 
 router = APIRouter()
 
@@ -128,104 +127,60 @@ async def _stream_completion_with_retry(
     api_key: str,
 ) -> AsyncGenerator[str, None]:
     """Stream chat completion with account failover on initial connection errors."""
-    from app.utils.retry import MAX_RETRIES
 
-    last_error: Exception | None = None
+    async def _stream(entry: PoolEntry) -> AsyncGenerator[str, None]:
+        client = entry.chatgpt_client
+        if not client:
+            raise RuntimeError("ChatGPT client not initialized")
 
-    for attempt in range(MAX_RETRIES + 1):
-        entry = await deps.pool.acquire_async()
-        if not entry:
-            error_data = {
-                "error": {
-                    "message": "All account concurrency slots are currently in use.",
-                    "type": "server_error",
-                    "code": "rate_limit_exceeded",
-                }
-            }
-            yield f"data: {json.dumps(error_data)}\n\n"
-            yield "data: [DONE]\n\n"
-            return
+        params = ChatGPTAdapter.prepare_request(body)
+        include_usage = bool(
+            body.stream_options and body.stream_options.get("include_usage")
+        )
 
-        asyncio.create_task(increment_counters(entry.account_id, api_key))
+        init_chunk = ChatGPTAdapter.build_chat_chunk(
+            completion_id, body.model, role="assistant"
+        )
+        yield f"data: {json.dumps(init_chunk)}\n\n"
 
-        try:
-            client = entry.chatgpt_client
-            if not client:
-                raise RuntimeError("ChatGPT client not initialized")
-
-            params = ChatGPTAdapter.prepare_request(body)
-
-            # Determine if client requested usage stats via stream_options
-            include_usage = bool(
-                body.stream_options and body.stream_options.get("include_usage")
-            )
-
-            # Initial chunk with assistant role
-            init_chunk = ChatGPTAdapter.build_chat_chunk(
-                completion_id, body.model, role="assistant"
-            )
-            yield f"data: {json.dumps(init_chunk)}\n\n"
-
-            # Stream events from backend, converting each to chat chunks.
-            # The final chunk (with correct finish_reason) is produced by
-            # the adapter from the response.completed event.
-            async for raw_data in client.responses(**params):
-                try:
-                    event_data = json.loads(raw_data)
-                    chunks = ChatGPTAdapter.convert_stream_event(
-                        event_data, completion_id, body.model,
-                        include_usage=include_usage,
-                    )
-                    for chunk_json in chunks:
-                        yield f"data: {chunk_json}\n\n"
-                except json.JSONDecodeError:
-                    pass
-
-            yield "data: [DONE]\n\n"
-
-            latency_ms = int((time.time() - req_start) * 1000)
-            deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True)
-            deps.pool.release(entry.account_id)
-            return
-
-        except Exception as e:
-            deps.pool.release(entry.account_id)
-            latency_ms = int((time.time() - req_start) * 1000)
-            deps.metrics_collector.record(body.model, entry.account_id, latency_ms, False)
-
-            if attempt < MAX_RETRIES and is_retryable(e):
-                log.warn(
-                    "Stream retryable error, failing over",
-                    extra={
-                        "account_id": entry.account_id,
-                        "attempt": attempt + 1,
-                        "error": str(e),
-                    },
+        async for raw_data in client.responses(**params):
+            try:
+                event_data = json.loads(raw_data)
+                chunks = ChatGPTAdapter.convert_stream_event(
+                    event_data, completion_id, body.model,
+                    include_usage=include_usage,
                 )
-                asyncio.create_task(trigger_probe_safe(entry.account_id))
-                last_error = e
-                await asyncio.sleep(0.5 * (attempt + 1))
-                continue
-            else:
-                log.error("Stream error", extra={"error": str(e)})
-                error_data = {
-                    "error": {
-                        "message": str(e),
-                        "type": "server_error",
-                        "code": "api_error",
-                    }
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
-                yield "data: [DONE]\n\n"
-                asyncio.create_task(trigger_probe_safe(entry.account_id))
-                return
+                for chunk_json in chunks:
+                    yield f"data: {chunk_json}\n\n"
+            except json.JSONDecodeError:
+                pass
 
-    error_data = {
-        "error": {
-            "message": f"All retry attempts exhausted. Last error: {last_error}",
-            "type": "server_error",
-            "code": "rate_limit_exceeded",
+        yield "data: [DONE]\n\n"
+
+    def _no_slot_error() -> str:
+        error_data = {
+            "error": {
+                "message": "All account concurrency slots are currently in use.",
+                "type": "server_error",
+                "code": "rate_limit_exceeded",
+            }
         }
-    }
-    yield f"data: {json.dumps(error_data)}\n\n"
-    yield "data: [DONE]\n\n"
+        return f"data: {json.dumps(error_data)}\n\n"
+
+    def _format_error(msg: str) -> str:
+        error_data = {
+            "error": {
+                "message": msg,
+                "type": "server_error",
+                "code": "api_error",
+            }
+        }
+        return f"data: {json.dumps(error_data)}\n\n"
+
+    async for chunk in with_stream_retry(
+        deps, _stream, body.model, api_key, req_start,
+        format_no_slot_error=_no_slot_error,
+        format_error=_format_error,
+        append_done=True,
+    ):
+        yield chunk
