@@ -47,11 +47,6 @@ class ApiKeyEntry(BaseModel):
     ip_whitelist: list[str] = Field(default_factory=list)
 
 
-class AdminAuth(BaseModel):
-    username: str = "admin"
-    password: str = "admin"
-
-
 class BannedIP(BaseModel):
     ip: str
     reason: str = ""
@@ -60,7 +55,6 @@ class BannedIP(BaseModel):
 
 
 class AppConfig(BaseModel):
-    admin_auth: AdminAuth = Field(default_factory=AdminAuth)
     default_models: list[str] = Field(
         default_factory=lambda: [
             "gpt-5.4",
