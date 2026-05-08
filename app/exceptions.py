@@ -65,6 +65,16 @@ class AccountNotFoundError(NexusError):
         )
 
 
+class RetryExhaustedError(RuntimeError):
+    """All retry attempts have been exhausted.
+
+    This is NOT a NexusError — it is a marker subclass of RuntimeError
+    used by with_retry / with_stream_retry to signal that all account
+    failover attempts have been exhausted. Route handlers catch this
+    specifically and convert it to a RateLimitError.
+    """
+
+
 class BackendError(NexusError):
     """Error from the ChatGPT backend (Cloudflare, token expiry, etc.)."""
 

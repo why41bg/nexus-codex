@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.dependencies import AppDependencies, get_deps
-from app.exceptions import ModelNotFoundError, RateLimitError
+from app.exceptions import ModelNotFoundError, RateLimitError, RetryExhaustedError, BackendError
 from app.models import ResponsesRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
@@ -65,9 +65,12 @@ async def responses(
                 lambda entry: _do_non_stream(deps, entry, body, response_id, req_start, api_key),
             )
             return result
-        except RuntimeError as e:
+        except RetryExhaustedError as e:
             log.error("Responses API exhausted retries", extra={"error": str(e)})
             raise RateLimitError(str(e))
+        except RuntimeError as e:
+            log.error("Responses API backend error", extra={"error": str(e)})
+            raise BackendError(str(e))
         except Exception as e:
             log.error("Responses API error", extra={"error": str(e)})
             raise
@@ -100,7 +103,7 @@ async def _do_non_stream(
         temperature=body.temperature,
         max_output_tokens=body.max_output_tokens,
         reasoning_effort=body.reasoning_effort,
-        stream=False,
+        stream=True,
     ):
         try:
             result = json.loads(raw_data)

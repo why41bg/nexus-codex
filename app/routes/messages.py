@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.adapters.anthropic_adapter import AnthropicAdapter
 from app.dependencies import AppDependencies, get_deps
-from app.exceptions import ModelNotFoundError, RateLimitError
+from app.exceptions import ModelNotFoundError, RateLimitError, RetryExhaustedError, BackendError
 from app.models_anthropic import AnthropicMessagesRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
@@ -67,9 +67,12 @@ async def messages(
                 lambda entry: _do_non_stream(deps, entry, body, message_id, req_start, api_key),
             )
             return result
-        except RuntimeError as e:
+        except RetryExhaustedError as e:
             log.error("Messages API exhausted retries", extra={"error": str(e)})
             raise RateLimitError(str(e))
+        except RuntimeError as e:
+            log.error("Messages API backend error", extra={"error": str(e)})
+            raise BackendError(str(e))
         except Exception as e:
             log.error("Messages API error", extra={"error": str(e)})
             raise
@@ -91,7 +94,7 @@ async def _do_non_stream(
         raise RuntimeError("ChatGPT client not initialized")
 
     params = AnthropicAdapter.to_responses_params(body)
-    params["stream"] = False
+    params["stream"] = True
 
     result = None
     async for raw_data in client.responses(**params):

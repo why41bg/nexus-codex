@@ -14,6 +14,7 @@ from collections.abc import Callable, Awaitable, AsyncGenerator
 from typing import TypeVar
 
 from app.dependencies import AppDependencies
+from app.exceptions import RetryExhaustedError
 from app.services.account_pool import AccountPool, PoolEntry
 from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError
 from app.services.health_check import trigger_probe
@@ -79,7 +80,7 @@ async def with_retry(
     for attempt in range(MAX_RETRIES + 1):
         entry = await deps.pool.acquire_async(acquire_timeout_ms)
         if not entry:
-            raise RuntimeError(
+            raise RetryExhaustedError(
                 "All account concurrency slots are currently in use. "
                 "Please try again later."
             )
@@ -107,7 +108,7 @@ async def with_retry(
                 deps.pool.release(entry.account_id)
                 raise
 
-    raise RuntimeError(
+    raise RetryExhaustedError(
         f"All {MAX_RETRIES + 1} retry attempts exhausted. "
         f"Last error: {last_error}"
     )
