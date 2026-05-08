@@ -25,9 +25,9 @@ export function formatResetsIn(resetsAt: number): string {
   return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
 }
 
-/** 额度进度条颜色 */
-export function quotaBarColor(pct: number): string {
-  if (pct >= 90) return 'bg-red-500';
-  if (pct >= 60) return 'bg-amber-400';
+/** 额度进度条颜色（基于剩余额度百分比） */
+export function quotaBarColor(remainingPct: number): string {
+  if (remainingPct <= 10) return 'bg-red-500';
+  if (remainingPct <= 40) return 'bg-amber-400';
   return 'bg-green-500';
 }

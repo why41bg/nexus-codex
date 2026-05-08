@@ -25,13 +25,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function QuotaRow({ label, pct, resetsAt }: { label: string; pct: number; resetsAt: number }) {
   const clamped = Math.min(100, Math.max(0, pct));
+  const remainingPct = 100 - clamped;
   return (
     <div className="flex items-center gap-2">
       <span className="w-6 shrink-0 text-xs font-medium text-gray-500 dark:text-slate-400">{label}</span>
       <div className="relative h-2 w-28 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-700">
         <div
-          className={`absolute inset-y-0 left-0 rounded-full transition-all ${quotaBarColor(clamped)}`}
-          style={{ width: `${clamped}%` }}
+          className={`absolute inset-y-0 left-0 rounded-full transition-all ${quotaBarColor(remainingPct)}`}
+          style={{ width: `${remainingPct}%` }}
         />
       </div>
       <span className="text-xs tabular-nums text-gray-600 dark:text-slate-400">{clamped}%</span>

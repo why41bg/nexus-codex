@@ -405,13 +405,14 @@ interface QuotaBarProps {
 
 function QuotaBar({ label, pct, resetsAt }: QuotaBarProps) {
   const clampedPct = Math.min(100, Math.max(0, pct));
+  const remainingPct = 100 - clampedPct;
   return (
     <div className="flex items-center gap-1.5">
       <span className="w-5 shrink-0 text-[10px] font-medium text-gray-400 dark:text-slate-500">{label}</span>
       <div className="relative h-1.5 w-20 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-700">
         <div
-          className={`absolute inset-y-0 left-0 rounded-full transition-all ${quotaBarColor(clampedPct)}`}
-          style={{ width: `${clampedPct}%` }}
+          className={`absolute inset-y-0 left-0 rounded-full transition-all ${quotaBarColor(remainingPct)}`}
+          style={{ width: `${remainingPct}%` }}
         />
       </div>
       <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-gray-500 dark:text-slate-400">
