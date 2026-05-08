@@ -216,7 +216,3 @@ class AccountPool:
     async def close(self) -> None:
         """Clean up resources."""
         pass
-
-
-# Global singleton
-pool = AccountPool()

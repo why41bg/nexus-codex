@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 
 from app.config import settings
-from app.services.account_pool import pool
+from app.services.account_pool import AccountPool
 from app.services.account_store import update_account
 from app.services.admin_emitter import emit_admin_event
 from app.utils.logger import log
@@ -16,19 +16,21 @@ from app.utils.logger import log
 _fail_counts: dict[str, int] = {}
 _running = False
 _tasks: list[asyncio.Task] = []
+_pool: AccountPool | None = None
 
 
 async def _handle_probe_result(
     account_id: str, healthy: bool, fail_threshold: int, source: str
 ) -> None:
     """Handle probe result: update health state if threshold reached."""
-    entry = next((e for e in pool.entries() if e.account_id == account_id), None)
+    assert _pool is not None
+    entry = next((e for e in _pool.entries() if e.account_id == account_id), None)
     was_healthy = entry.healthy if entry else True
 
     if healthy:
         _fail_counts[account_id] = 0
         if not was_healthy:
-            pool.update_entry(account_id, healthy=True)
+            _pool.update_entry(account_id, healthy=True)
             await update_account(account_id, healthy=True)
             emit_admin_event({"type": "health_changed", "account_id": account_id, "healthy": True})
             log.info("Account recovered to healthy", extra={"account_id": account_id, "source": source})
@@ -36,7 +38,7 @@ async def _handle_probe_result(
         count = _fail_counts.get(account_id, 0) + 1
         _fail_counts[account_id] = count
         if count >= fail_threshold and was_healthy:
-            pool.update_entry(account_id, healthy=False)
+            _pool.update_entry(account_id, healthy=False)
             await update_account(account_id, healthy=False)
             emit_admin_event({"type": "health_changed", "account_id": account_id, "healthy": False})
             log.warn("Account marked unhealthy", extra={"account_id": account_id, "source": source, "fail_count": count})
@@ -63,7 +65,8 @@ async def probe_local(entry) -> bool:
 
 async def trigger_probe(account_id: str) -> None:
     """Trigger an immediate probe for a specific account."""
-    entry = next((e for e in pool.entries() if e.account_id == account_id), None)
+    assert _pool is not None
+    entry = next((e for e in _pool.entries() if e.account_id == account_id), None)
     if not entry:
         return
     healthy = await probe_local(entry)
@@ -72,8 +75,9 @@ async def trigger_probe(account_id: str) -> None:
 
 async def _local_check_loop() -> None:
     """High-frequency local token check with auto-refresh."""
+    assert _pool is not None
     while _running:
-        for entry in pool.entries():
+        for entry in _pool.entries():
             try:
                 healthy = await probe_local(entry)
                 await _handle_probe_result(
@@ -89,9 +93,10 @@ async def _remote_check_loop() -> None:
 
     Verifies that the ChatGPT backend is reachable with the current token.
     """
+    assert _pool is not None
     while _running:
         await asyncio.sleep(settings.health_remote_interval_ms / 1000.0)
-        for entry in pool.entries():
+        for entry in _pool.entries():
             try:
                 client = entry.chatgpt_client
                 if not client:
@@ -108,9 +113,14 @@ async def _remote_check_loop() -> None:
                 )
 
 
-def start_health_check() -> None:
-    """Start health check background tasks."""
-    global _running
+def start_health_check(pool: AccountPool) -> None:
+    """Start health check background tasks.
+
+    Args:
+        pool: The account pool instance to monitor.
+    """
+    global _running, _pool
+    _pool = pool
     _running = True
     loop = asyncio.get_event_loop()
     _tasks.append(loop.create_task(_local_check_loop()))

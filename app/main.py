@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services.account_pool import pool
+from app.services.account_pool import AccountPool
 from app.config import settings
 from app.dependencies import AppDependencies
 from app.exceptions import NexusError
@@ -16,7 +16,7 @@ from app.services.account_store import load_accounts
 from app.services.config_store import get_banned_ips_from_config, load_config
 from app.services.health_check import start_health_check, stop_health_check
 from app.services.ip_ban_store import get_client_ip, init_banned_ips, record_suspicious_hit
-from app.services.metrics_collector import metrics_collector
+from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
 from app.services.session_manager import cleanup_expired_sessions
 from app.utils.logger import log
@@ -36,11 +36,12 @@ async def lifespan(app: FastAPI):
 
     # Initialize account pool
     accounts = await load_accounts()
+    pool = AccountPool()
     await pool.init_async(accounts)
 
     # Initialize persistent metrics store
     metrics_store = MetricsStore()
-    metrics_collector._store = metrics_store
+    metrics_collector = MetricsCollector(metrics_store)
 
     # Create dependency injection container
     app.state.deps = AppDependencies(
@@ -50,7 +51,7 @@ async def lifespan(app: FastAPI):
     )
 
     # Start health check background tasks
-    start_health_check()
+    start_health_check(pool)
 
     # Start session cleanup timer
     cleanup_task = asyncio.create_task(_session_cleanup_loop())

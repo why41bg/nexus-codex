@@ -191,6 +191,3 @@ class MetricsCollector:
             self._buckets[self._current_index] = MetricsBucket(timestamp=ts)
         return self._buckets[self._current_index]
 
-
-# Global singleton (will be replaced by dependency injection in a later commit)
-metrics_collector = MetricsCollector()
