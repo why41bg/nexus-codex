@@ -491,26 +491,26 @@ async def get_pool_status(deps: AppDependencies = Depends(get_deps)):
 
 @router.get("/metrics/timeseries", dependencies=[Depends(admin_auth_dependency)])
 async def get_metrics_time_series(range: str = "1h", deps: AppDependencies = Depends(get_deps)):
-    """Get metrics time series (in-memory ring buffer, fast)."""
-    return JSONResponse(content=deps.metrics_collector.get_time_series(range))
-
-
-@router.get("/metrics/timeseries/persistent", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_time_series_persistent(range: str = "1h", deps: AppDependencies = Depends(get_deps)):
     """Get metrics time series from persistent SQLite store."""
-    return JSONResponse(content=deps.metrics_collector.get_persistent_time_series(range))
+    return JSONResponse(content=deps.metrics_collector.get_time_series(range))
 
 
 @router.get("/metrics/breakdown", dependencies=[Depends(admin_auth_dependency)])
 async def get_metrics_breakdown(deps: AppDependencies = Depends(get_deps)):
-    """Get metrics breakdown (in-memory ring buffer, fast)."""
+    """Get metrics breakdown from persistent SQLite store."""
     return JSONResponse(content=deps.metrics_collector.get_breakdown())
 
 
-@router.get("/metrics/breakdown/persistent", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_breakdown_persistent(deps: AppDependencies = Depends(get_deps)):
-    """Get metrics breakdown from persistent SQLite store."""
-    return JSONResponse(content=deps.metrics_collector.get_persistent_breakdown())
+@router.get("/metrics/percentiles", dependencies=[Depends(admin_auth_dependency)])
+async def get_metrics_percentiles(range: str = "24h", deps: AppDependencies = Depends(get_deps)):
+    """Get latency percentiles (P50/P95/P99) from persistent store."""
+    return JSONResponse(content=deps.metrics_collector.get_percentiles(range))
+
+
+@router.get("/metrics/summary", dependencies=[Depends(admin_auth_dependency)])
+async def get_metrics_summary(range: str = "24h", deps: AppDependencies = Depends(get_deps)):
+    """Get KPI summary with period-over-period comparison."""
+    return JSONResponse(content=deps.metrics_collector.get_summary(range))
 
 
 # ─── IP Ban Management ────────────────────────────────────────

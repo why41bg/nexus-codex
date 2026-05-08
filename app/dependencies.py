@@ -27,7 +27,7 @@ class AppDependencies:
 
     pool: AccountPool
     metrics_collector: MetricsCollector
-    metrics_store: MetricsStore | None = None
+    metrics_store: MetricsStore
 
 
 def get_deps(request: Request) -> AppDependencies:

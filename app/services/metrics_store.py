@@ -154,17 +154,17 @@ class MetricsStore:
             """
             SELECT
                 COUNT(*) AS total_requests,
-                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS total_errors,
-                AVG(latency_ms) AS avg_latency
+                COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS total_errors,
+                COALESCE(AVG(latency_ms), 0) AS avg_latency
             FROM metrics
             WHERE timestamp_ms >= ? AND timestamp_ms <= ?
             """,
             (since_ms, now_ms),
         ).fetchone()
 
-        total_requests = totals_row[0] if totals_row else 0
-        total_errors = totals_row[1] if totals_row else 0
-        avg_latency = round(totals_row[2]) if totals_row and totals_row[2] else 0
+        total_requests = totals_row[0] or 0
+        total_errors = totals_row[1] or 0
+        avg_latency = round(totals_row[2])
 
         by_model = [
             {
@@ -194,6 +194,100 @@ class MetricsStore:
                 "errorRate": round(total_errors / total_requests * 100, 2) if total_requests > 0 else 0,
             },
             "since": since_ms,
+        }
+
+    def get_percentiles(self, range_str: str) -> dict:
+        """Get P50/P95/P99 latency percentiles for a given range."""
+        range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000, "7d": 604800_000, "30d": 2592000_000}.get(
+            range_str, 86400_000
+        )
+        now_ms = int(time.time() * 1000)
+        since_ms = now_ms - range_ms
+
+        rows = self._conn.execute(
+            "SELECT latency_ms FROM metrics WHERE timestamp_ms >= ? AND timestamp_ms <= ? ORDER BY latency_ms",
+            (since_ms, now_ms),
+        ).fetchall()
+
+        latencies = [row[0] for row in rows]
+        if not latencies:
+            return {"p50": 0, "p95": 0, "p99": 0, "range": range_str, "sampleCount": 0}
+
+        n = len(latencies)
+
+        def _pct(p: float) -> int:
+            idx = int(n * p / 100)
+            return round(latencies[min(idx, n - 1)])
+
+        return {
+            "p50": _pct(50),
+            "p95": _pct(95),
+            "p99": _pct(99),
+            "range": range_str,
+            "sampleCount": n,
+        }
+
+    def get_summary(self, range_str: str) -> dict:
+        """Get KPI summary with period-over-period comparison."""
+        range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000, "7d": 604800_000, "30d": 2592000_000}.get(
+            range_str, 86400_000
+        )
+        now_ms = int(time.time() * 1000)
+
+        def _query_period(since: int, until: int) -> dict:
+            row = self._conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS requests,
+                    COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS errors,
+                    COALESCE(AVG(latency_ms), 0) AS avg_latency
+                FROM metrics
+                WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+                """,
+                (since, until),
+            ).fetchone()
+
+            requests = row[0] or 0
+            errors = row[1] or 0
+            avg_latency = round(row[2])
+            success_rate = round((1 - errors / requests) * 100, 2) if requests > 0 else 100.0
+            error_rate = round(errors / requests * 100, 2) if requests > 0 else 0.0
+
+            return {
+                "requests": requests,
+                "errors": errors,
+                "avgLatencyMs": avg_latency,
+                "successRate": success_rate,
+                "errorRate": error_rate,
+            }
+
+        current = _query_period(now_ms - range_ms, now_ms)
+        previous = _query_period(now_ms - 2 * range_ms, now_ms - range_ms)
+
+        def _pct_change(cur: float, prev: float) -> float | None:
+            if prev == 0:
+                return None if cur == 0 else 100.0
+            return round((cur - prev) / prev * 100, 2)
+
+        return {
+            "current": current,
+            "previous": previous,
+            "changes": {
+                "requests": _pct_change(current["requests"], previous["requests"]),
+                "errors": _pct_change(current["errors"], previous["errors"]),
+                "avgLatencyMs": _pct_change(current["avgLatencyMs"], previous["avgLatencyMs"]),
+                "successRate": (
+                    round(current["successRate"] - previous["successRate"], 2)
+                    if previous["requests"] > 0
+                    else None
+                ),
+                "errorRate": (
+                    round(current["errorRate"] - previous["errorRate"], 2)
+                    if previous["requests"] > 0
+                    else None
+                ),
+            },
+            "range": range_str,
         }
 
     def close(self) -> None:
