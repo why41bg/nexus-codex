@@ -416,7 +416,7 @@ function QuotaBar({ label, pct, resetsAt }: QuotaBarProps) {
         />
       </div>
       <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-gray-500 dark:text-slate-400">
-        {clampedPct}%
+        {remainingPct}%
       </span>
       <span className="text-[10px] text-gray-400 dark:text-slate-500" title={`重置于 ${new Date(resetsAt * 1000).toLocaleString()}`}>
         {formatResetsIn(resetsAt)}

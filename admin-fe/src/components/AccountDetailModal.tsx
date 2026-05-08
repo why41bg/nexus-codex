@@ -35,7 +35,7 @@ function QuotaRow({ label, pct, resetsAt }: { label: string; pct: number; resets
           style={{ width: `${remainingPct}%` }}
         />
       </div>
-      <span className="text-xs tabular-nums text-gray-600 dark:text-slate-400">{clamped}%</span>
+      <span className="text-xs tabular-nums text-gray-600 dark:text-slate-400">{remainingPct}%</span>
       <span className="text-xs text-gray-400 dark:text-slate-500" title={`重置于 ${new Date(resetsAt * 1000).toLocaleString()}`}>
         ({formatResetsIn(resetsAt)})
       </span>
