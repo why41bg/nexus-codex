@@ -6,7 +6,7 @@ on:
     paths-ignore:
       - "admin-fe/**"
       - "docs/**"
-      - "*.md"
+      - "**/*.md"
 
 jobs:
   deploy:
