@@ -490,14 +490,26 @@ async def get_pool_status():
 
 @router.get("/metrics/timeseries", dependencies=[Depends(admin_auth_dependency)])
 async def get_metrics_time_series(range: str = "1h"):
-    """Get metrics time series."""
+    """Get metrics time series (in-memory ring buffer, fast)."""
     return JSONResponse(content=metrics_collector.get_time_series(range))
+
+
+@router.get("/metrics/timeseries/persistent", dependencies=[Depends(admin_auth_dependency)])
+async def get_metrics_time_series_persistent(range: str = "1h"):
+    """Get metrics time series from persistent SQLite store."""
+    return JSONResponse(content=metrics_collector.get_persistent_time_series(range))
 
 
 @router.get("/metrics/breakdown", dependencies=[Depends(admin_auth_dependency)])
 async def get_metrics_breakdown():
-    """Get metrics breakdown."""
+    """Get metrics breakdown (in-memory ring buffer, fast)."""
     return JSONResponse(content=metrics_collector.get_breakdown())
+
+
+@router.get("/metrics/breakdown/persistent", dependencies=[Depends(admin_auth_dependency)])
+async def get_metrics_breakdown_persistent():
+    """Get metrics breakdown from persistent SQLite store."""
+    return JSONResponse(content=metrics_collector.get_persistent_breakdown())
 
 
 # ─── IP Ban Management ────────────────────────────────────────

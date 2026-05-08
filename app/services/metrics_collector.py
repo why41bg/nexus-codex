@@ -1,10 +1,18 @@
-"""In-memory metrics collector using Ring Buffer."""
+"""In-memory metrics collector using Ring Buffer + SQLite persistence.
+
+The ring buffer provides fast in-memory queries for recent data,
+while MetricsStore persists all metrics to SQLite for long-term
+trend analysis and survival across restarts.
+"""
 
 from __future__ import annotations
 
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+
+from app.services.metrics_store import MetricsStore
+from app.utils.logger import log
 
 
 BUCKET_COUNT = 1440  # 24h × 60min
@@ -26,16 +34,23 @@ def _bucket_timestamp(now_ms: int) -> int:
 
 
 class MetricsCollector:
-    def __init__(self) -> None:
+    """Collects and queries request metrics with dual storage.
+
+    - In-memory ring buffer: fast queries for recent data (1h/6h/24h)
+    - SQLite MetricsStore: persistent storage for long-term analysis
+    """
+
+    def __init__(self, metrics_store: MetricsStore | None = None) -> None:
         now = _bucket_timestamp(int(time.time() * 1000))
         self._buckets: list[MetricsBucket] = [MetricsBucket() for _ in range(BUCKET_COUNT)]
         self._buckets[0] = MetricsBucket(timestamp=now)
         self._current_index = 0
+        self._store = metrics_store
 
     def record(
         self, model: str, account_id: str, latency_ms: int, success: bool
     ) -> None:
-        """Record a single request metric."""
+        """Record a single request metric to both ring buffer and persistent store."""
         now_ms = int(time.time() * 1000)
         ts = _bucket_timestamp(now_ms)
         bucket = self._get_or_create_bucket(ts)
@@ -49,8 +64,15 @@ class MetricsCollector:
             bucket.account_counts.get(account_id, 0) + 1
         )
 
+        # Persist to SQLite
+        if self._store:
+            try:
+                self._store.record(model, account_id, latency_ms, success)
+            except Exception as e:
+                log.error("Failed to persist metric to store", extra={"error": str(e)})
+
     def get_time_series(self, range_str: str) -> dict:
-        """Get time series data for a given range."""
+        """Get time series data for a given range from ring buffer."""
         range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000}.get(
             range_str, 86400_000
         )
@@ -77,7 +99,7 @@ class MetricsCollector:
         return {"buckets": result, "range": range_str}
 
     def get_breakdown(self) -> dict:
-        """Get 24h aggregated breakdown."""
+        """Get 24h aggregated breakdown from ring buffer."""
         now_ms = int(time.time() * 1000)
         since = _bucket_timestamp(now_ms - 86400_000)
 
@@ -135,6 +157,18 @@ class MetricsCollector:
             "since": since,
         }
 
+    def get_persistent_time_series(self, range_str: str) -> dict:
+        """Get time series from persistent SQLite store (for ranges > 24h)."""
+        if self._store:
+            return self._store.get_time_series(range_str)
+        return self.get_time_series(range_str)
+
+    def get_persistent_breakdown(self) -> dict:
+        """Get breakdown from persistent SQLite store."""
+        if self._store:
+            return self._store.get_breakdown()
+        return self.get_breakdown()
+
     def _get_or_create_bucket(self, ts: int) -> MetricsBucket:
         current = self._buckets[self._current_index]
         if current.timestamp == ts:
@@ -158,4 +192,5 @@ class MetricsCollector:
         return self._buckets[self._current_index]
 
 
+# Global singleton (will be replaced by dependency injection in a later commit)
 metrics_collector = MetricsCollector()

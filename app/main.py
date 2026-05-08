@@ -14,6 +14,8 @@ from app.services.account_store import load_accounts
 from app.services.config_store import get_banned_ips_from_config, load_config
 from app.services.health_check import start_health_check, stop_health_check
 from app.services.ip_ban_store import get_client_ip, init_banned_ips, record_suspicious_hit
+from app.services.metrics_collector import metrics_collector
+from app.services.metrics_store import MetricsStore
 from app.services.session_manager import cleanup_expired_sessions
 from app.utils.logger import log
 
@@ -33,6 +35,11 @@ async def lifespan(app: FastAPI):
     # Initialize account pool
     accounts = await load_accounts()
     await pool.init_async(accounts)
+
+    # Initialize persistent metrics store
+    metrics_store = MetricsStore()
+    metrics_collector._store = metrics_store
+    app.state.metrics_store = metrics_store
 
     # Start health check background tasks
     start_health_check()
@@ -55,6 +62,8 @@ async def lifespan(app: FastAPI):
     stop_health_check()
     cleanup_task.cancel()
     await pool.close()
+    if hasattr(app.state, 'metrics_store'):
+        app.state.metrics_store.close()
     log.info("Nexus Codex shut down gracefully")
 
 
