@@ -134,8 +134,6 @@ async def _stream_response_with_retry(
     """Stream Responses API with account failover on initial connection errors."""
     from app.utils.retry import MAX_RETRIES
 
-    last_error: Exception | None = None
-
     for attempt in range(MAX_RETRIES + 1):
         entry = await deps.pool.acquire_async()
         if not entry:
@@ -213,7 +211,6 @@ async def _stream_response_with_retry(
                     },
                 )
                 asyncio.create_task(trigger_probe_safe(entry.account_id))
-                last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
             else:
@@ -224,13 +221,4 @@ async def _stream_response_with_retry(
                 asyncio.create_task(trigger_probe_safe(entry.account_id))
                 return
 
-    yield ChatGPTAdapter.build_response_failed(
-        response_id, body.model,
-        f"All retry attempts exhausted. Last error: {last_error}"
-    )
 
-
-    yield ChatGPTAdapter.build_response_failed(
-        response_id, body.model,
-        f"All retry attempts exhausted. Last error: {last_error}"
-    )
