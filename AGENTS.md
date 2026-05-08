@@ -46,6 +46,7 @@
 | Skill 名称 | 描述 | 路径 |
 |------------|------|------|
 | `commit-work` | Create high-quality git commits: review/stage intended changes, split into logical commits, and write clear commit messages (including Conventional Commits). Use when the user asks to commit, craft a commit message, stage changes, or split work into multiple commits. | `.skill/commit-work/SKILL.md` |
+| `devdocs-sync` | Sync documentation after code changes. Use docs/index.md to locate affected docs and keep them consistent with the codebase. Activate when the user mentions code changes that need doc updates, or asks to refresh/sync documentation. | `.skill/devdocs-sync/SKILL.md` |
 
 ---
 
