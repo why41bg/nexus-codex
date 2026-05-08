@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -8,12 +9,14 @@ interface Tab {
   key: TabKey;
   label: string;
   icon: ReactNode;
+  path: string;
 }
 
 const tabs: Tab[] = [
   {
     key: 'dashboard',
     label: '大盘',
+    path: '/dashboard',
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
@@ -23,6 +26,7 @@ const tabs: Tab[] = [
   {
     key: 'accounts',
     label: '账号',
+    path: '/dashboard/accounts',
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
@@ -32,6 +36,7 @@ const tabs: Tab[] = [
   {
     key: 'apikeys',
     label: 'API Key',
+    path: '/dashboard/apikeys',
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
@@ -41,6 +46,7 @@ const tabs: Tab[] = [
   {
     key: 'banned-ips',
     label: 'IP 黑名单',
+    path: '/dashboard/banned-ips',
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.75c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
@@ -52,7 +58,7 @@ const tabs: Tab[] = [
 
 interface Props {
   activeTab: TabKey;
-  onTabChange: (tab: TabKey) => void;
+  onClose?: () => void;
 }
 
 /** 主题模式 icon */
@@ -81,7 +87,7 @@ function ThemeIcon({ mode }: { mode: 'system' | 'light' | 'dark' }) {
 const modeLabels = { system: '跟随系统', light: '浅色', dark: '深色' } as const;
 const modeOrder: Array<'system' | 'light' | 'dark'> = ['system', 'light', 'dark'];
 
-export default function Sidebar({ activeTab, onTabChange }: Props) {
+export default function Sidebar({ activeTab, onClose }: Props) {
   const { logout } = useAuth();
   const { mode, setMode } = useTheme();
 
@@ -89,6 +95,13 @@ export default function Sidebar({ activeTab, onTabChange }: Props) {
     const idx = modeOrder.indexOf(mode);
     setMode(modeOrder[(idx + 1) % modeOrder.length]);
   };
+
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+      isActive
+        ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
+        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
+    }`;
 
   return (
     <div className="flex h-full w-56 flex-col border-r border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
@@ -100,20 +113,18 @@ export default function Sidebar({ activeTab, onTabChange }: Props) {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-2">
         {tabs.map((tab) => (
-          <button
+          <NavLink
             key={tab.key}
-            onClick={() => onTabChange(tab.key)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === tab.key
-                ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
-                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
-            }`}
+            to={tab.path}
+            end={tab.key === 'dashboard'}
+            onClick={onClose}
+            className={navLinkClass}
           >
             <span className={activeTab === tab.key ? 'text-brand-600 dark:text-brand-400' : 'text-gray-400 dark:text-slate-500'}>
               {tab.icon}
             </span>
             {tab.label}
-          </button>
+          </NavLink>
         ))}
       </nav>
 
