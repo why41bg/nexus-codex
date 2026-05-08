@@ -2,6 +2,9 @@
 
 Encapsulates ChatGPT Plus backend HTTP requests with automatic auth header injection,
 Cloudflare challenge handling, and SSE streaming support.
+
+This module is a pure HTTP communication layer. All format conversion between
+Chat Completions and Responses API lives in chatgpt_adapter.py.
 """
 
 from __future__ import annotations
@@ -48,41 +51,6 @@ class ChatGPTClient:
         self._base_url = CODEX_BASE_URL
 
     # ── Public API ──────────────────────────────────────
-
-    async def chat(
-        self,
-        model: str,
-        messages: list[dict],
-        *,
-        stream: bool = True,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-    ) -> AsyncGenerator[str, None]:
-        """Initiate a chat request via the Responses API.
-
-        Yields raw SSE data strings (JSON payloads) from the stream.
-        For non-streaming, yields a single JSON string.
-        """
-        input_items = self._messages_to_input_items(messages)
-        if stream:
-            async for chunk in self._responses_stream(
-                model=model,
-                input_items=input_items,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                reasoning_effort=reasoning_effort,
-            ):
-                yield chunk
-        else:
-            result = await self._responses_non_stream(
-                model=model,
-                input_items=input_items,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                reasoning_effort=reasoning_effort,
-            )
-            yield json.dumps(result)
 
     async def get_models(self) -> list[dict]:
         """Get available models from the ChatGPT backend."""
@@ -139,7 +107,7 @@ class ChatGPTClient:
             resp.raise_for_status()
             return resp.json()
 
-    # ── Responses API pass-through ─────────────────────
+    # ── Responses API ───────────────────────────────────
 
     async def responses(
         self,
@@ -153,14 +121,18 @@ class ChatGPTClient:
         previous_response_id: str | None = None,
         temperature: float | None = None,
         max_output_tokens: int | None = None,
+        top_p: float | None = None,
+        stop: str | list[str] | None = None,
+        seed: int | None = None,
+        response_format: dict | None = None,
         reasoning_effort: str | None = None,
         stream: bool = True,
     ) -> AsyncGenerator[str, None]:
-        """Pass-through Responses API call to ChatGPT backend.
+        """Call the ChatGPT backend Responses API.
 
-        Directly forwards the Responses API request fields to the ChatGPT
-        backend without reinterpretation. Yields raw SSE data strings for
-        streaming, or a single JSON string for non-streaming.
+        Accepts Responses API parameters directly (no format conversion).
+        Yields raw SSE data strings for streaming, or a single JSON string
+        for non-streaming.
         """
         token = await self._token_manager.get_access_token()
         if not token:
@@ -186,12 +158,24 @@ class ChatGPTClient:
             payload["parallel_tool_calls"] = parallel_tool_calls
         if previous_response_id:
             payload["previous_response_id"] = previous_response_id
-        if temperature is not None:
-            payload["temperature"] = temperature
-        if max_output_tokens is not None:
-            payload["max_output_tokens"] = max_output_tokens
+        if response_format:
+            payload["text"] = {"format": response_format}
         if reasoning_effort:
             payload["reasoning"] = {"effort": reasoning_effort}
+
+        # NOTE: The following parameters are NOT supported by the ChatGPT backend
+        # (chatgpt.com/backend-api/codex/responses), confirmed by codex-rs source:
+        #   codex-rs/codex-api/src/common.rs: ResponsesApiRequest struct
+        # and openclaw:
+        #   src/agents/openai-transport-stream.ts: OPENAI_CODEX_RESPONSES_UNSUPPORTED_PARAMS
+        #
+        # - max_output_tokens / max_tokens: backend does not accept token limits
+        # - temperature: backend ignores this parameter
+        # - top_p: backend does not accept
+        # - stop: backend does not accept
+        # - seed: backend does not accept
+        #
+        # These are accepted in the API model but silently dropped here.
 
         log.debug("ChatGPT responses request", extra={"model": model, "payload": json.dumps(payload, ensure_ascii=False)[:500]})
 
@@ -209,6 +193,8 @@ class ChatGPTClient:
                 if resp.status_code != 200:
                     raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
                 yield json.dumps(resp.json())
+
+    # ── Internal: SSE streaming ─────────────────────────
 
     async def _stream_sse(
         self,
@@ -245,96 +231,6 @@ class ChatGPTClient:
                         log.debug("ChatGPT SSE data", extra={"raw": data[:300]})
                         yield data
 
-    # ── Internal: Chat Completions (legacy) ─────────────
-
-    async def _responses_stream(
-        self,
-        model: str,
-        input_items: list[dict],
-        *,
-        instructions: str = "",
-        tools: list[dict] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-    ) -> AsyncGenerator[str, None]:
-        """Streaming dialogue via Responses API (SSE named events)."""
-        token = await self._token_manager.get_access_token()
-        if not token:
-            raise TokenExpiredError("No valid access token")
-
-        headers = self._build_headers(token)
-        headers["Accept"] = "text/event-stream"
-
-        payload = {
-            "model": model,
-            "input": input_items,
-            "instructions": instructions,
-            "tools": tools or [],
-            "tool_choice": "auto",
-            "parallel_tool_calls": True,
-            "stream": True,
-            "store": False,
-            "include": [],
-        }
-        if temperature is not None:
-            payload["temperature"] = temperature
-        if max_tokens is not None:
-            payload["max_output_tokens"] = max_tokens
-        if reasoning_effort:
-            payload["reasoning"] = {"effort": reasoning_effort}
-
-        async for chunk in self._stream_sse(headers, payload):
-            yield chunk
-
-    async def _responses_non_stream(
-        self,
-        model: str,
-        input_items: list[dict],
-        *,
-        instructions: str = "",
-        tools: list[dict] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-    ) -> dict:
-        """Non-streaming dialogue via Responses API."""
-        token = await self._token_manager.get_access_token()
-        if not token:
-            raise TokenExpiredError("No valid access token")
-
-        headers = self._build_headers(token)
-        headers["Accept"] = "application/json"
-
-        payload = {
-            "model": model,
-            "input": input_items,
-            "instructions": instructions,
-            "tools": tools or [],
-            "tool_choice": "auto",
-            "parallel_tool_calls": True,
-            "stream": False,
-            "store": False,
-            "include": [],
-        }
-        if temperature is not None:
-            payload["temperature"] = temperature
-        if max_tokens is not None:
-            payload["max_output_tokens"] = max_tokens
-        if reasoning_effort:
-            payload["reasoning"] = {"effort": reasoning_effort}
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{self._base_url}/responses",
-                headers=headers,
-                json=payload,
-                timeout=DEFAULT_TIMEOUT,
-            )
-            if resp.status_code != 200:
-                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-            return resp.json()
-
     # ── Internal: Helpers ───────────────────────────────
 
     def _build_headers(self, token: str) -> dict[str, str]:
@@ -348,18 +244,3 @@ class ChatGPTClient:
         if account_id:
             headers["ChatGPT-Account-Id"] = account_id
         return headers
-
-    @staticmethod
-    def _messages_to_input_items(messages: list[dict]) -> list[dict]:
-        """Convert chat messages to Responses API input_items format."""
-        items = []
-        for m in messages:
-            role = m.get("role", "user")
-            content = m.get("content", "")
-            part_type = "output_text" if role == "assistant" else "input_text"
-            items.append({
-                "type": "message",
-                "role": role,
-                "content": [{"type": part_type, "text": content}],
-            })
-        return items

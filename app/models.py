@@ -71,20 +71,59 @@ class AppConfig(BaseModel):
 # ─── Chat Completions API ──────────────────────────────────
 
 
+class ToolCallFunction(BaseModel):
+    """Function definition within a tool call."""
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    """A tool call requested by the model."""
+    id: str
+    type: str = "function"
+    function: ToolCallFunction
+
+
 class ChatMessage(BaseModel):
+    """A single message in a Chat Completions conversation.
+
+    Supports:
+    - Plain text: role="user", content="hello"
+    - Multimodal: role="user", content=[{"type":"text","text":"..."}, {"type":"image_url",...}]
+    - Tool calls: role="assistant", content=None, tool_calls=[...]
+    - Tool results: role="tool", tool_call_id="...", content="result"
+    """
     role: str
-    content: str
+    content: str | list[dict] | None = None
     name: str | None = None
+    tool_calls: list[dict] | None = None
+    tool_call_id: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):
+    """OpenAI-compatible Chat Completions request.
+
+    All standard Chat Completions API parameters are supported.
+    Aliases (e.g. max_tokens/max_completion_tokens) are unified at the adapter layer.
+    """
     model: str
     messages: list[ChatMessage]
     stream: bool = False
     codex_events: bool | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    max_completion_tokens: int | None = None
     reasoning_effort: str | None = None
+    tools: list[dict] | None = None
+    tool_choice: str | dict | None = None
+    top_p: float | None = None
+    stop: str | list[str] | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    response_format: dict | None = None
+    seed: int | None = None
+    parallel_tool_calls: bool | None = None
+    stream_options: dict | None = None
 
 
 class ChatCompletionChoice(BaseModel):
@@ -111,6 +150,7 @@ class ChatCompletionResponse(BaseModel):
 class ChatCompletionChunkDelta(BaseModel):
     role: str | None = None
     content: str | None = None
+    tool_calls: list[dict] | None = None
 
 
 class ChatCompletionChunkChoice(BaseModel):
@@ -125,6 +165,7 @@ class ChatCompletionChunk(BaseModel):
     created: int
     model: str
     choices: list[ChatCompletionChunkChoice]
+    usage: dict | None = None
 
 
 # ─── Responses API ─────────────────────────────────────────

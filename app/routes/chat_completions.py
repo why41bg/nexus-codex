@@ -1,4 +1,14 @@
-"""Chat Completions API route - /v1/chat/completions."""
+"""Chat Completions API route - /v1/chat/completions.
+
+Orchestrates the Chat Completions flow:
+1. Validate request (auth, rate limit, model)
+2. Convert to Responses API format via ChatGPTAdapter
+3. Call ChatGPT backend via ChatGPTClient.responses()
+4. Convert responses back to Chat Completions format via ChatGPTAdapter
+
+All format conversion logic lives in ChatGPTAdapter; this module only
+handles HTTP routing, retry, and metrics.
+"""
 
 from __future__ import annotations
 
@@ -80,31 +90,30 @@ async def _do_non_stream(
     req_start: float,
     api_key: str,
 ) -> JSONResponse:
-    """Non-streaming completion via ChatGPTClient (used inside with_retry)."""
+    """Non-streaming completion via ChatGPTClient.responses()."""
     asyncio.create_task(increment_counters(entry.account_id, api_key))
 
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
     client = entry.chatgpt_client
     if not client:
         raise RuntimeError("ChatGPT client not initialized")
 
-    full_text = ""
-    async for raw_data in client.chat(
-        model=body.model,
-        messages=messages,
-        stream=False,
-        temperature=body.temperature,
-        max_tokens=body.max_tokens,
-    ):
+    params = ChatGPTAdapter.prepare_request(body)
+    params["stream"] = True
+
+    result = None
+    async for raw_data in client.responses(**params):
         try:
             response_data = json.loads(raw_data)
-            full_text = ChatGPTAdapter.extract_text_from_response(response_data)
+            result = ChatGPTAdapter.convert_non_stream_response(
+                response_data, completion_id, body.model
+            )
         except json.JSONDecodeError:
             pass
 
-    result = ChatGPTAdapter.build_chat_response(
-        completion_id, body.model, full_text
-    )
+    if result is None:
+        result = ChatGPTAdapter.convert_non_stream_response(
+            {"output": []}, completion_id, body.model
+        )
 
     latency_ms = int((time.time() - req_start) * 1000)
     deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True)
@@ -140,38 +149,38 @@ async def _stream_completion_with_retry(
         asyncio.create_task(increment_counters(entry.account_id, api_key))
 
         try:
-            messages = [{"role": m.role, "content": m.content} for m in body.messages]
             client = entry.chatgpt_client
             if not client:
                 raise RuntimeError("ChatGPT client not initialized")
 
+            params = ChatGPTAdapter.prepare_request(body)
+
+            # Determine if client requested usage stats via stream_options
+            include_usage = bool(
+                body.stream_options and body.stream_options.get("include_usage")
+            )
+
+            # Initial chunk with assistant role
             init_chunk = ChatGPTAdapter.build_chat_chunk(
                 completion_id, body.model, role="assistant"
             )
             yield f"data: {json.dumps(init_chunk)}\n\n"
 
-            async for raw_data in client.chat(
-                model=body.model,
-                messages=messages,
-                stream=True,
-                temperature=body.temperature,
-                max_tokens=body.max_tokens,
-            ):
+            # Stream events from backend, converting each to chat chunks.
+            # The final chunk (with correct finish_reason) is produced by
+            # the adapter from the response.completed event.
+            async for raw_data in client.responses(**params):
                 try:
                     event_data = json.loads(raw_data)
-                    text = ChatGPTAdapter.extract_text_from_event(event_data)
-                    if text:
-                        chunk = ChatGPTAdapter.build_chat_chunk(
-                            completion_id, body.model, content=text
-                        )
-                        yield f"data: {json.dumps(chunk)}\n\n"
+                    chunks = ChatGPTAdapter.convert_stream_event(
+                        event_data, completion_id, body.model,
+                        include_usage=include_usage,
+                    )
+                    for chunk_json in chunks:
+                        yield f"data: {chunk_json}\n\n"
                 except json.JSONDecodeError:
                     pass
 
-            stop_chunk = ChatGPTAdapter.build_chat_chunk(
-                completion_id, body.model, finish_reason="stop"
-            )
-            yield f"data: {json.dumps(stop_chunk)}\n\n"
             yield "data: [DONE]\n\n"
 
             latency_ms = int((time.time() - req_start) * 1000)
