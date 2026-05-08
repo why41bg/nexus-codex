@@ -11,15 +11,14 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.dependencies import AppDependencies, get_deps
 from app.models import ChatCompletionRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
-from app.services.account_pool import pool, PoolEntry
+from app.services.account_pool import PoolEntry
 from app.services.account_store import increment_usage_count
 from app.services.config_store import is_model_allowed_for_key, increment_key_monthly_usage
-from app.services.metrics_collector import metrics_collector
 from app.services.chatgpt_adapter import ChatGPTAdapter
-from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError
 from app.config import settings
 from app.utils.logger import log
 from app.utils.retry import with_retry, is_retryable
@@ -49,6 +48,7 @@ async def chat_completions(
     request: Request,
     body: ChatCompletionRequest,
     api_key: str = Depends(api_key_auth_dependency),
+    deps: AppDependencies = Depends(get_deps),
 ):
     """Handle chat completion requests with ChatGPT Plus backend streaming."""
     await rate_limit_dependency(request, api_key)
@@ -65,7 +65,7 @@ async def chat_completions(
 
     if body.stream:
         return StreamingResponse(
-            _stream_completion_with_retry(body, completion_id, req_start, api_key),
+            _stream_completion_with_retry(deps, body, completion_id, req_start, api_key),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -76,7 +76,8 @@ async def chat_completions(
     else:
         try:
             result = await with_retry(
-                lambda entry: _do_non_stream(entry, body, completion_id, req_start, api_key)
+                deps,
+                lambda entry: _do_non_stream(deps, entry, body, completion_id, req_start, api_key),
             )
             return result
         except RuntimeError as e:
@@ -88,6 +89,7 @@ async def chat_completions(
 
 
 async def _do_non_stream(
+    deps: AppDependencies,
     entry: PoolEntry,
     body: ChatCompletionRequest,
     completion_id: str,
@@ -121,27 +123,24 @@ async def _do_non_stream(
     )
 
     latency_ms = int((time.time() - req_start) * 1000)
-    metrics_collector.record(body.model, entry.account_id, latency_ms, True)
+    deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True)
     return JSONResponse(content=result)
 
 
 async def _stream_completion_with_retry(
+    deps: AppDependencies,
     body: ChatCompletionRequest,
     completion_id: str,
     req_start: float,
     api_key: str,
 ) -> AsyncGenerator[str, None]:
-    """Stream chat completion with account failover on initial connection errors.
-
-    Retries at the acquire + initial connection phase. Once streaming data
-    begins, errors are reported inline (can't retry mid-stream).
-    """
+    """Stream chat completion with account failover on initial connection errors."""
     from app.utils.retry import MAX_RETRIES
 
     last_error: Exception | None = None
 
     for attempt in range(MAX_RETRIES + 1):
-        entry = await pool.acquire_async()
+        entry = await deps.pool.acquire_async()
         if not entry:
             error_data = {
                 "error": {
@@ -162,13 +161,11 @@ async def _stream_completion_with_retry(
             if not client:
                 raise RuntimeError("ChatGPT client not initialized")
 
-            # Yield initial role chunk
             init_chunk = ChatGPTAdapter.build_chat_chunk(
                 completion_id, body.model, role="assistant"
             )
             yield f"data: {json.dumps(init_chunk)}\n\n"
 
-            # Stream from ChatGPT backend
             async for raw_data in client.chat(
                 model=body.model,
                 messages=messages,
@@ -187,7 +184,6 @@ async def _stream_completion_with_retry(
                 except json.JSONDecodeError:
                     pass
 
-            # Yield stop chunk
             stop_chunk = ChatGPTAdapter.build_chat_chunk(
                 completion_id, body.model, finish_reason="stop"
             )
@@ -195,14 +191,14 @@ async def _stream_completion_with_retry(
             yield "data: [DONE]\n\n"
 
             latency_ms = int((time.time() - req_start) * 1000)
-            metrics_collector.record(body.model, entry.account_id, latency_ms, True)
-            pool.release(entry.account_id)
+            deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True)
+            deps.pool.release(entry.account_id)
             return
 
         except Exception as e:
-            pool.release(entry.account_id)
+            deps.pool.release(entry.account_id)
             latency_ms = int((time.time() - req_start) * 1000)
-            metrics_collector.record(body.model, entry.account_id, latency_ms, False)
+            deps.metrics_collector.record(body.model, entry.account_id, latency_ms, False)
 
             if attempt < MAX_RETRIES and is_retryable(e):
                 log.warn(
@@ -231,7 +227,6 @@ async def _stream_completion_with_retry(
                 asyncio.create_task(_trigger_probe_safe(entry.account_id))
                 return
 
-    # All retries exhausted
     error_data = {
         "error": {
             "message": f"All retry attempts exhausted. Last error: {last_error}",

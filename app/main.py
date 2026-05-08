@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.account_pool import pool
 from app.config import settings
+from app.dependencies import AppDependencies
 from app.services.account_store import load_accounts
 from app.services.config_store import get_banned_ips_from_config, load_config
 from app.services.health_check import start_health_check, stop_health_check
@@ -39,7 +40,13 @@ async def lifespan(app: FastAPI):
     # Initialize persistent metrics store
     metrics_store = MetricsStore()
     metrics_collector._store = metrics_store
-    app.state.metrics_store = metrics_store
+
+    # Create dependency injection container
+    app.state.deps = AppDependencies(
+        pool=pool,
+        metrics_collector=metrics_collector,
+        metrics_store=metrics_store,
+    )
 
     # Start health check background tasks
     start_health_check()
@@ -62,8 +69,8 @@ async def lifespan(app: FastAPI):
     stop_health_check()
     cleanup_task.cancel()
     await pool.close()
-    if hasattr(app.state, 'metrics_store'):
-        app.state.metrics_store.close()
+    if hasattr(app.state, 'deps') and app.state.deps.metrics_store:
+        app.state.deps.metrics_store.close()
     log.info("Nexus Codex shut down gracefully")
 
 
@@ -120,12 +127,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/health")
-async def health_check():
+async def health_check(request: Request):
     """Public health check endpoint."""
+    deps: AppDependencies = request.app.state.deps
     return JSONResponse(
         content={
             "status": "ok",
-            "pool": pool.get_status(),
+            "pool": deps.pool.get_status(),
         }
     )
 

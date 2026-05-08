@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
 from app.models import (
     AddAccountRequest,
@@ -20,7 +21,6 @@ from app.models import (
     UpdateAccountRequest,
     UpdateApiKeyRequest,
 )
-from app.services.account_pool import pool
 from app.services.account_store import (
     add_account,
     bulk_import_accounts,
@@ -48,7 +48,6 @@ from app.services.ip_ban_store import (
     get_banned_ips,
     unban_ip,
 )
-from app.services.metrics_collector import metrics_collector
 from app.services.quota_probe import probe_quota, refresh_quota
 from app.services.session_manager import create_session, destroy_session
 
@@ -131,10 +130,10 @@ async def logout(request: Request):
 
 
 @router.get("/dashboard", dependencies=[Depends(admin_auth_dependency)])
-async def get_dashboard():
+async def get_dashboard(deps: AppDependencies = Depends(get_deps)):
     """Dashboard summary data."""
     accounts = await load_accounts()
-    status = pool.get_status()
+    status = deps.pool.get_status()
 
     total = len(accounts)
     total_slots = sum(e["max_concurrency"] for e in status)
@@ -144,7 +143,7 @@ async def get_dashboard():
     disabled = sum(1 for a in accounts if not a.enabled)
     total_usage = sum(a.usage_count for a in accounts)
 
-    metrics_1h = metrics_collector.get_time_series("1h")
+    metrics_1h = deps.metrics_collector.get_time_series("1h")
     buckets = metrics_1h.get("buckets", [])
     recent_requests = sum(b.get("requestCount", 0) for b in buckets)
     recent_errors = sum(b.get("errorCount", 0) for b in buckets)
@@ -169,10 +168,10 @@ async def get_dashboard():
 
 
 @router.get("/accounts", dependencies=[Depends(admin_auth_dependency)])
-async def list_accounts():
+async def list_accounts(deps: AppDependencies = Depends(get_deps)):
     """List all accounts."""
     accounts = await load_accounts()
-    pool_status = {e["account_id"]: e for e in pool.get_status()}
+    pool_status = {e["account_id"]: e for e in deps.pool.get_status()}
     result = []
     for acc in accounts:
         ps = pool_status.get(acc.id)
@@ -196,16 +195,16 @@ async def list_accounts():
 
 
 @router.post("/accounts", dependencies=[Depends(admin_auth_dependency)])
-async def create_account(body: AddAccountRequest):
+async def create_account(body: AddAccountRequest, deps: AppDependencies = Depends(get_deps)):
     """Add a new account."""
     acc = await add_account(body.codex_home, body.remark, body.max_concurrency)
-    pool.add_entry(acc)
+    deps.pool.add_entry(acc)
     emit_admin_event({"type": "pool_changed"})
     return JSONResponse(content=acc.model_dump())
 
 
 @router.patch("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)])
-async def update_account_route(account_id: str, body: UpdateAccountRequest):
+async def update_account_route(account_id: str, body: UpdateAccountRequest, deps: AppDependencies = Depends(get_deps)):
     """Update an account."""
     updates = body.model_dump(exclude_none=True)
     acc = await update_account(account_id, **updates)
@@ -214,27 +213,27 @@ async def update_account_route(account_id: str, body: UpdateAccountRequest):
 
     # Update pool entry
     if body.healthy is not None:
-        pool.update_entry(account_id, healthy=body.healthy)
+        deps.pool.update_entry(account_id, healthy=body.healthy)
     if body.max_concurrency is not None:
-        pool.update_entry(account_id, max_concurrency=body.max_concurrency)
+        deps.pool.update_entry(account_id, max_concurrency=body.max_concurrency)
 
     emit_admin_event({"type": "pool_changed"})
     return JSONResponse(content={"ok": True})
 
 
 @router.delete("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)])
-async def delete_account(account_id: str):
+async def delete_account(account_id: str, deps: AppDependencies = Depends(get_deps)):
     """Delete an account."""
     removed = await remove_account(account_id)
     if not removed:
         return JSONResponse(status_code=404, content={"error": {"message": "Account not found"}})
-    pool.remove_entry(account_id)
+    deps.pool.remove_entry(account_id)
     emit_admin_event({"type": "pool_changed"})
     return JSONResponse(content={"ok": True})
 
 
 @router.post("/accounts/import", dependencies=[Depends(admin_auth_dependency)])
-async def bulk_import(body: BulkImportRequest):
+async def bulk_import(body: BulkImportRequest, deps: AppDependencies = Depends(get_deps)):
     """Bulk import accounts."""
     items = [item.model_dump() for item in body.accounts]
     result = await bulk_import_accounts(items, body.mode)
@@ -244,7 +243,7 @@ async def bulk_import(body: BulkImportRequest):
     imported_ids = {a["id"] for a in result["imported_accounts"]}
     for acc in accounts:
         if acc.id in imported_ids:
-            pool.add_entry(acc)
+            deps.pool.add_entry(acc)
 
     emit_admin_event({"type": "pool_changed"})
     return JSONResponse(content=result)
@@ -480,36 +479,36 @@ async def delete_model(model_id: str):
 
 
 @router.get("/pool-status", dependencies=[Depends(admin_auth_dependency)])
-async def get_pool_status():
+async def get_pool_status(deps: AppDependencies = Depends(get_deps)):
     """Get current pool status."""
-    return JSONResponse(content=pool.get_status())
+    return JSONResponse(content=deps.pool.get_status())
 
 
 # ─── Metrics ──────────────────────────────────────────────────
 
 
 @router.get("/metrics/timeseries", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_time_series(range: str = "1h"):
+async def get_metrics_time_series(range: str = "1h", deps: AppDependencies = Depends(get_deps)):
     """Get metrics time series (in-memory ring buffer, fast)."""
-    return JSONResponse(content=metrics_collector.get_time_series(range))
+    return JSONResponse(content=deps.metrics_collector.get_time_series(range))
 
 
 @router.get("/metrics/timeseries/persistent", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_time_series_persistent(range: str = "1h"):
+async def get_metrics_time_series_persistent(range: str = "1h", deps: AppDependencies = Depends(get_deps)):
     """Get metrics time series from persistent SQLite store."""
-    return JSONResponse(content=metrics_collector.get_persistent_time_series(range))
+    return JSONResponse(content=deps.metrics_collector.get_persistent_time_series(range))
 
 
 @router.get("/metrics/breakdown", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_breakdown():
+async def get_metrics_breakdown(deps: AppDependencies = Depends(get_deps)):
     """Get metrics breakdown (in-memory ring buffer, fast)."""
-    return JSONResponse(content=metrics_collector.get_breakdown())
+    return JSONResponse(content=deps.metrics_collector.get_breakdown())
 
 
 @router.get("/metrics/breakdown/persistent", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_breakdown_persistent():
+async def get_metrics_breakdown_persistent(deps: AppDependencies = Depends(get_deps)):
     """Get metrics breakdown from persistent SQLite store."""
-    return JSONResponse(content=metrics_collector.get_persistent_breakdown())
+    return JSONResponse(content=deps.metrics_collector.get_persistent_breakdown())
 
 
 # ─── IP Ban Management ────────────────────────────────────────

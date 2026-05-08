@@ -11,13 +11,13 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.dependencies import AppDependencies, get_deps
 from app.models import ResponsesRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
-from app.services.account_pool import pool, PoolEntry
+from app.services.account_pool import PoolEntry
 from app.services.account_store import increment_usage_count
 from app.services.config_store import is_model_allowed_for_key, increment_key_monthly_usage
-from app.services.metrics_collector import metrics_collector
 from app.services.chatgpt_adapter import ChatGPTAdapter
 from app.config import settings
 from app.utils.logger import log
@@ -42,6 +42,7 @@ async def responses(
     request: Request,
     body: ResponsesRequest,
     api_key: str = Depends(api_key_auth_dependency),
+    deps: AppDependencies = Depends(get_deps),
 ):
     """Handle Responses API requests with ChatGPT Plus backend streaming."""
     await rate_limit_dependency(request, api_key)
@@ -58,7 +59,7 @@ async def responses(
 
     if body.stream:
         return StreamingResponse(
-            _stream_response_with_retry(body, response_id, req_start, api_key),
+            _stream_response_with_retry(deps, body, response_id, req_start, api_key),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -71,7 +72,8 @@ async def responses(
     else:
         try:
             result = await with_retry(
-                lambda entry: _do_non_stream(entry, body, response_id, req_start, api_key)
+                deps,
+                lambda entry: _do_non_stream(deps, entry, body, response_id, req_start, api_key),
             )
             return result
         except RuntimeError as e:
@@ -83,6 +85,7 @@ async def responses(
 
 
 async def _do_non_stream(
+    deps: AppDependencies,
     entry: PoolEntry,
     body: ResponsesRequest,
     response_id: str,
@@ -127,28 +130,24 @@ async def _do_non_stream(
         }
 
     latency_ms = int((time.time() - req_start) * 1000)
-    metrics_collector.record(body.model, entry.account_id, latency_ms, True)
+    deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True)
     return JSONResponse(content=result)
 
 
 async def _stream_response_with_retry(
+    deps: AppDependencies,
     body: ResponsesRequest,
     response_id: str,
     req_start: float,
     api_key: str,
 ) -> AsyncGenerator[str, None]:
-    """Stream Responses API with account failover on initial connection errors.
-
-    Passes through the raw Responses API request fields to the ChatGPT backend.
-    Retries at the acquire + initial connection phase. Once streaming begins,
-    errors are reported inline.
-    """
+    """Stream Responses API with account failover on initial connection errors."""
     from app.utils.retry import MAX_RETRIES
 
     last_error: Exception | None = None
 
     for attempt in range(MAX_RETRIES + 1):
-        entry = await pool.acquire_async()
+        entry = await deps.pool.acquire_async()
         if not entry:
             yield ChatGPTAdapter.build_response_failed(
                 response_id, body.model,
@@ -205,14 +204,14 @@ async def _stream_response_with_retry(
                 })
 
             latency_ms = int((time.time() - req_start) * 1000)
-            metrics_collector.record(body.model, entry.account_id, latency_ms, True)
-            pool.release(entry.account_id)
+            deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True)
+            deps.pool.release(entry.account_id)
             return
 
         except Exception as e:
-            pool.release(entry.account_id)
+            deps.pool.release(entry.account_id)
             latency_ms = int((time.time() - req_start) * 1000)
-            metrics_collector.record(body.model, entry.account_id, latency_ms, False)
+            deps.metrics_collector.record(body.model, entry.account_id, latency_ms, False)
 
             if attempt < MAX_RETRIES and is_retryable(e):
                 log.warn(
@@ -235,7 +234,6 @@ async def _stream_response_with_retry(
                 asyncio.create_task(_trigger_probe_safe(entry.account_id))
                 return
 
-    # All retries exhausted
     yield ChatGPTAdapter.build_response_failed(
         response_id, body.model,
         f"All retry attempts exhausted. Last error: {last_error}"
