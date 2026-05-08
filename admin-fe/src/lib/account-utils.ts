@@ -31,3 +31,10 @@ export function quotaBarColor(remainingPct: number): string {
   if (remainingPct <= 40) return 'bg-amber-400';
   return 'bg-green-500';
 }
+
+/** 槽位占用率颜色（基于已用百分比，与 quotaBarColor 语义对称） */
+export function slotUsageColor(usedPct: number): string {
+  if (usedPct > 90) return 'bg-red-500';
+  if (usedPct > 60) return 'bg-amber-400';
+  return 'bg-green-500';
+}

@@ -80,6 +80,41 @@ export interface MetricsBreakdown {
   since: number;
 }
 
+/** 延迟分位数响应 */
+export interface PercentileResponse {
+  p50: number;
+  p95: number;
+  p99: number;
+  range: string;
+  sampleCount: number;
+}
+
+/** KPI 周期数据 */
+export interface PeriodMetrics {
+  requests: number;
+  errors: number;
+  avgLatencyMs: number;
+  successRate: number;
+  errorRate: number;
+}
+
+/** KPI 环比变化 */
+export interface KpiChanges {
+  requests: number | null;
+  errors: number | null;
+  avgLatencyMs: number | null;
+  successRate: number | null;
+  errorRate: number | null;
+}
+
+/** KPI 汇总响应（含环比） */
+export interface SummaryResponse {
+  current: PeriodMetrics;
+  previous: PeriodMetrics;
+  changes: KpiChanges;
+  range: string;
+}
+
 /** 被拉黑的 IP */
 export interface BannedIP {
   ip: string;
