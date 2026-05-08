@@ -48,12 +48,26 @@ Chat Completions 接口，兼容 OpenAI Chat API。
 | `model` | string | ✅ | 模型名称 |
 | `messages` | array | ✅ | 消息数组 |
 | `messages[].role` | string | ✅ | 角色：`system` / `user` / `assistant` / `tool` |
-| `messages[].content` | string | ✅ | 消息内容 |
+| `messages[].content` | string \| array \| null | ✅ | 消息内容，支持纯文本、多模态数组或 null（tool call 时） |
 | `messages[].name` | string | ❌ | 可选名称 |
+| `messages[].tool_calls` | array | ❌ | assistant 消息的工具调用列表 |
+| `messages[].tool_call_id` | string | ❌ | tool 消息对应的工具调用 ID |
 | `stream` | boolean | ❌ | 是否流式输出，默认 `false` |
 | `temperature` | float | ❌ | 温度参数 |
 | `max_tokens` | integer | ❌ | 最大生成 token 数 |
+| `max_completion_tokens` | integer | ❌ | 最大生成 token 数（`max_tokens` 别名） |
 | `reasoning_effort` | string | ❌ | 推理努力程度 |
+| `tools` | array | ❌ | 工具定义列表 |
+| `tool_choice` | string \| dict | ❌ | 工具选择策略（`none` / `auto` / `required` 或指定函数） |
+| `top_p` | float | ❌ | nucleus sampling 参数 |
+| `stop` | string \| array | ❌ | 停止词 |
+| `frequency_penalty` | float | ❌ | 频率惩罚 |
+| `presence_penalty` | float | ❌ | 存在惩罚 |
+| `response_format` | dict | ❌ | 响应格式（`json_object` 或 `json_schema`） |
+| `seed` | integer | ❌ | 随机种子 |
+| `parallel_tool_calls` | boolean | ❌ | 是否允许并行工具调用 |
+| `stream_options` | dict | ❌ | 流式选项（如 `{"include_usage": true}`） |
+| `codex_events` | boolean | ❌ | Codex 扩展事件开关 |
 
 **响应:** 兼容 OpenAI Chat Completion 格式（流式为 SSE `text/event-stream`）。
 
@@ -80,6 +94,10 @@ Responses API 接口，兼容 OpenAI Responses API。
 | `instructions` | string | ❌ | 系统指令 |
 | `store` | boolean | ❌ | 是否存储 |
 | `reasoning_effort` | string | ❌ | 推理努力程度 |
+| `tools` | array | ❌ | 工具定义列表 |
+| `tool_choice` | string | ❌ | 工具选择策略 |
+| `parallel_tool_calls` | boolean | ❌ | 是否允许并行工具调用 |
+| `codex_events` | boolean | ❌ | Codex 扩展事件开关 |
 
 **响应:** 兼容 OpenAI Responses API 格式（流式为 SSE named events）。
 
@@ -469,7 +487,7 @@ Responses API 接口，兼容 OpenAI Responses API。
 
 **响应示例:**
 ```json
-{ "models": ["gpt-5.4", "gpt-5.5", "gpt-5.4-mini"] }
+{ "models": ["gpt-5.4", "gpt-5.5", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"] }
 ```
 
 ---
@@ -484,7 +502,7 @@ Responses API 接口，兼容 OpenAI Responses API。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `model` | string | ✅ | 模型 ID（也接受 `model_id` 字段名） |
+| `model` | string | ✅ | 模型 ID |
 
 ---
 
@@ -528,7 +546,31 @@ Responses API 接口，兼容 OpenAI Responses API。
 
 ### GET `/api/admin/metrics/breakdown`
 
-获取指标分类统计。
+获取指标分类统计（内存环形缓冲区，快速）。
+
+**认证:** Admin Session Token
+
+**参数:** 无
+
+---
+
+### GET `/api/admin/metrics/timeseries/persistent`
+
+获取持久化指标时间序列数据（SQLite 存储）。
+
+**认证:** Admin Session Token
+
+**查询参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `range` | string | ❌ | 时间范围，默认 `1h` |
+
+---
+
+### GET `/api/admin/metrics/breakdown/persistent`
+
+获取持久化指标分类统计（SQLite 存储）。
 
 **认证:** Admin Session Token
 

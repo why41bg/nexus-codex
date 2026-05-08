@@ -82,6 +82,21 @@ cp .env.example .env
 | `LOG_FORMAT` | 日志输出格式（`pretty` / `json`） | `pretty` |
 | `RATE_LIMIT_MAX` | 单个 API Key 在时间窗口内的最大请求数 | `60` |
 | `RATE_LIMIT_WINDOW_MS` | 速率限制滑动窗口大小（毫秒） | `60000`（1 分钟） |
+| `THREAD_POOL_ENABLED` | 是否启用线程池 | `false` |
+| `THREAD_POOL_MAX_IDLE` | 线程池最大空闲线程数 | `2` |
+| `THREAD_POOL_MAX_AGE_MS` | 线程最大存活时间（毫秒） | `1800000`（30 分钟） |
+| `THREAD_POOL_MAX_USAGE` | 线程最大复用次数 | `50` |
+| `HEALTH_LOCAL_INTERVAL_MS` | 本地健康检查间隔（毫秒） | `60000`（1 分钟） |
+| `HEALTH_REMOTE_INTERVAL_MS` | 远程健康检查间隔（毫秒） | `900000`（15 分钟） |
+| `HEALTH_REMOTE_TIMEOUT_MS` | 远程健康检查超时（毫秒） | `15000` |
+| `HEALTH_TOKEN_EXPIRY_BUFFER_SEC` | Token 过期缓冲时间（秒） | `300` |
+| `HEALTH_FAIL_THRESHOLD` | 健康检查失败阈值（连续失败次数） | `2` |
+| `QUOTA_CACHE_TTL_MS` | 配额缓存 TTL（毫秒） | `600000`（10 分钟） |
+| `BAN_THRESHOLD` | 自动封禁阈值（404 命中次数） | `5` |
+| `BAN_WINDOW_SECONDS` | 封禁滑动窗口（秒） | `60` |
+| `BAN_DURATION_HOURS` | 封禁时长（小时，0 = 永久） | `0` |
+| `CODEX_CHAT_COMPLETIONS_EXTENDED_EVENTS` | Chat Completions 扩展事件开关 | `false` |
+| `CODEX_STREAM_EXTENDED_EVENTS` | 流式扩展事件开关 | `true` |
 
 > API Key 和模型白名单存储在 `data/config.json`，通过管理面板配置。首次启动时访问管理面板进行初始化设置。
 
