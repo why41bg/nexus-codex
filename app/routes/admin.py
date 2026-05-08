@@ -16,6 +16,8 @@ from app.middleware.auth import admin_auth_dependency
 from app.models import (
     AddAccountRequest,
     AddApiKeyRequest,
+    AddBannedIpRequest,
+    AddModelRequest,
     BulkImportRequest,
     LoginRequest,
     RevealApiKeyRequest,
@@ -455,12 +457,11 @@ async def list_default_models():
 
 
 @router.post("/models", dependencies=[Depends(admin_auth_dependency)])
-async def add_model(request: Request):
+async def add_model(body: AddModelRequest):
     """Add a default model."""
-    body = await request.json()
-    model_id = body.get("model") or body.get("model_id") or ""
+    model_id = body.model.strip()
     if not model_id:
-        return JSONResponse(status_code=400, content={"error": {"message": "model_id is required"}})
+        return JSONResponse(status_code=400, content={"error": {"message": "model is required"}})
     added = await add_default_model(model_id)
     if not added:
         return JSONResponse(status_code=409, content={"error": {"message": "Model already exists"}})
@@ -532,11 +533,10 @@ async def list_banned_ips():
 
 
 @router.post("/banned-ips", dependencies=[Depends(admin_auth_dependency)])
-async def add_banned_ip(request: Request):
+async def add_banned_ip(body: AddBannedIpRequest):
     """Manually ban an IP address."""
-    body = await request.json()
-    ip = body.get("ip", "").strip()
-    reason = body.get("reason", "Manually banned")
+    ip = body.ip.strip()
+    reason = body.reason
 
     if not ip:
         return JSONResponse(

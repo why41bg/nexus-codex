@@ -262,6 +262,17 @@ class RevealApiKeyRequest(CamelModel):
     password: str
 
 
+class AddModelRequest(BaseModel):
+    """Request to add a default model."""
+    model: str
+
+
+class AddBannedIpRequest(BaseModel):
+    """Request to manually ban an IP address."""
+    ip: str
+    reason: str = "Manually banned"
+
+
 # ─── Error ─────────────────────────────────────────────────
 
 
