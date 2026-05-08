@@ -148,7 +148,7 @@ class ResponsesInputItem(BaseModel):
 
 class ResponsesRequest(BaseModel):
     model: str
-    input: str | list[ResponsesInputItem]
+    input: str | list[dict]
     stream: bool = False
     codex_events: bool | None = None
     temperature: float | None = None
@@ -157,6 +157,9 @@ class ResponsesRequest(BaseModel):
     instructions: str | None = None
     store: bool | None = None
     reasoning_effort: str | None = None
+    tools: list[dict] | None = None
+    tool_choice: str | None = None
+    parallel_tool_calls: bool | None = None
 
 
 class ResponsesUsage(BaseModel):

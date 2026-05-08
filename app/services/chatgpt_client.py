@@ -139,7 +139,113 @@ class ChatGPTClient:
             resp.raise_for_status()
             return resp.json()
 
-    # ── Internal: Responses API ─────────────────────────
+    # ── Responses API pass-through ─────────────────────
+
+    async def responses(
+        self,
+        model: str,
+        input_items: list[dict] | str,
+        *,
+        instructions: str | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        parallel_tool_calls: bool | None = None,
+        previous_response_id: str | None = None,
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+        stream: bool = True,
+    ) -> AsyncGenerator[str, None]:
+        """Pass-through Responses API call to ChatGPT backend.
+
+        Directly forwards the Responses API request fields to the ChatGPT
+        backend without reinterpretation. Yields raw SSE data strings for
+        streaming, or a single JSON string for non-streaming.
+        """
+        token = await self._token_manager.get_access_token()
+        if not token:
+            raise TokenExpiredError("No valid access token")
+
+        headers = self._build_headers(token)
+        headers["Accept"] = "text/event-stream" if stream else "application/json"
+
+        payload: dict = {
+            "model": model,
+            "input": input_items,
+            "stream": stream,
+            "store": False,
+            "include": [],
+        }
+        if instructions:
+            payload["instructions"] = instructions
+        if tools:
+            payload["tools"] = tools
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
+        if parallel_tool_calls is not None:
+            payload["parallel_tool_calls"] = parallel_tool_calls
+        if previous_response_id:
+            payload["previous_response_id"] = previous_response_id
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
+        if reasoning_effort:
+            payload["reasoning"] = {"effort": reasoning_effort}
+
+        log.debug("ChatGPT responses request", extra={"model": model, "payload": json.dumps(payload, ensure_ascii=False)[:500]})
+
+        if stream:
+            async for chunk in self._stream_sse(headers, payload):
+                yield chunk
+        else:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{self._base_url}/responses",
+                    headers=headers,
+                    json=payload,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+                if resp.status_code != 200:
+                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+                yield json.dumps(resp.json())
+
+    async def _stream_sse(
+        self,
+        headers: dict[str, str],
+        payload: dict,
+    ) -> AsyncGenerator[str, None]:
+        """Stream SSE events from ChatGPT backend."""
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{self._base_url}/responses",
+                headers=headers,
+                json=payload,
+                timeout=DEFAULT_TIMEOUT,
+            ) as resp:
+                log.debug("ChatGPT response status", extra={"status": resp.status_code})
+
+                if resp.status_code == 403:
+                    body = await resp.aread()
+                    if b"_cf_chl_opt" in body or b"challenge-platform" in body:
+                        raise CloudflareChallengeError("Blocked by Cloudflare")
+                    raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
+
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
+
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data == "[DONE]":
+                            log.debug("ChatGPT SSE: [DONE]")
+                            break
+                        log.debug("ChatGPT SSE data", extra={"raw": data[:300]})
+                        yield data
+
+    # ── Internal: Chat Completions (legacy) ─────────────
 
     async def _responses_stream(
         self,
@@ -178,36 +284,8 @@ class ChatGPTClient:
         if reasoning_effort:
             payload["reasoning"] = {"effort": reasoning_effort}
 
-        log.debug("ChatGPT request", extra={"model": model, "payload": json.dumps(payload, ensure_ascii=False)[:500]})
-
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                f"{self._base_url}/responses",
-                headers=headers,
-                json=payload,
-                timeout=DEFAULT_TIMEOUT,
-            ) as resp:
-                log.debug("ChatGPT response status", extra={"status": resp.status_code})
-
-                if resp.status_code == 403:
-                    body = await resp.aread()
-                    if b"_cf_chl_opt" in body or b"challenge-platform" in body:
-                        raise CloudflareChallengeError("Blocked by Cloudflare")
-                    raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
-
-                if resp.status_code != 200:
-                    body = await resp.aread()
-                    raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
-
-                async for line in resp.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
-                            log.debug("ChatGPT SSE: [DONE]")
-                            break
-                        log.debug("ChatGPT SSE data", extra={"raw": data[:300]})
-                        yield data
+        async for chunk in self._stream_sse(headers, payload):
+            yield chunk
 
     async def _responses_non_stream(
         self,

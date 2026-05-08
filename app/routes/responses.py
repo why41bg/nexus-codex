@@ -11,7 +11,7 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.models import ResponsesRequest, ResponsesInputItem, ContentPart
+from app.models import ResponsesRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import pool, PoolEntry
@@ -25,37 +25,6 @@ from app.config import settings
 from app.utils.logger import log
 
 router = APIRouter()
-
-
-def _extract_prompt_from_input(input_data: str | list[ResponsesInputItem]) -> str:
-    """Extract prompt text from Responses API input."""
-    if isinstance(input_data, str):
-        return input_data
-
-    system_parts: list[str] = []
-    user_parts: list[str] = []
-
-    for item in input_data:
-        text = _extract_text_from_content(item.content)
-        if item.role in ("system", "developer"):
-            system_parts.append(text)
-        elif item.role == "user":
-            user_parts.append(text)
-
-    user_text = "\n".join(user_parts)
-    if system_parts:
-        return f"{chr(10).join(system_parts)}\n\n{user_text}"
-    return user_text
-
-
-def _extract_text_from_content(content: str | list[ContentPart]) -> str:
-    if isinstance(content, str):
-        return content
-    return "\n".join(
-        part.text or ""
-        for part in content
-        if part.type in ("input_text", "text")
-    )
 
 
 def _generate_response_id() -> str:
@@ -107,6 +76,8 @@ async def responses(
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
                     "X-Accel-Buffering": "no",
+                    "openai-model": body.model,
+                    "x-request-id": response_id,
                 },
             )
         else:
@@ -134,33 +105,32 @@ async def _stream_response(
     response_id: str,
     req_start: float,
 ) -> AsyncGenerator[str, None]:
-    """Stream Responses API by forwarding all SSE events from ChatGPT backend.
+    """Stream Responses API by transparently forwarding to ChatGPT backend.
 
-    The ChatGPT backend returns properly formatted Responses API SSE named events.
-    We forward them all (not just text deltas) so the Codex CLI receives the full
-    event sequence it expects (output_item.added, content_part.added, etc.).
+    Passes through the raw Responses API request fields (input, tools,
+    instructions, previous_response_id) directly to the ChatGPT backend
+    without reinterpretation. Rewrites response IDs for consistency.
     """
-    item_id = f"msg-nexus-{uuid.uuid4()}"
-    full_text = ""
     seen_completed = False
 
     try:
-        prompt = _extract_prompt_from_input(body.input)
-        if body.instructions:
-            prompt = f"{body.instructions}\n\n{prompt}"
-
-        messages = [{"role": "user", "content": prompt}]
         client = entry.chatgpt_client
         if not client:
             raise RuntimeError("ChatGPT client not initialized")
 
-        # Forward all SSE events from ChatGPT backend
-        async for raw_data in client.chat(
+        # Pass-through: forward raw request fields to ChatGPT backend
+        async for raw_data in client.responses(
             model=body.model,
-            messages=messages,
-            stream=True,
+            input_items=body.input,
+            instructions=body.instructions,
+            tools=body.tools,
+            tool_choice=body.tool_choice,
+            parallel_tool_calls=body.parallel_tool_calls,
+            previous_response_id=body.previous_response_id,
             temperature=body.temperature,
-            max_tokens=body.max_output_tokens,
+            max_output_tokens=body.max_output_tokens,
+            reasoning_effort=body.reasoning_effort,
+            stream=True,
         ):
             try:
                 event_data = json.loads(raw_data)
@@ -170,20 +140,9 @@ async def _stream_response(
                 if "response" in event_data and isinstance(event_data["response"], dict):
                     event_data["response"]["id"] = response_id
 
-                # Track full text from deltas
-                if event_type == "response.output_text.delta":
-                    text = ChatGPTAdapter.extract_text_from_event(event_data)
-                    if text:
-                        full_text += text
-
                 # Track completion
                 if event_type == "response.completed":
                     seen_completed = True
-                    # Ensure output has our item_id
-                    output = event_data.get("response", {}).get("output", [])
-                    for item in output:
-                        if item.get("type") == "message":
-                            item["id"] = item_id
 
                 # Forward as named SSE event
                 line = ChatGPTAdapter.build_named_event(event_type, event_data)
@@ -195,11 +154,17 @@ async def _stream_response(
 
         # If backend didn't send response.completed, emit our own
         if not seen_completed:
-            completed_line = ChatGPTAdapter.build_response_completed(
-                response_id, body.model, item_id, full_text
-            )
-            log.debug("Responses yield completed (fallback)", extra={"line": completed_line[:200]})
-            yield completed_line
+            yield ChatGPTAdapter.build_named_event("response.completed", {
+                "type": "response.completed",
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "created_at": int(time.time()),
+                    "model": body.model,
+                    "output": [],
+                    "status": "completed",
+                },
+            })
 
         latency_ms = int((time.time() - req_start) * 1000)
         metrics_collector.record(body.model, entry.account_id, latency_ms, True)
@@ -226,52 +191,41 @@ async def _non_stream_response(
     response_id: str,
     req_start: float,
 ) -> JSONResponse:
-    """Non-streaming Responses API via ChatGPTClient."""
+    """Non-streaming Responses API via pass-through to ChatGPT backend."""
     try:
-        prompt = _extract_prompt_from_input(body.input)
-        if body.instructions:
-            prompt = f"{body.instructions}\n\n{prompt}"
-
-        messages = [{"role": "user", "content": prompt}]
         client = entry.chatgpt_client
         if not client:
             raise RuntimeError("ChatGPT client not initialized")
 
-        full_text = ""
-        async for raw_data in client.chat(
+        result = None
+        async for raw_data in client.responses(
             model=body.model,
-            messages=messages,
-            stream=False,
+            input_items=body.input,
+            instructions=body.instructions,
+            tools=body.tools,
+            tool_choice=body.tool_choice,
+            parallel_tool_calls=body.parallel_tool_calls,
+            previous_response_id=body.previous_response_id,
             temperature=body.temperature,
-            max_tokens=body.max_output_tokens,
+            max_output_tokens=body.max_output_tokens,
+            reasoning_effort=body.reasoning_effort,
+            stream=False,
         ):
             try:
-                response_data = json.loads(raw_data)
-                full_text = ChatGPTAdapter.extract_text_from_response(response_data)
+                result = json.loads(raw_data)
+                result["id"] = response_id
             except json.JSONDecodeError:
                 pass
 
-        item_id = f"msg-nexus-{uuid.uuid4()}"
-        result = {
-            "id": response_id,
-            "object": "response",
-            "created_at": int(time.time()),
-            "model": body.model,
-            "output": [
-                {
-                    "id": item_id,
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": full_text}],
-                }
-            ],
-            "status": "completed",
-            "usage": {
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": 0,
-            },
-        }
+        if result is None:
+            result = {
+                "id": response_id,
+                "object": "response",
+                "created_at": int(time.time()),
+                "model": body.model,
+                "output": [],
+                "status": "completed",
+            }
 
         latency_ms = int((time.time() - req_start) * 1000)
         metrics_collector.record(body.model, entry.account_id, latency_ms, True)
