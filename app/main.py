@@ -20,6 +20,7 @@ from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
 from app.services.session_manager import cleanup_expired_sessions
 from app.utils.logger import log
+from app.adapters.anthropic_adapter import AnthropicAdapter
 
 
 @asynccontextmanager
@@ -110,9 +111,22 @@ app.add_middleware(IPBanMiddleware)
 # ─── Global exception handlers ───────────────────────────────
 
 
+def _is_anthropic_request(request: Request) -> bool:
+    """Check if the request targets the Anthropic Messages API protocol.
+
+    Relies on ``request.state.protocol`` set by the messages route handler,
+    falling back to path matching for errors raised before the route is resolved.
+    """
+    protocol = getattr(request.state, "protocol", None)
+    if protocol == "anthropic":
+        return True
+    # Fallback: path-based detection for errors raised before route dispatch.
+    return request.url.path.rstrip("/") == "/v1/messages"
+
+
 @app.exception_handler(NexusError)
 async def nexus_exception_handler(request: Request, exc: NexusError):
-    """Handle NexusError with proper OpenAI-compatible error response."""
+    """Handle NexusError with protocol-appropriate error response."""
     log.warn(
         "Application error",
         extra={
@@ -122,6 +136,13 @@ async def nexus_exception_handler(request: Request, exc: NexusError):
             "path": request.url.path,
         },
     )
+
+    if _is_anthropic_request(request):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=AnthropicAdapter.format_error(exc.message),
+        )
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -137,6 +158,16 @@ async def nexus_exception_handler(request: Request, exc: NexusError):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     log.error("Unhandled error", extra={"error": str(exc), "path": request.url.path})
+
+    if _is_anthropic_request(request):
+        return JSONResponse(
+            status_code=500,
+            content=AnthropicAdapter.format_error(
+                "An internal server error occurred. Please try again later.",
+                "server_error",
+            ),
+        )
+
     return JSONResponse(
         status_code=500,
         content={
@@ -168,11 +199,13 @@ async def health_check(request: Request):
 
 from app.routes.chat_completions import router as chat_completions_router
 from app.routes.responses import router as responses_router
+from app.routes.messages import router as messages_router
 from app.routes.models import router as models_router
 from app.routes.admin import router as admin_router
 
 app.include_router(chat_completions_router, prefix="/v1")
 app.include_router(responses_router, prefix="/v1")
+app.include_router(messages_router, prefix="/v1")
 app.include_router(models_router, prefix="/v1")
 app.include_router(admin_router, prefix="/api/admin")
 
