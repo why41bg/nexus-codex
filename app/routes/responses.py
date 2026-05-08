@@ -16,25 +16,18 @@ from app.models import ResponsesRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import PoolEntry
-from app.services.account_store import increment_usage_count
-from app.services.config_store import is_model_allowed_for_key, increment_key_monthly_usage
+from app.services.config_store import is_model_allowed_for_key
 from app.services.chatgpt_adapter import ChatGPTAdapter
 from app.config import settings
 from app.utils.logger import log
 from app.utils.retry import with_retry, is_retryable
+from app.utils.route_helpers import error_response, increment_counters, trigger_probe_safe
 
 router = APIRouter()
 
 
 def _generate_response_id() -> str:
     return f"resp-nexus-{uuid.uuid4()}"
-
-
-def _error_response(message: str, code: str, status: int = 500) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content={"error": {"message": message, "type": "server_error", "code": code}},
-    )
 
 
 @router.post("/responses")
@@ -48,7 +41,7 @@ async def responses(
     await rate_limit_dependency(request, api_key)
 
     if not is_model_allowed_for_key(api_key, body.model):
-        return _error_response(
+        return error_response(
             f"The model '{body.model}' does not exist or is not available.",
             "model_not_found",
             404,
@@ -78,10 +71,10 @@ async def responses(
             return result
         except RuntimeError as e:
             log.error("Responses API exhausted retries", extra={"error": str(e)})
-            return _error_response(str(e), "rate_limit_exceeded", 429)
+            return error_response(str(e), "rate_limit_exceeded", 429)
         except Exception as e:
             log.error("Responses API error", extra={"error": str(e)})
-            return _error_response(str(e), "internal_error")
+            return error_response(str(e), "internal_error")
 
 
 async def _do_non_stream(
@@ -93,7 +86,7 @@ async def _do_non_stream(
     api_key: str,
 ) -> JSONResponse:
     """Non-streaming Responses API via pass-through to ChatGPT backend."""
-    asyncio.create_task(_increment_counters(entry.account_id, api_key))
+    asyncio.create_task(increment_counters(entry.account_id, api_key))
 
     client = entry.chatgpt_client
     if not client:
@@ -155,7 +148,7 @@ async def _stream_response_with_retry(
             )
             return
 
-        asyncio.create_task(_increment_counters(entry.account_id, api_key))
+        asyncio.create_task(increment_counters(entry.account_id, api_key))
         seen_completed = False
 
         try:
@@ -222,7 +215,7 @@ async def _stream_response_with_retry(
                         "error": str(e),
                     },
                 )
-                asyncio.create_task(_trigger_probe_safe(entry.account_id))
+                asyncio.create_task(trigger_probe_safe(entry.account_id))
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
@@ -231,7 +224,7 @@ async def _stream_response_with_retry(
                 yield ChatGPTAdapter.build_response_failed(
                     response_id, body.model, str(e)
                 )
-                asyncio.create_task(_trigger_probe_safe(entry.account_id))
+                asyncio.create_task(trigger_probe_safe(entry.account_id))
                 return
 
     yield ChatGPTAdapter.build_response_failed(
@@ -240,20 +233,7 @@ async def _stream_response_with_retry(
     )
 
 
-async def _increment_counters(account_id: str, api_key: str) -> None:
-    try:
-        await increment_usage_count(account_id)
-    except Exception as e:
-        log.error("Failed to update usage stats", extra={"error": str(e)})
-    try:
-        await increment_key_monthly_usage(api_key)
-    except Exception as e:
-        log.error("Failed to update key monthly usage", extra={"error": str(e)})
-
-
-async def _trigger_probe_safe(account_id: str) -> None:
-    try:
-        from app.services.health_check import trigger_probe
-        await trigger_probe(account_id)
-    except Exception:
-        pass
+    yield ChatGPTAdapter.build_response_failed(
+        response_id, body.model,
+        f"All retry attempts exhausted. Last error: {last_error}"
+    )

@@ -16,31 +16,18 @@ from app.models import ChatCompletionRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import PoolEntry
-from app.services.account_store import increment_usage_count
-from app.services.config_store import is_model_allowed_for_key, increment_key_monthly_usage
+from app.services.config_store import is_model_allowed_for_key
 from app.services.chatgpt_adapter import ChatGPTAdapter
 from app.config import settings
 from app.utils.logger import log
 from app.utils.retry import with_retry, is_retryable
+from app.utils.route_helpers import error_response, increment_counters, trigger_probe_safe
 
 router = APIRouter()
 
 
 def _generate_completion_id() -> str:
     return f"chatcmpl-nexus-{uuid.uuid4()}"
-
-
-def _error_response(message: str, code: str, status: int = 500) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content={
-            "error": {
-                "message": message,
-                "type": "server_error",
-                "code": code,
-            }
-        },
-    )
 
 
 @router.post("/chat/completions")
@@ -54,7 +41,7 @@ async def chat_completions(
     await rate_limit_dependency(request, api_key)
 
     if not is_model_allowed_for_key(api_key, body.model):
-        return _error_response(
+        return error_response(
             f"The model '{body.model}' does not exist or is not available.",
             "model_not_found",
             404,
@@ -82,10 +69,10 @@ async def chat_completions(
             return result
         except RuntimeError as e:
             log.error("Chat completion exhausted retries", extra={"error": str(e)})
-            return _error_response(str(e), "rate_limit_exceeded", 429)
+            return error_response(str(e), "rate_limit_exceeded", 429)
         except Exception as e:
             log.error("Chat completion error", extra={"error": str(e)})
-            return _error_response(str(e), "internal_error")
+            return error_response(str(e), "internal_error")
 
 
 async def _do_non_stream(
@@ -97,7 +84,7 @@ async def _do_non_stream(
     api_key: str,
 ) -> JSONResponse:
     """Non-streaming completion via ChatGPTClient (used inside with_retry)."""
-    asyncio.create_task(_increment_counters(entry.account_id, api_key))
+    asyncio.create_task(increment_counters(entry.account_id, api_key))
 
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
     client = entry.chatgpt_client
@@ -153,7 +140,7 @@ async def _stream_completion_with_retry(
             yield "data: [DONE]\n\n"
             return
 
-        asyncio.create_task(_increment_counters(entry.account_id, api_key))
+        asyncio.create_task(increment_counters(entry.account_id, api_key))
 
         try:
             messages = [{"role": m.role, "content": m.content} for m in body.messages]
@@ -209,7 +196,7 @@ async def _stream_completion_with_retry(
                         "error": str(e),
                     },
                 )
-                asyncio.create_task(_trigger_probe_safe(entry.account_id))
+                asyncio.create_task(trigger_probe_safe(entry.account_id))
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
@@ -224,7 +211,7 @@ async def _stream_completion_with_retry(
                 }
                 yield f"data: {json.dumps(error_data)}\n\n"
                 yield "data: [DONE]\n\n"
-                asyncio.create_task(_trigger_probe_safe(entry.account_id))
+                asyncio.create_task(trigger_probe_safe(entry.account_id))
                 return
 
     error_data = {
@@ -236,22 +223,3 @@ async def _stream_completion_with_retry(
     }
     yield f"data: {json.dumps(error_data)}\n\n"
     yield "data: [DONE]\n\n"
-
-
-async def _increment_counters(account_id: str, api_key: str) -> None:
-    try:
-        await increment_usage_count(account_id)
-    except Exception as e:
-        log.error("Failed to update usage stats", extra={"error": str(e)})
-    try:
-        await increment_key_monthly_usage(api_key)
-    except Exception as e:
-        log.error("Failed to update key monthly usage", extra={"error": str(e)})
-
-
-async def _trigger_probe_safe(account_id: str) -> None:
-    try:
-        from app.services.health_check import trigger_probe
-        await trigger_probe(account_id)
-    except Exception:
-        pass
