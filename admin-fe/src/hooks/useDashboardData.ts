@@ -107,7 +107,7 @@ export function useDashboardData() {
 
   return {
     data: dashboardData,
-    loading: isLoading,
+    loading: isLoading || isFetching,
     refreshing: isFetching && !isLoading,
     connected: connectedRef.current,
     refresh: async () => { await refetch(); },
