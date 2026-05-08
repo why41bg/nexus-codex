@@ -2,13 +2,12 @@
 
 Usage:
     uv run python run.py
-    # or
-    uv run uvicorn app.main:app --host 0.0.0.0 --port 3000
 """
 
 import uvicorn
 
 from app.config import settings
+from app.utils.logger import get_log_config
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -16,5 +15,5 @@ if __name__ == "__main__":
         host=settings.host,
         port=settings.port,
         reload=False,
-        log_level=settings.log_level,
+        log_config=get_log_config(),
     )

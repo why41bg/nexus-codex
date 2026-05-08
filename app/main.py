@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
+import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.account_pool import AccountPool
@@ -72,7 +74,7 @@ async def lifespan(app: FastAPI):
     stop_health_check()
     cleanup_task.cancel()
     await pool.close()
-    if hasattr(app.state, 'deps') and app.state.deps.metrics_store:
+    if hasattr(app.state, 'deps'):
         app.state.deps.metrics_store.close()
     log.info("Nexus Codex shut down gracefully")
 
@@ -106,6 +108,39 @@ app.add_middleware(
 from app.middleware.ip_ban import IPBanMiddleware  # noqa: E402
 
 app.add_middleware(IPBanMiddleware)
+
+# Access log middleware (outermost — captures timing for every request).
+# Uvicorn's built-in access log is suppressed (set to WARNING) so we
+# have a single, consistent access log line with response time.
+@app.middleware("http")
+async def access_log_middleware(request: Request, call_next):
+    start = time.time()
+    response: Response = await call_next(request)
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    status = response.status_code
+    client = request.client.host if request.client else "-"
+    path = request.url.path
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
+
+    if status >= 500:
+        log.error(
+            f"{request.method} {path} → {status}",
+            extra={"client": client, "elapsed_ms": elapsed_ms},
+        )
+    elif status >= 400:
+        log.warn(
+            f"{request.method} {path} → {status}",
+            extra={"client": client, "elapsed_ms": elapsed_ms},
+        )
+    else:
+        log.info(
+            f"{request.method} {path} → {status}",
+            extra={"client": client, "elapsed_ms": elapsed_ms},
+        )
+
+    return response
 
 
 # ─── Global exception handlers ───────────────────────────────
@@ -157,7 +192,14 @@ async def nexus_exception_handler(request: Request, exc: NexusError):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    log.error("Unhandled error", extra={"error": str(exc), "path": request.url.path})
+    log.error(
+        "Unhandled error",
+        extra={
+            "error": str(exc),
+            "path": request.url.path,
+            "traceback": traceback.format_exc(),
+        },
+    )
 
     if _is_anthropic_request(request):
         return JSONResponse(
