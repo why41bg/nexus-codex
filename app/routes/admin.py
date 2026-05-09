@@ -108,14 +108,20 @@ async def admin_stream():
 
 
 @router.post("/login")
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, request: Request, deps: AppDependencies = Depends(get_deps)):
     """Admin login endpoint."""
+    client_ip = request.client.host if request.client else "-"
+
     if not verify_admin_auth(body.username, body.password):
+        if deps.log_collector:
+            deps.log_collector.on_login_failure(username=body.username, client_ip=client_ip)
         return JSONResponse(
             status_code=401,
             content={"error": {"message": "Invalid credentials.", "type": "authentication_error", "code": "invalid_credentials"}},
         )
     token = create_session()
+    if deps.log_collector:
+        deps.log_collector.on_login_success(username=body.username, client_ip=client_ip, session_id=token)
     return JSONResponse(content={"token": token})
 
 
@@ -594,3 +600,102 @@ async def remove_banned_ip(ip: str):
     await save_banned_ips(get_banned_ips())
     emit_admin_event({"type": "banned_ips_changed"})
     return JSONResponse(content={"ok": True})
+
+
+# ─── Logs ─────────────────────────────────────────────────────
+
+
+@router.get("/logs", dependencies=[Depends(admin_auth_dependency)])
+async def query_logs(
+    request: Request,
+    keyword: str | None = None,
+    level: str | None = None,
+    source: str | None = None,
+    event: str | None = None,
+    tag: str | None = None,
+    trace_id: str | None = None,
+    account_id: str | None = None,
+    api_key_id: str | None = None,
+    client_ip: str | None = None,
+    since: int | None = None,
+    until: int | None = None,
+    min_duration_ms: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    order: str = "desc",
+    deps: AppDependencies = Depends(get_deps),
+):
+    """Query structured logs with flexible filtering."""
+    if not deps.log_store:
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"message": "Log store is disabled.", "type": "service_unavailable", "code": "log_store_disabled"}},
+        )
+
+    # Parse comma-separated multi-values
+    levels = level.split(",") if level and "," in level else None
+    events = event.split(",") if event and "," in event else None
+    tags_all = tag.split(",") if tag and "," in tag else None
+
+    # Determine source_prefix vs exact source
+    source_prefix = None
+    exact_source = source
+    if source and source.endswith("*"):
+        source_prefix = source.rstrip("*")
+        exact_source = None
+
+    # Clamp limit
+    limit = min(max(1, limit), 200)
+
+    result = deps.log_store.query(
+        keyword=keyword,
+        level=None if levels else level,
+        levels=levels,
+        source=exact_source,
+        source_prefix=source_prefix,
+        event=None if events else event,
+        events=events,
+        tag=tag if (tag and "," not in tag) else None,
+        tags_all=tags_all,
+        trace_id=trace_id,
+        account_id=account_id,
+        api_key_id=api_key_id,
+        client_ip=client_ip,
+        since=since,
+        until=until,
+        min_duration_ms=min_duration_ms,
+        limit=limit,
+        offset=offset,
+        order=order,
+    )
+    return JSONResponse(content=result)
+
+
+@router.get("/logs/error-summary", dependencies=[Depends(admin_auth_dependency)])
+async def logs_error_summary(
+    range: str = "24h",
+    deps: AppDependencies = Depends(get_deps),
+):
+    """Get error event statistics summary."""
+    if not deps.log_store:
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"message": "Log store is disabled.", "type": "service_unavailable", "code": "log_store_disabled"}},
+        )
+    result = deps.log_store.get_error_summary(range)
+    return JSONResponse(content=result)
+
+
+@router.get("/logs/trace/{trace_id}", dependencies=[Depends(admin_auth_dependency)])
+async def logs_trace(
+    trace_id: str,
+    deps: AppDependencies = Depends(get_deps),
+):
+    """Get all log entries for a specific trace ID."""
+    if not deps.log_store:
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"message": "Log store is disabled.", "type": "service_unavailable", "code": "log_store_disabled"}},
+        )
+    items = deps.log_store.get_trace(trace_id)
+    return JSONResponse(content={"items": items, "trace_id": trace_id})
