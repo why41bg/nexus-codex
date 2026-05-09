@@ -6,10 +6,10 @@ import time
 from collections import defaultdict
 
 from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.services.config_store import find_api_key
+from app.dependencies import AppDependencies
 
 # In-memory store: api_key -> list of request timestamps (ms)
 _request_store: dict[str, list[float]] = defaultdict(list)
@@ -38,6 +38,17 @@ async def rate_limit_dependency(request: Request, api_key: str) -> None:
         oldest = min(timestamps) if timestamps else now_ms
         reset_time = oldest + limit_window_ms
         retry_after = max(1, int((reset_time - now_ms) / 1000))
+
+        # Log rate limit event
+        deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+        if deps and deps.log_collector:
+            client_ip = request.client.host if request.client else "-"
+            deps.log_collector.on_rate_limit_hit(
+                client_ip=client_ip,
+                api_key_id=api_key[:8] + "..." if api_key else None,
+                path=request.url.path,
+            )
+
         raise HTTPException(
             status_code=429,
             detail={

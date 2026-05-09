@@ -18,6 +18,8 @@ from app.services.account_store import load_accounts
 from app.services.config_store import get_banned_ips_from_config, load_config
 from app.services.health_check import start_health_check, stop_health_check
 from app.services.ip_ban_store import get_client_ip, init_banned_ips, record_suspicious_hit
+from app.services.log_collector import LogCollector
+from app.services.log_store import LogStore
 from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
 from app.services.session_manager import cleanup_expired_sessions
@@ -46,18 +48,35 @@ async def lifespan(app: FastAPI):
     metrics_store = MetricsStore()
     metrics_collector = MetricsCollector(metrics_store)
 
+    # Initialize log store and collector
+    log_store = LogStore(retention_days=settings.log_store_retention_days) if settings.log_store_enabled else None
+    log_collector = LogCollector(log_store, min_level=settings.log_store_level) if log_store else None
+
     # Create dependency injection container
     app.state.deps = AppDependencies(
         pool=pool,
         metrics_collector=metrics_collector,
         metrics_store=metrics_store,
+        log_collector=log_collector,
+        log_store=log_store,
     )
 
     # Start health check background tasks
-    start_health_check(pool)
+    start_health_check(pool, log_collector=log_collector)
 
     # Start session cleanup timer
     cleanup_task = asyncio.create_task(_session_cleanup_loop())
+
+    # Start log cleanup timer
+    log_cleanup_task = asyncio.create_task(_log_cleanup_loop(log_store))
+
+    # Record startup event
+    if log_collector:
+        log_collector.on_system_event(
+            event="service_started",
+            message="Nexus Codex started",
+            context={"port": settings.port, "accounts": len(accounts)},
+        )
 
     log.info(
         "Nexus Codex is running",
@@ -71,11 +90,16 @@ async def lifespan(app: FastAPI):
 
     # ─── Shutdown ─────────────────────────────────────────
     log.info("Shutting down Nexus Codex")
+    if log_collector:
+        log_collector.on_system_event(event="service_stopped", message="Nexus Codex shutting down")
     stop_health_check()
     cleanup_task.cancel()
+    log_cleanup_task.cancel()
     await pool.close()
     if hasattr(app.state, 'deps'):
         app.state.deps.metrics_store.close()
+        if app.state.deps.log_store:
+            app.state.deps.log_store.close()
     log.info("Nexus Codex shut down gracefully")
 
 
@@ -84,6 +108,20 @@ async def _session_cleanup_loop():
     while True:
         await asyncio.sleep(600)  # every 10 minutes
         cleanup_expired_sessions()
+
+
+async def _log_cleanup_loop(log_store: LogStore | None):
+    """Periodically clean up expired logs."""
+    if not log_store:
+        return
+    while True:
+        await asyncio.sleep(3600)  # every hour
+        try:
+            deleted = log_store.cleanup()
+            if deleted > 0:
+                log.info("Log cleanup completed", extra={"deleted": deleted})
+        except Exception as e:
+            log.error("Log cleanup failed", extra={"error": str(e)})
 
 
 # ─── Create FastAPI app ──────────────────────────────────────
@@ -140,6 +178,17 @@ async def access_log_middleware(request: Request, call_next):
             extra={"client": client, "elapsed_ms": elapsed_ms},
         )
 
+    # Structured log collection
+    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    if deps and deps.log_collector:
+        deps.log_collector.on_request_complete(
+            method=request.method,
+            path=path,
+            status=status,
+            latency_ms=elapsed_ms,
+            client_ip=client,
+        )
+
     return response
 
 
@@ -192,14 +241,24 @@ async def nexus_exception_handler(request: Request, exc: NexusError):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    tb_str = traceback.format_exc()
     log.error(
         "Unhandled error",
         extra={
             "error": str(exc),
             "path": request.url.path,
-            "traceback": traceback.format_exc(),
+            "traceback": tb_str,
         },
     )
+
+    # Structured log collection
+    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    if deps and deps.log_collector:
+        deps.log_collector.on_unhandled_exception(
+            error=str(exc),
+            traceback_str=tb_str,
+            path=request.url.path,
+        )
 
     if _is_anthropic_request(request):
         return JSONResponse(
@@ -269,6 +328,11 @@ async def catch_all(request: Request, path_name: str):
         from app.services.ip_ban_store import get_banned_ips
 
         await save_banned_ips(get_banned_ips())
+
+        # Log the auto-ban event
+        deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+        if deps and deps.log_collector:
+            deps.log_collector.on_ip_banned(ip=client_ip, reason=reason)
 
     return JSONResponse(
         status_code=404,
