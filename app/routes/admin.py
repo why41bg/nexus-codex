@@ -19,11 +19,19 @@ from app.models import (
     AddBannedIpRequest,
     AddModelRequest,
     BatchUnbanRequest,
+    BootstrapAccountRequest,
     BulkImportRequest,
     LoginRequest,
     RevealApiKeyRequest,
     UpdateAccountRequest,
     UpdateApiKeyRequest,
+)
+from app.services.account_bootstrap import (
+    cancel_bootstrap,
+    confirm_bootstrap,
+    get_session,
+    session_to_dict,
+    start_bootstrap,
 )
 from app.services.account_store import (
     add_account,
@@ -211,6 +219,73 @@ async def create_account(body: AddAccountRequest, deps: AppDependencies = Depend
     deps.pool.add_entry(acc)
     emit_admin_event({"type": "pool_changed"})
     return JSONResponse(content=acc.model_dump())
+
+
+# ─── Account Bootstrap ────────────────────────────────────────
+
+
+@router.post("/accounts/bootstrap", dependencies=[Depends(admin_auth_dependency)])
+async def bootstrap_account(body: BootstrapAccountRequest):
+    """Start account bootstrap: create CODEX_HOME and launch codex login --device-auth."""
+    session = await start_bootstrap(body.remark, body.max_concurrency)
+    return JSONResponse(content=session_to_dict(session))
+
+
+@router.get("/accounts/bootstrap/{session_id}", dependencies=[Depends(admin_auth_dependency)])
+async def get_bootstrap_status(session_id: str):
+    """Poll bootstrap session status."""
+    session = get_session(session_id)
+    if not session:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "message": "Bootstrap session not found",
+                    "type": "not_found",
+                    "code": "session_not_found",
+                }
+            },
+        )
+    return JSONResponse(content=session_to_dict(session))
+
+
+@router.post("/accounts/bootstrap/{session_id}/confirm", dependencies=[Depends(admin_auth_dependency)])
+async def confirm_bootstrap_account(session_id: str, deps: AppDependencies = Depends(get_deps)):
+    """Confirm bootstrap and register the account."""
+    data = await confirm_bootstrap(session_id)
+    if not data:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "message": "Bootstrap session is not in success state",
+                    "type": "invalid_request",
+                    "code": "not_ready",
+                }
+            },
+        )
+    acc = await add_account(data["codex_home"], data["remark"], data["max_concurrency"])
+    deps.pool.add_entry(acc)
+    emit_admin_event({"type": "pool_changed"})
+    return JSONResponse(content=acc.model_dump())
+
+
+@router.post("/accounts/bootstrap/{session_id}/cancel", dependencies=[Depends(admin_auth_dependency)])
+async def cancel_bootstrap_account(session_id: str):
+    """Cancel bootstrap and clean up."""
+    ok = await cancel_bootstrap(session_id)
+    if not ok:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "message": "Bootstrap session not found",
+                    "type": "not_found",
+                    "code": "session_not_found",
+                }
+            },
+        )
+    return JSONResponse(content={"ok": True})
 
 
 @router.patch("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)])

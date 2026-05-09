@@ -254,6 +254,11 @@ class AddAccountRequest(CamelModel):
     max_concurrency: int | None = None
 
 
+class BootstrapAccountRequest(CamelModel):
+    remark: str = ""
+    max_concurrency: int | None = None
+
+
 class UpdateAccountRequest(CamelModel):
     enabled: bool | None = None
     healthy: bool | None = None
