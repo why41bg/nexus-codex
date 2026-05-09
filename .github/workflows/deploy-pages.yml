@@ -7,6 +7,9 @@ on:
       - "guide/**"
   workflow_dispatch:
 
+env:
+  SITE_DIR: ./guide
+
 permissions:
   contents: read
   pages: write
@@ -29,16 +32,10 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
-      - name: Convert markdown to HTML
-        run: |
-          sudo apt-get update && sudo apt-get install -y pandoc
-          for f in guide/*.md; do
-            pandoc "$f" -o "${f%.md}.html" --standalone --metadata title="Nexus Codex Guide"
-          done
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "./guide"
+          path: ${{ env.SITE_DIR }}
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
