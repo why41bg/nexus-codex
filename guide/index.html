@@ -580,10 +580,34 @@ function toggleSidebar() {
     if (el) sections.push({ el, a });
   });
 
+  // 用户点击导航时，锁定高亮到目标项，等滚动结束后再恢复 scroll spy
+  let clickedLink = null;
+  let clickTimer = null;
+
+  navLinks.forEach(a => {
+    a.addEventListener('click', function() {
+      clickedLink = this;
+      navLinks.forEach(l => l.classList.remove('active'));
+      this.classList.add('active');
+      // 滚动完成后解除锁定（等动画/滚动结束）
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => { clickedLink = null; }, 800);
+    });
+  });
+
   function update() {
+    // 如果是用户刚点击导航触发的滚动，不覆盖高亮
+    if (clickedLink) return;
+
     let current = sections[0];
-    for (const s of sections) {
-      if (s.el.getBoundingClientRect().top < 120) current = s;
+    // 页面到底时高亮最后一个可见的 section
+    const scrolledToBottom = (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 2);
+    if (scrolledToBottom && sections.length > 0) {
+      current = sections[sections.length - 1];
+    } else {
+      for (const s of sections) {
+        if (s.el.getBoundingClientRect().top < 120) current = s;
+      }
     }
     navLinks.forEach(a => a.classList.remove('active'));
     if (current) current.a.classList.add('active');
