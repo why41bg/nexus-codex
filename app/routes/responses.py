@@ -63,6 +63,7 @@ async def responses(
             result = await with_retry(
                 deps,
                 lambda entry: _do_non_stream(deps, entry, body, response_id, req_start, api_key),
+                model=body.model,
             )
             return result
         except RetryExhaustedError as e:

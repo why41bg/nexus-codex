@@ -20,6 +20,7 @@ from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredEr
 from app.services.health_check import trigger_probe
 from app.utils.logger import log
 
+
 MAX_RETRIES = 3
 
 T = TypeVar("T")
@@ -57,6 +58,7 @@ async def with_retry(
     deps: AppDependencies,
     operation: Callable[[PoolEntry], Awaitable[T]],
     acquire_timeout_ms: int | None = None,
+    model: str | None = None,
 ) -> T:
     """Execute an operation with automatic account failover on retryable errors.
 
@@ -76,18 +78,30 @@ async def with_retry(
         RuntimeError: If all retry attempts are exhausted.
     """
     last_error: Exception | None = None
+    collector = deps.log_collector
+    model_name = model or "unknown"
 
     for attempt in range(MAX_RETRIES + 1):
         entry = await deps.pool.acquire_async(acquire_timeout_ms)
         if not entry:
+            if collector:
+                collector.on_account_exhausted(
+                    model=model_name,
+                    pool_size=len(deps.pool.entries()),
+                )
             raise RetryExhaustedError(
                 "All account concurrency slots are currently in use. "
                 "Please try again later."
             )
 
+        if collector:
+            collector.on_account_acquired(account_id=entry.account_id, model=model_name)
+
         try:
             result = await operation(entry)
             deps.pool.release(entry.account_id)
+            if collector:
+                collector.on_account_released(account_id=entry.account_id, model=model_name)
             return result
         except Exception as e:
             if attempt < MAX_RETRIES and is_retryable(e):
@@ -100,14 +114,31 @@ async def with_retry(
                         "error": str(e),
                     },
                 )
+                if collector:
+                    collector.on_upstream_error(
+                        account_id=entry.account_id,
+                        model=model_name,
+                        status=0,
+                        error=str(e),
+                        retry_count=attempt + 1,
+                    )
                 await _release_and_probe(entry, deps.pool)
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
             else:
                 deps.pool.release(entry.account_id)
+                if collector:
+                    collector.on_upstream_error(
+                        account_id=entry.account_id,
+                        model=model_name,
+                        status=0,
+                        error=str(e),
+                    )
                 raise
 
+    if collector:
+        collector.on_account_exhausted(model=model_name, pool_size=len(deps.pool.entries()))
     raise RetryExhaustedError(
         f"All {MAX_RETRIES + 1} retry attempts exhausted. "
         f"Last error: {last_error}"
@@ -145,15 +176,21 @@ async def with_stream_retry(
     """
     from app.utils.route_helpers import increment_counters, trigger_probe_safe
 
+    collector = deps.log_collector
     last_error: Exception | None = None
 
     for attempt in range(MAX_RETRIES + 1):
         entry = await deps.pool.acquire_async()
         if not entry:
+            if collector:
+                collector.on_account_exhausted(model=model, pool_size=len(deps.pool.entries()))
             yield format_no_slot_error()
             if append_done:
                 yield "data: [DONE]\n\n"
             return
+
+        if collector:
+            collector.on_account_acquired(account_id=entry.account_id, model=model)
 
         asyncio.create_task(increment_counters(entry.account_id, api_key))
 
@@ -164,6 +201,10 @@ async def with_stream_retry(
             latency_ms = int((time.time() - req_start) * 1000)
             deps.metrics_collector.record(model, entry.account_id, latency_ms, True)
             deps.pool.release(entry.account_id)
+            if collector:
+                collector.on_account_released(
+                    account_id=entry.account_id, model=model, usage_ms=latency_ms,
+                )
             return
 
         except Exception as e:
@@ -180,18 +221,35 @@ async def with_stream_retry(
                         "error": str(e),
                     },
                 )
+                if collector:
+                    collector.on_upstream_error(
+                        account_id=entry.account_id,
+                        model=model,
+                        status=0,
+                        error=str(e),
+                        retry_count=attempt + 1,
+                    )
                 asyncio.create_task(trigger_probe_safe(entry.account_id))
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
 
             log.error("Stream error", extra={"error": str(e)})
+            if collector:
+                collector.on_upstream_error(
+                    account_id=entry.account_id,
+                    model=model,
+                    status=0,
+                    error=str(e),
+                )
             yield format_error(str(e))
             if append_done:
                 yield "data: [DONE]\n\n"
             asyncio.create_task(trigger_probe_safe(entry.account_id))
             return
 
+    if collector:
+        collector.on_account_exhausted(model=model, pool_size=len(deps.pool.entries()))
     yield format_error(f"All retry attempts exhausted. Last error: {last_error}")
     if append_done:
         yield "data: [DONE]\n\n"
