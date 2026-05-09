@@ -84,14 +84,14 @@ Responses API 接口，兼容 OpenAI Responses API。
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `model` | string | ✅ | 模型名称 |
-| `input` | string \| array | ✅ | 输入内容，可以是纯字符串或结构化输入数组 |
+| `input` | string \| array | ✅ | 输入内容，建议使用结构化数组格式 `[{"role":"user","content":"..."}]` |
 | `input[].role` | string | ✅ | 角色：`system` / `developer` / `user` |
 | `input[].content` | string \| array | ✅ | 内容，可以是字符串或 ContentPart 数组 |
 | `stream` | boolean | ❌ | 是否流式输出，默认 `false` |
 | `temperature` | float | ❌ | 温度参数 |
 | `max_output_tokens` | integer | ❌ | 最大输出 token 数 |
 | `previous_response_id` | string | ❌ | 上一个 response 的 ID |
-| `instructions` | string | ❌ | 系统指令 |
+| `instructions` | string | ✅ | 系统指令（ChatGPT 后端要求必填，建议始终提供） |
 | `store` | boolean | ❌ | 是否存储 |
 | `reasoning_effort` | string | ❌ | 推理努力程度 |
 | `tools` | array | ❌ | 工具定义列表 |
