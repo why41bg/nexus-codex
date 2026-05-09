@@ -121,6 +121,11 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
   const [unbanTarget, setUnbanTarget] = useState<string | null>(null);
   const [unbanning, setUnbanning] = useState(false);
 
+  // Batch selection
+  const [selectedIps, setSelectedIps] = useState<Set<string>>(new Set());
+  const [batchUnbanning, setBatchUnbanning] = useState(false);
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+
   // Sorting
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDirection>('desc');
@@ -132,6 +137,11 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
   useEffect(() => {
     setCurrentPage(1);
   }, [bannedIps.length]);
+
+  // Reset selection when data changes
+  useEffect(() => {
+    setSelectedIps(new Set());
+  }, [bannedIps]);
 
   // Sorted data
   const sortedIps = useMemo(() => {
@@ -158,6 +168,8 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
     return sortedIps.slice(start, start + PAGE_SIZE);
   }, [sortedIps, currentPage]);
 
+  // ─── Handlers ──────────────────────────────────────────────
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       if (sortDir === 'desc') {
@@ -170,6 +182,23 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
       setSortDir('desc');
     }
     setCurrentPage(1);
+  };
+
+  const toggleSelect = (ip: string) => {
+    setSelectedIps((prev) => {
+      const next = new Set(prev);
+      if (next.has(ip)) next.delete(ip);
+      else next.add(ip);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIps.size === paginatedIps.length) {
+      setSelectedIps(new Set());
+    } else {
+      setSelectedIps(new Set(paginatedIps.map((item) => item.ip)));
+    }
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -218,6 +247,31 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
     }
   };
 
+  const handleBatchUnban = async () => {
+    if (selectedIps.size === 0) return;
+
+    setBatchUnbanning(true);
+    try {
+      const res = await api('POST', '/api/admin/banned-ips/batch-unban', {
+        ips: Array.from(selectedIps),
+      });
+      if (res.ok) {
+        toast(`已批量解除 ${selectedIps.size} 个 IP 的拉黑`, 'success');
+        setSelectedIps(new Set());
+        await onRefresh();
+      } else {
+        toast(extractErrorMessage(res.data), 'error');
+      }
+    } catch {
+      toast('操作失败', 'error');
+    } finally {
+      setBatchUnbanning(false);
+      setShowBatchConfirm(false);
+    }
+  };
+
+  // ─── Render ────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -228,15 +282,28 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
             管理被拉黑的 IP 地址。异常请求超过阈值会被自动拉黑。
           </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 transition-colors"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          手动拉黑
-        </button>
+        <div className="flex items-center gap-2">
+          {selectedIps.size > 0 && (
+            <button
+              onClick={() => setShowBatchConfirm(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+              </svg>
+              批量解除 ({selectedIps.size})
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            手动拉黑
+          </button>
+        </div>
       </div>
 
       {/* Add Form */}
@@ -304,6 +371,14 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
               <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
                 <thead className="bg-gray-50 dark:bg-slate-750">
                   <tr>
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={paginatedIps.length > 0 && selectedIps.size === paginatedIps.length}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-gray-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">IP 地址</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">原因</th>
                     <th
@@ -325,7 +400,15 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
                   {paginatedIps.map((item) => (
-                    <tr key={item.ip} className="hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors">
+                    <tr key={item.ip} className={`hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors ${selectedIps.has(item.ip) ? 'bg-brand-50 dark:bg-brand-950/20' : ''}`}>
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIps.has(item.ip)}
+                          onChange={() => toggleSelect(item.ip)}
+                          className="h-4 w-4 rounded border-gray-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"
+                        />
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm font-mono text-gray-900 dark:text-slate-100">
                         {item.ip}
                       </td>
@@ -436,6 +519,24 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
           onCancel={() => setUnbanTarget(null)}
         >
           确定要解除对 IP &ldquo;{unbanTarget}&rdquo; 的拉黑吗？解除后该 IP 将可以再次访问服务。
+        </ConfirmModal>
+      )}
+
+      {/* Batch unban confirmation modal */}
+      {showBatchConfirm && (
+        <ConfirmModal
+          title="批量解除拉黑"
+          confirmLabel={`确认解除 ${selectedIps.size} 个`}
+          loading={batchUnbanning}
+          onConfirm={handleBatchUnban}
+          onCancel={() => setShowBatchConfirm(false)}
+        >
+          确定要批量解除以下 {selectedIps.size} 个 IP 的拉黑吗？
+          <div className="mt-2 max-h-32 overflow-y-auto rounded-md bg-gray-50 dark:bg-slate-700 p-2 text-xs font-mono">
+            {Array.from(selectedIps).map((ip) => (
+              <div key={ip} className="text-gray-700 dark:text-slate-300">{ip}</div>
+            ))}
+          </div>
         </ConfirmModal>
       )}
     </div>
