@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { inputClass } from '@/lib/styles';
 import { useAuth } from '@/contexts/AuthContext';
 import Spinner from './Spinner';
@@ -63,6 +64,18 @@ export default function LoginPage() {
             登录
           </button>
         </form>
+
+        <div className="text-center">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+            </svg>
+            回到门户首页
+          </Link>
+        </div>
       </div>
     </div>
   );

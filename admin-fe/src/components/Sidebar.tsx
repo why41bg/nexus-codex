@@ -140,6 +140,18 @@ export default function Sidebar({ activeTab, onClose }: Props) {
 
       {/* Bottom */}
       <div className="border-t border-gray-200 dark:border-slate-700 p-3 space-y-1">
+        {/* Back to portal */}
+        <NavLink
+          to="/"
+          onClick={onClose}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-600 dark:text-slate-400 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 hover:text-gray-900 dark:hover:text-slate-200"
+        >
+          <svg className="h-5 w-5 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+          </svg>
+          回到门户
+        </NavLink>
+
         {/* Theme toggle */}
         <button
           onClick={cycleMode}
