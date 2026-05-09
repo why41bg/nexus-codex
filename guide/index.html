@@ -238,11 +238,6 @@
       <a href="#codex-cli">Codex CLI</a>
       <a href="#opencode">opencode</a>
     </div>
-    <div class="nav-group">
-      <div class="nav-group-title">其他</div>
-      <a href="#verify">验证配置</a>
-      <a href="#faq">常见问题</a>
-    </div>
   </nav>
 </aside>
 
@@ -264,8 +259,8 @@
     <h2><span class="emoji">📋</span> 前置条件</h2>
     <ol>
       <li><strong>Nexus Codex 服务已启动</strong> — 服务运行在 <code>https://ai.stop2think.top</code></li>
-      <li><strong>已创建 API Key</strong> — 通过管理面板或 Admin API 创建，例如 <code>sk-key1</code></li>
-      <li><strong>已配置模型白名单</strong> — 确认你要使用的模型已在管理面板中添加</li>
+      <li><strong>已获取 API Key</strong> — 联系项目管理员（开发者）获取你的专属 API Key，例如 <code>sk-key1</code></li>
+      <li><strong>已确认可用模型</strong> — 向管理员确认你需要的模型已配置可用</li>
     </ol>
     <p>验证服务可用：</p>
 
@@ -286,17 +281,16 @@
     <div class="code-block">
       <div class="lang-tag"><span>TOML</span></div>
       <pre><code><span class="cm"># 默认使用的模型</span>
-<span class="kw">model</span> = <span class="st">"codex-mini"</span>
+<span class="kw">model</span> = <span class="st">"gpt-5.4"</span>
 
 <span class="cm"># 默认使用的 provider</span>
-<span class="kw">model_provider</span> = <span class="st">"nexus"</span>
+<span class="kw">model_provider</span> = <span class="st">"nexus-codex"</span>
 
 <span class="cm"># 自定义 provider 定义</span>
-<span class="kw">[model_providers.nexus]</span>
+<span class="kw">[model_providers.nexus-codex]</span>
+<span class="kw">name</span> = <span class="st">"Nexus Codex"</span>
 <span class="cm"># Nexus Codex 的 OpenAI 兼容 API 地址</span>
 <span class="kw">base_url</span> = <span class="st">"https://ai.stop2think.top/v1"</span>
-<span class="cm"># 使用 Responses API（推荐），也可用 "chat" 使用 Chat Completions API</span>
-<span class="kw">wire_api</span> = <span class="st">"responses"</span>
 <span class="cm"># 环境变量名，Codex CLI 会从此环境变量读取 API Key</span>
 <span class="kw">env_key</span> = <span class="st">"NEXUS_API_KEY"</span></code></pre>
     </div>
@@ -311,7 +305,7 @@
           <tr>
             <td><code>model</code></td>
             <td>默认使用的模型 ID</td>
-            <td>管理面板中配置的任意模型，如 <code>codex-mini</code>、<code>gpt-5.4</code></td>
+            <td>管理面板中配置的任意模型，如 <code>gpt-5.4</code>、<code>codex-mini</code></td>
           </tr>
           <tr>
             <td><code>model_provider</code></td>
@@ -322,11 +316,6 @@
             <td><code>base_url</code></td>
             <td>API 端点地址</td>
             <td>Nexus Codex 服务地址 + <code>/v1</code></td>
-          </tr>
-          <tr>
-            <td><code>wire_api</code></td>
-            <td>使用的 API 协议</td>
-            <td><code>"responses"</code>（Responses API）或 <code>"chat"</code>（Chat Completions API）</td>
           </tr>
           <tr>
             <td><code>env_key</code></td>
@@ -341,35 +330,10 @@
     <div class="code-block">
       <div class="lang-tag"><span>Bash</span></div>
       <pre><code><span class="kw">export</span> <span class="st">NEXUS_API_KEY</span>=<span class="st">"sk-key1"</span>
-codex --provider nexus <span class="st">"你的问题"</span></code></pre>
+codex</code></pre>
     </div>
 
-    <h3>4. 多 Provider 切换</h3>
-    <p>如果你有多个 Nexus Codex 实例或想使用不同模型，可以配置多个 provider：</p>
-
-    <div class="code-block">
-      <div class="lang-tag"><span>TOML</span></div>
-      <pre><code><span class="kw">model_provider</span> = <span class="st">"nexus"</span>
-
-<span class="kw">[model_providers.nexus]</span>
-<span class="kw">base_url</span> = <span class="st">"https://ai.stop2think.top/v1"</span>
-<span class="kw">wire_api</span> = <span class="st">"responses"</span>
-<span class="kw">env_key</span> = <span class="st">"NEXUS_API_KEY"</span>
-
-<span class="kw">[model_providers.nexus-chat]</span>
-<span class="kw">base_url</span> = <span class="st">"https://ai.stop2think.top/v1"</span>
-<span class="kw">wire_api</span> = <span class="st">"chat"</span>
-<span class="kw">env_key</span> = <span class="st">"NEXUS_API_KEY"</span></code></pre>
-    </div>
-
-    <p>切换 provider：</p>
-
-    <div class="code-block">
-      <div class="lang-tag"><span>Bash</span></div>
-      <pre><code>codex --provider nexus-chat --model gpt-5.4 <span class="st">"你的问题"</span></code></pre>
-    </div>
-
-    <h3>5. 持久化环境变量</h3>
+    <h3>4. 持久化环境变量</h3>
     <p>将 API Key 写入 shell 配置文件避免每次手动 export：</p>
 
     <div class="code-block">
@@ -464,78 +428,6 @@ opencode</code></pre>
     </div>
     <p>在 opencode 中使用 <code>/models</code> 命令即可看到 Nexus Codex 提供的模型列表。</p>
 
-    <h3>5. 模型上下文限制</h3>
-    <p>如果你的模型有特定的上下文窗口限制，可以在 <code>models</code> 中配置：</p>
-
-    <div class="code-block">
-      <div class="lang-tag"><span>JSON</span></div>
-      <pre><code><span class="st">"models"</span>: {
-  <span class="st">"codex-mini"</span>: {
-    <span class="st">"name"</span>: <span class="st">"Codex Mini"</span>,
-    <span class="st">"limit"</span>: {
-      <span class="st">"context"</span>: <span class="nu">200000</span>,
-      <span class="st">"output"</span>: <span class="nu">65536</span>
-    }
-  }
-}</code></pre>
-    </div>
-  </section>
-
-  <!-- ═══════════ 验证配置 ═══════════ -->
-  <section class="card" id="verify">
-    <h2><span class="emoji">✅</span> 验证配置</h2>
-
-    <h3>验证 Codex CLI</h3>
-    <div class="code-block">
-      <div class="lang-tag"><span>Bash</span></div>
-      <pre><code><span class="kw">export</span> <span class="st">NEXUS_API_KEY</span>=<span class="st">"sk-key1"</span>
-codex --provider nexus --model codex-mini <span class="st">"Say hello in Chinese"</span></code></pre>
-    </div>
-
-    <h3>验证 opencode</h3>
-    <div class="code-block">
-      <div class="lang-tag"><span>Bash</span></div>
-      <pre><code>curl -H <span class="st">"Authorization: Bearer sk-key1"</span> https://ai.stop2think.top/v1/models</code></pre>
-    </div>
-    <p>确认返回的模型列表包含你在 <code>opencode.json</code> 中配置的模型 ID。</p>
-  </section>
-
-  <!-- ═══════════ FAQ ═══════════ -->
-  <section class="card" id="faq">
-    <h2><span class="emoji">❓</span> 常见问题</h2>
-
-    <div class="faq-item">
-      <div class="faq-q">Q: Codex CLI 报 "No such provider" 错误</div>
-      <div class="faq-a">确认 <code>~/.codex/config.toml</code> 中 <code>model_provider</code> 的值与 <code>[model_providers.&lt;name&gt;]</code> 的名称一致。</div>
-    </div>
-
-    <div class="faq-item">
-      <div class="faq-q">Q: opencode 看不到自定义模型</div>
-      <div class="faq-a">
-        <ol>
-          <li>确认 <code>opencode.json</code> 在项目根目录</li>
-          <li>确认 <code>models</code> 中的 key 与 <code>GET /v1/models</code> 返回的 <code>id</code> 一致</li>
-          <li>重启 opencode 后使用 <code>/models</code> 命令刷新</li>
-        </ol>
-      </div>
-    </div>
-
-    <div class="faq-item">
-      <div class="faq-q">Q: 如何切换 Chat Completions 和 Responses API</div>
-      <div class="faq-a">
-        <strong>Codex CLI</strong>: 修改 <code>wire_api</code> 为 <code>"chat"</code> 或 <code>"responses"</code><br>
-        <strong>opencode</strong>: <code>@ai-sdk/openai-compatible</code> 使用 Chat Completions API；如需 Responses API，使用 <code>@ai-sdk/openai</code> 并配置 <code>baseURL</code>
-      </div>
-    </div>
-
-    <div class="faq-item">
-      <div class="faq-q">Q: 远程部署如何配置</div>
-      <div class="faq-a">
-        将 <code>base_url</code> / <code>baseURL</code> 替换为实际的远程地址，例如：<br>
-        Codex CLI: <code>base_url = "https://ai.stop2think.top/v1"</code><br>
-        opencode: <code>"baseURL": "https://ai.stop2think.top/v1"</code>
-      </div>
-    </div>
   </section>
 
   <!-- Footer -->
