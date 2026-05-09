@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus Codex 客户端配置指南</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card-bg: #ffffff;
+    --text: #1a1a2e;
+    --text-secondary: #555;
+    --primary: #2563eb;
+    --primary-light: #eff3ff;
+    --border: #e2e4e9;
+    --code-bg: #1e1e2e;
+    --code-text: #cdd6f4;
+    --code-keyword: #cba6f7;
+    --code-string: #a6e3a1;
+    --code-comment: #6c7086;
+    --code-number: #fab387;
+    --code-func: #89b4fa;
+    --table-stripe: #f8f9fb;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --radius: 10px;
+    --sidebar-w: 240px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ── */
+  .layout { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: var(--sidebar-w); flex-shrink: 0;
+    background: var(--card-bg); border-right: 1px solid var(--border);
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
+    overflow-y: auto; padding: 24px 0;
+  }
+  .sidebar-brand {
+    padding: 0 20px 20px; border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .sidebar-brand a {
+    font-size: 16px; font-weight: 700; color: var(--text);
+    text-decoration: none; display: flex; align-items: center; gap: 8px;
+  }
+  .sidebar-nav { padding: 0 12px; }
+  .sidebar-nav .nav-group { margin-bottom: 4px; }
+  .sidebar-nav .nav-group-title {
+    font-size: 11px; font-weight: 600; color: #999;
+    text-transform: uppercase; letter-spacing: .8px;
+    padding: 12px 8px 6px;
+  }
+  .sidebar-nav a {
+    display: block; padding: 7px 8px; border-radius: 6px;
+    font-size: 13.5px; color: var(--text-secondary); text-decoration: none;
+    transition: all .12s;
+  }
+  .sidebar-nav a:hover { background: var(--primary-light); color: var(--primary); }
+  .sidebar-nav a.active {
+    background: var(--primary-light); color: var(--primary); font-weight: 600;
+  }
+
+  /* ── Main content ── */
+  .main {
+    margin-left: var(--sidebar-w); flex: 1; min-width: 0;
+    padding: 32px 40px 64px; max-width: 960px;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+    color: #fff; border-radius: var(--radius); padding: 40px 36px;
+    margin-bottom: 36px;
+  }
+  .hero h1 { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+  .hero p { font-size: 15px; opacity: .88; line-height: 1.6; }
+
+  /* ── Card ── */
+  .card {
+    background: var(--card-bg); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 32px; margin-bottom: 24px;
+    border: 1px solid var(--border);
+  }
+  .card h2 {
+    font-size: 20px; font-weight: 700; margin-bottom: 16px;
+    padding-bottom: 10px; border-bottom: 2px solid var(--primary);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card h2 .emoji { font-size: 22px; }
+  .card h3 {
+    font-size: 16px; font-weight: 600; margin: 24px 0 10px;
+    color: var(--text);
+  }
+  .card h3:first-of-type { margin-top: 0; }
+  .card p { margin-bottom: 12px; color: var(--text-secondary); font-size: 14.5px; }
+  .card ul, .card ol { margin: 8px 0 16px 20px; color: var(--text-secondary); font-size: 14.5px; }
+  .card li { margin-bottom: 4px; }
+
+  /* ── Inline code ── */
+  :not(pre) > code {
+    background: #eef0f4; color: #d63384; padding: 2px 6px;
+    border-radius: 4px; font-size: 13px; font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  }
+
+  /* ── Code block ── */
+  .code-block {
+    margin: 16px 0; border-radius: 8px; overflow: hidden;
+    background: var(--code-bg); box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  }
+  .code-block .lang-tag {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px; background: #181825;
+    border-bottom: 1px solid #313244;
+  }
+  .code-block .lang-tag span {
+    font-size: 11px; font-weight: 600; color: #a6adc8;
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  .code-block .copy-btn {
+    background: none; border: 1px solid #45475a; border-radius: 5px;
+    color: #a6adc8; font-size: 11px; cursor: pointer;
+    padding: 3px 10px; transition: all .15s;
+    font-family: inherit; line-height: 1.4;
+  }
+  .code-block .copy-btn:hover { background: #45475a; color: #cdd6f4; }
+  .code-block .copy-btn.copied { border-color: #a6e3a1; color: #a6e3a1; }
+  .code-block pre {
+    margin: 0; padding: 16px 20px; overflow-x: auto;
+    font-size: 13px; line-height: 1.65;
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    color: var(--code-text);
+  }
+  .code-block pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+  .kw { color: var(--code-keyword); }
+  .st { color: var(--code-string); }
+  .cm { color: var(--code-comment); font-style: italic; }
+  .nu { color: var(--code-number); }
+  .fn { color: var(--code-func); }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 14px;
+  }
+  thead { background: #f0f2f5; }
+  th {
+    text-align: left; padding: 10px 14px; font-weight: 600;
+    color: var(--text); border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    color: var(--text-secondary); vertical-align: top;
+  }
+  tbody tr:nth-child(even) { background: var(--table-stripe); }
+  tbody tr:hover { background: #eef1f7; }
+
+  /* ── FAQ ── */
+  .faq-item { margin-bottom: 20px; }
+  .faq-item:last-child { margin-bottom: 0; }
+  .faq-q {
+    font-weight: 700; font-size: 15px; color: var(--text);
+    margin-bottom: 6px;
+  }
+  .faq-a {
+    color: var(--text-secondary); font-size: 14.5px;
+  }
+  .faq-a code { font-size: 13px; }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center; padding: 24px; color: #999; font-size: 13px;
+    border-top: 1px solid var(--border); margin-top: 16px;
+  }
+
+  /* ── Mobile hamburger ── */
+  .menu-toggle {
+    display: none; position: fixed; top: 12px; left: 12px; z-index: 100;
+    width: 36px; height: 36px; border: none; border-radius: 8px;
+    background: var(--card-bg); box-shadow: var(--shadow);
+    font-size: 18px; cursor: pointer; align-items: center; justify-content: center;
+  }
+  .sidebar-overlay {
+    display: none; position: fixed; inset: 0; z-index: 49;
+    background: rgba(0,0,0,.3);
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 860px) {
+    .sidebar {
+      transform: translateX(-100%); transition: transform .2s;
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.show { display: block; }
+    .menu-toggle { display: flex; }
+    .main { margin-left: 0; padding: 24px 20px 48px; }
+    .hero { padding: 28px 24px; }
+    .hero h1 { font-size: 22px; }
+    .card { padding: 24px 20px; }
+    .card h2 { font-size: 18px; }
+    .code-block pre { font-size: 12px; padding: 12px 14px; }
+  }
+
+  @media print {
+    .sidebar, .menu-toggle, .sidebar-overlay { display: none; }
+    .main { margin-left: 0; }
+    .hero { background: #fff; color: var(--text); border: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+<!-- ═══════════ Sidebar ═══════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <a href="#">⚡ Nexus Codex Guide</a>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-group">
+      <div class="nav-group-title">概述</div>
+      <a href="#prerequisites">前置条件</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">客户端配置</div>
+      <a href="#codex-cli">Codex CLI</a>
+      <a href="#opencode">opencode</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">其他</div>
+      <a href="#verify">验证配置</a>
+      <a href="#faq">常见问题</a>
+    </div>
+  </nav>
+</aside>
+
+<!-- Mobile overlay -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<button class="menu-toggle" id="menu-toggle" onclick="toggleSidebar()" aria-label="菜单">☰</button>
+
+<!-- ═══════════ Main ═══════════ -->
+<main class="main">
+
+  <!-- Hero -->
+  <section class="hero">
+    <h1>Nexus Codex 客户端配置指南</h1>
+    <p>配置 Codex CLI 和 opencode 客户端，通过 Nexus Codex 账号池网关访问 OpenAI API。</p>
+  </section>
+
+  <!-- 前置条件 -->
+  <section class="card" id="prerequisites">
+    <h2><span class="emoji">📋</span> 前置条件</h2>
+    <ol>
+      <li><strong>Nexus Codex 服务已启动</strong> — 服务运行在 <code>https://ai.stop2think.top</code></li>
+      <li><strong>已创建 API Key</strong> — 通过管理面板或 Admin API 创建，例如 <code>sk-key1</code></li>
+      <li><strong>已配置模型白名单</strong> — 确认你要使用的模型已在管理面板中添加</li>
+    </ol>
+    <p>验证服务可用：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code>curl -H <span class="st">"Authorization: Bearer sk-key1"</span> https://ai.stop2think.top/v1/models</code></pre>
+    </div>
+  </section>
+
+  <!-- ═══════════ Codex CLI ═══════════ -->
+  <section class="card" id="codex-cli">
+    <h2><span class="emoji">🖥️</span> Codex CLI 配置</h2>
+    <p>Codex CLI 通过 <code>~/.codex/config.toml</code> 配置自定义 provider。</p>
+
+    <h3>1. 编辑配置文件</h3>
+    <p>在 <code>~/.codex/config.toml</code> 中添加：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>TOML</span></div>
+      <pre><code><span class="cm"># 默认使用的模型</span>
+<span class="kw">model</span> = <span class="st">"codex-mini"</span>
+
+<span class="cm"># 默认使用的 provider</span>
+<span class="kw">model_provider</span> = <span class="st">"nexus"</span>
+
+<span class="cm"># 自定义 provider 定义</span>
+<span class="kw">[model_providers.nexus]</span>
+<span class="cm"># Nexus Codex 的 OpenAI 兼容 API 地址</span>
+<span class="kw">base_url</span> = <span class="st">"https://ai.stop2think.top/v1"</span>
+<span class="cm"># 使用 Responses API（推荐），也可用 "chat" 使用 Chat Completions API</span>
+<span class="kw">wire_api</span> = <span class="st">"responses"</span>
+<span class="cm"># 环境变量名，Codex CLI 会从此环境变量读取 API Key</span>
+<span class="kw">env_key</span> = <span class="st">"NEXUS_API_KEY"</span></code></pre>
+    </div>
+
+    <h3>2. 配置项说明</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>配置项</th><th>说明</th><th>可选值</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>model</code></td>
+            <td>默认使用的模型 ID</td>
+            <td>管理面板中配置的任意模型，如 <code>codex-mini</code>、<code>gpt-5.4</code></td>
+          </tr>
+          <tr>
+            <td><code>model_provider</code></td>
+            <td>默认 provider 名称</td>
+            <td>自定义名称，需与 <code>[model_providers.&lt;name&gt;]</code> 一致</td>
+          </tr>
+          <tr>
+            <td><code>base_url</code></td>
+            <td>API 端点地址</td>
+            <td>Nexus Codex 服务地址 + <code>/v1</code></td>
+          </tr>
+          <tr>
+            <td><code>wire_api</code></td>
+            <td>使用的 API 协议</td>
+            <td><code>"responses"</code>（Responses API）或 <code>"chat"</code>（Chat Completions API）</td>
+          </tr>
+          <tr>
+            <td><code>env_key</code></td>
+            <td>API Key 环境变量名</td>
+            <td>任意环境变量名，如 <code>NEXUS_API_KEY</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3. 设置环境变量并运行</h3>
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code><span class="kw">export</span> <span class="st">NEXUS_API_KEY</span>=<span class="st">"sk-key1"</span>
+codex --provider nexus <span class="st">"你的问题"</span></code></pre>
+    </div>
+
+    <h3>4. 多 Provider 切换</h3>
+    <p>如果你有多个 Nexus Codex 实例或想使用不同模型，可以配置多个 provider：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>TOML</span></div>
+      <pre><code><span class="kw">model_provider</span> = <span class="st">"nexus"</span>
+
+<span class="kw">[model_providers.nexus]</span>
+<span class="kw">base_url</span> = <span class="st">"https://ai.stop2think.top/v1"</span>
+<span class="kw">wire_api</span> = <span class="st">"responses"</span>
+<span class="kw">env_key</span> = <span class="st">"NEXUS_API_KEY"</span>
+
+<span class="kw">[model_providers.nexus-chat]</span>
+<span class="kw">base_url</span> = <span class="st">"https://ai.stop2think.top/v1"</span>
+<span class="kw">wire_api</span> = <span class="st">"chat"</span>
+<span class="kw">env_key</span> = <span class="st">"NEXUS_API_KEY"</span></code></pre>
+    </div>
+
+    <p>切换 provider：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code>codex --provider nexus-chat --model gpt-5.4 <span class="st">"你的问题"</span></code></pre>
+    </div>
+
+    <h3>5. 持久化环境变量</h3>
+    <p>将 API Key 写入 shell 配置文件避免每次手动 export：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code><span class="cm"># ~/.zshrc 或 ~/.bashrc</span>
+<span class="kw">export</span> <span class="st">NEXUS_API_KEY</span>=<span class="st">"sk-key1"</span></code></pre>
+    </div>
+  </section>
+
+  <!-- ═══════════ opencode ═══════════ -->
+  <section class="card" id="opencode">
+    <h2><span class="emoji">📦</span> opencode 配置</h2>
+    <p>opencode 通过项目根目录的 <code>opencode.json</code> 配置自定义 provider。</p>
+
+    <h3>1. 创建配置文件</h3>
+    <p>在项目根目录创建 <code>opencode.json</code>：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>JSON</span></div>
+      <pre><code>{
+  <span class="st">"$schema"</span>: <span class="st">"https://opencode.ai/config.json"</span>,
+  <span class="st">"provider"</span>: {
+    <span class="st">"nexus"</span>: {
+      <span class="st">"npm"</span>: <span class="st">"@ai-sdk/openai-compatible"</span>,
+      <span class="st">"name"</span>: <span class="st">"Nexus Codex"</span>,
+      <span class="st">"options"</span>: {
+        <span class="st">"baseURL"</span>: <span class="st">"https://ai.stop2think.top/v1"</span>,
+        <span class="st">"apiKey"</span>: <span class="st">"sk-key1"</span>
+      },
+      <span class="st">"models"</span>: {
+        <span class="st">"codex-mini"</span>: { <span class="st">"name"</span>: <span class="st">"Codex Mini"</span> },
+        <span class="st">"gpt-5.4"</span>: { <span class="st">"name"</span>: <span class="st">"GPT 5.4"</span> },
+        <span class="st">"gpt-5.5"</span>: { <span class="st">"name"</span>: <span class="st">"GPT 5.5"</span> }
+      }
+    }
+  }
+}</code></pre>
+    </div>
+
+    <h3>2. 配置项说明</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>配置项</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>provider.&lt;name&gt;</code></td><td>自定义 provider ID，如 <code>nexus</code>，可任意命名</td></tr>
+          <tr><td><code>npm</code></td><td>固定使用 <code>@ai-sdk/openai-compatible</code>（Chat Completions API）</td></tr>
+          <tr><td><code>name</code></td><td>在 opencode UI 中显示的 provider 名称</td></tr>
+          <tr><td><code>options.baseURL</code></td><td>Nexus Codex 服务地址 + <code>/v1</code></td></tr>
+          <tr><td><code>options.apiKey</code></td><td>API Key，支持明文或 <code>{env:VAR_NAME}</code> 环境变量语法</td></tr>
+          <tr><td><code>models</code></td><td>可用模型映射，key 为模型 ID，<code>name</code> 为显示名称</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3. 使用环境变量（推荐）</h3>
+    <p>避免在配置文件中硬编码 API Key：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>JSON</span></div>
+      <pre><code>{
+  <span class="st">"$schema"</span>: <span class="st">"https://opencode.ai/config.json"</span>,
+  <span class="st">"provider"</span>: {
+    <span class="st">"nexus"</span>: {
+      <span class="st">"npm"</span>: <span class="st">"@ai-sdk/openai-compatible"</span>,
+      <span class="st">"name"</span>: <span class="st">"Nexus Codex"</span>,
+      <span class="st">"options"</span>: {
+        <span class="st">"baseURL"</span>: <span class="st">"https://ai.stop2think.top/v1"</span>,
+        <span class="st">"apiKey"</span>: <span class="st">"{env:NEXUS_API_KEY}"</span>
+      },
+      <span class="st">"models"</span>: {
+        <span class="st">"codex-mini"</span>: { <span class="st">"name"</span>: <span class="st">"Codex Mini"</span> }
+      }
+    }
+  }
+}</code></pre>
+    </div>
+
+    <p>然后设置环境变量：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code><span class="kw">export</span> <span class="st">NEXUS_API_KEY</span>=<span class="st">"sk-key1"</span></code></pre>
+    </div>
+
+    <h3>4. 启动 opencode</h3>
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code><span class="kw">cd</span> your-project  <span class="cm"># 进入包含 opencode.json 的目录</span>
+opencode</code></pre>
+    </div>
+    <p>在 opencode 中使用 <code>/models</code> 命令即可看到 Nexus Codex 提供的模型列表。</p>
+
+    <h3>5. 模型上下文限制</h3>
+    <p>如果你的模型有特定的上下文窗口限制，可以在 <code>models</code> 中配置：</p>
+
+    <div class="code-block">
+      <div class="lang-tag"><span>JSON</span></div>
+      <pre><code><span class="st">"models"</span>: {
+  <span class="st">"codex-mini"</span>: {
+    <span class="st">"name"</span>: <span class="st">"Codex Mini"</span>,
+    <span class="st">"limit"</span>: {
+      <span class="st">"context"</span>: <span class="nu">200000</span>,
+      <span class="st">"output"</span>: <span class="nu">65536</span>
+    }
+  }
+}</code></pre>
+    </div>
+  </section>
+
+  <!-- ═══════════ 验证配置 ═══════════ -->
+  <section class="card" id="verify">
+    <h2><span class="emoji">✅</span> 验证配置</h2>
+
+    <h3>验证 Codex CLI</h3>
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code><span class="kw">export</span> <span class="st">NEXUS_API_KEY</span>=<span class="st">"sk-key1"</span>
+codex --provider nexus --model codex-mini <span class="st">"Say hello in Chinese"</span></code></pre>
+    </div>
+
+    <h3>验证 opencode</h3>
+    <div class="code-block">
+      <div class="lang-tag"><span>Bash</span></div>
+      <pre><code>curl -H <span class="st">"Authorization: Bearer sk-key1"</span> https://ai.stop2think.top/v1/models</code></pre>
+    </div>
+    <p>确认返回的模型列表包含你在 <code>opencode.json</code> 中配置的模型 ID。</p>
+  </section>
+
+  <!-- ═══════════ FAQ ═══════════ -->
+  <section class="card" id="faq">
+    <h2><span class="emoji">❓</span> 常见问题</h2>
+
+    <div class="faq-item">
+      <div class="faq-q">Q: Codex CLI 报 "No such provider" 错误</div>
+      <div class="faq-a">确认 <code>~/.codex/config.toml</code> 中 <code>model_provider</code> 的值与 <code>[model_providers.&lt;name&gt;]</code> 的名称一致。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q: opencode 看不到自定义模型</div>
+      <div class="faq-a">
+        <ol>
+          <li>确认 <code>opencode.json</code> 在项目根目录</li>
+          <li>确认 <code>models</code> 中的 key 与 <code>GET /v1/models</code> 返回的 <code>id</code> 一致</li>
+          <li>重启 opencode 后使用 <code>/models</code> 命令刷新</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q: 如何切换 Chat Completions 和 Responses API</div>
+      <div class="faq-a">
+        <strong>Codex CLI</strong>: 修改 <code>wire_api</code> 为 <code>"chat"</code> 或 <code>"responses"</code><br>
+        <strong>opencode</strong>: <code>@ai-sdk/openai-compatible</code> 使用 Chat Completions API；如需 Responses API，使用 <code>@ai-sdk/openai</code> 并配置 <code>baseURL</code>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q: 远程部署如何配置</div>
+      <div class="faq-a">
+        将 <code>base_url</code> / <code>baseURL</code> 替换为实际的远程地址，例如：<br>
+        Codex CLI: <code>base_url = "https://ai.stop2think.top/v1"</code><br>
+        opencode: <code>"baseURL": "https://ai.stop2think.top/v1"</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    Nexus Codex &copy; 2026 — OpenAI API Compatible Account Pool Gateway
+  </footer>
+
+</main>
+</div>
+
+<script>
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('show');
+}
+
+// Copy button
+(function() {
+  document.querySelectorAll('.code-block').forEach(block => {
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    btn.onclick = function() {
+      const code = block.querySelector('pre code').innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+      });
+    };
+    block.querySelector('.lang-tag').appendChild(btn);
+  });
+})();
+
+// Scroll spy: highlight active nav item
+(function() {
+  const navLinks = document.querySelectorAll('.sidebar-nav a');
+  const sections = [];
+  navLinks.forEach(a => {
+    const id = a.getAttribute('href').slice(1);
+    const el = document.getElementById(id);
+    if (el) sections.push({ el, a });
+  });
+
+  function update() {
+    let current = sections[0];
+    for (const s of sections) {
+      if (s.el.getBoundingClientRect().top < 120) current = s;
+    }
+    navLinks.forEach(a => a.classList.remove('active'));
+    if (current) current.a.classList.add('active');
+  }
+
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
+</script>
+
+</body>
+</html>
