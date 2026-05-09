@@ -18,6 +18,7 @@ from app.models import (
     AddApiKeyRequest,
     AddBannedIpRequest,
     AddModelRequest,
+    BatchUnbanRequest,
     BulkImportRequest,
     LoginRequest,
     RevealApiKeyRequest,
@@ -600,6 +601,26 @@ async def remove_banned_ip(ip: str):
     await save_banned_ips(get_banned_ips())
     emit_admin_event({"type": "banned_ips_changed"})
     return JSONResponse(content={"ok": True})
+
+
+@router.post("/banned-ips/batch-unban", dependencies=[Depends(admin_auth_dependency)])
+async def batch_unban_ips(body: BatchUnbanRequest):
+    """Unban multiple IP addresses at once."""
+    if not body.ips:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"message": "IP list is empty.", "type": "invalid_request_error", "code": "empty_list"}},
+        )
+
+    removed_count = 0
+    for ip in body.ips:
+        if unban_ip(ip):
+            removed_count += 1
+
+    # Persist
+    await save_banned_ips(get_banned_ips())
+    emit_admin_event({"type": "banned_ips_changed"})
+    return JSONResponse(content={"ok": True, "removedCount": removed_count})
 
 
 # ─── Logs ─────────────────────────────────────────────────────

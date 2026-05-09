@@ -308,6 +308,11 @@ class AddBannedIpRequest(BaseModel):
     reason: str = "Manually banned"
 
 
+class BatchUnbanRequest(BaseModel):
+    """Request to unban multiple IPs at once."""
+    ips: list[str]
+
+
 # ─── Error ─────────────────────────────────────────────────
 
 
