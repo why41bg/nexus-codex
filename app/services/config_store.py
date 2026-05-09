@@ -7,10 +7,11 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.models import ApiKeyEntry, AppConfig, BannedIP
+from app.models import ApiKeyEntry, ApiKeyTemplate, AppConfig, BannedIP, ClaimRateLimitEntry
 from app.config import settings
 from app.utils.logger import log
 
@@ -51,6 +52,10 @@ async def load_config() -> AppConfig:
         _config = AppConfig(
             default_models=parsed.get("default_models", AppConfig().default_models),
             api_keys=[ApiKeyEntry(**k) for k in parsed.get("api_keys", [])],
+            api_key_templates=[ApiKeyTemplate(**t) for t in parsed.get("api_key_templates", [])],
+            claim_rate_limits=[
+                ClaimRateLimitEntry(**r) for r in parsed.get("claim_rate_limits", [])
+            ],
             banned_ips=[BannedIP(**b) for b in parsed.get("banned_ips", [])],
         )
         # Fill missing fields for backward compat
@@ -169,6 +174,12 @@ async def add_api_key(
     key: str,
     name: str,
     models: list[str] | None = None,
+    source: str = "admin",
+    template_id: str | None = None,
+    template_name: str | None = None,
+    applicant_name: str | None = None,
+    applicant_contact: str | None = None,
+    applicant_note: str | None = None,
     rate_limit_max: int | None = None,
     rate_limit_window_ms: int | None = None,
     monthly_quota: int | None = None,
@@ -182,6 +193,12 @@ async def add_api_key(
         name=name,
         models=models or [],
         created_at=datetime.now(timezone.utc).isoformat(),
+        source=source,
+        template_id=template_id,
+        template_name=template_name,
+        applicant_name=applicant_name,
+        applicant_contact=applicant_contact,
+        applicant_note=applicant_note,
         rate_limit_max=rate_limit_max,
         rate_limit_window_ms=rate_limit_window_ms,
         monthly_quota=monthly_quota,
@@ -246,6 +263,136 @@ async def remove_default_model(model_id: str) -> bool:
     _config.default_models.remove(model_id)
     await _save_config()
     return True
+
+
+# ─── API Key Template CRUD ───────────────────────────────────
+
+
+def get_api_key_templates() -> list[ApiKeyTemplate]:
+    """Get all self-service API key claim templates."""
+    if _config is None:
+        return []
+    return _config.api_key_templates
+
+
+def find_api_key_template(template_id: str) -> ApiKeyTemplate | None:
+    """Find an API key template by id."""
+    if _config is None:
+        return None
+    for template in _config.api_key_templates:
+        if template.id == template_id:
+            return template
+    return None
+
+
+async def add_api_key_template(
+    *,
+    name: str,
+    description: str = "",
+    enabled: bool = True,
+    models: list[str] | None = None,
+    require_claim_code: bool = True,
+    claim_code: str = "",
+    rate_limit_max: int | None = None,
+    rate_limit_window_ms: int | None = None,
+    monthly_quota: int | None = None,
+    claim_ip_limit_max: int = 1,
+    claim_ip_limit_window_ms: int = 24 * 60 * 60 * 1000,
+) -> ApiKeyTemplate:
+    """Add a self-service API key claim template."""
+    if _config is None:
+        raise RuntimeError("Config not loaded")
+    now = datetime.now(timezone.utc).isoformat()
+    template = ApiKeyTemplate(
+        id=f"tpl_{secrets.token_hex(8)}",
+        name=name,
+        description=description,
+        enabled=enabled,
+        models=models or [],
+        require_claim_code=require_claim_code,
+        claim_code=claim_code,
+        rate_limit_max=rate_limit_max,
+        rate_limit_window_ms=rate_limit_window_ms,
+        monthly_quota=monthly_quota,
+        claim_ip_limit_max=claim_ip_limit_max,
+        claim_ip_limit_window_ms=claim_ip_limit_window_ms,
+        created_at=now,
+        updated_at=now,
+    )
+    _config.api_key_templates.append(template)
+    await _save_config()
+    return template
+
+
+async def update_api_key_template(template_id: str, **updates: object) -> ApiKeyTemplate | None:
+    """Update a self-service API key claim template."""
+    if _config is None:
+        return None
+    for template in _config.api_key_templates:
+        if template.id == template_id:
+            for key, value in updates.items():
+                if hasattr(template, key):
+                    setattr(template, key, value)
+            template.updated_at = datetime.now(timezone.utc).isoformat()
+            await _save_config()
+            return template
+    return None
+
+
+async def remove_api_key_template(template_id: str) -> bool:
+    """Remove a self-service API key claim template."""
+    if _config is None:
+        return False
+    original_len = len(_config.api_key_templates)
+    _config.api_key_templates = [
+        template for template in _config.api_key_templates if template.id != template_id
+    ]
+    if len(_config.api_key_templates) == original_len:
+        return False
+    await _save_config()
+    return True
+
+
+# ─── Self-service claim rate limit persistence ───────────────
+
+
+def _now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+async def record_claim_attempt(
+    ip: str,
+    template_id: str,
+    *,
+    limit_max: int,
+    window_ms: int,
+) -> tuple[bool, int]:
+    """Persist and check an IP-based claim attempt.
+
+    Returns ``(allowed, retry_after_ms)``. Failed attempts are counted too,
+    so an attacker cannot brute force a claim code without consuming quota.
+    """
+    if _config is None:
+        return False, window_ms
+    now = _now_ms()
+    window_start = now - window_ms
+    target: ClaimRateLimitEntry | None = None
+    for entry in _config.claim_rate_limits:
+        if entry.ip == ip and entry.template_id == template_id:
+            target = entry
+            break
+    if target is None:
+        target = ClaimRateLimitEntry(ip=ip, template_id=template_id, timestamps_ms=[])
+        _config.claim_rate_limits.append(target)
+
+    target.timestamps_ms = [ts for ts in target.timestamps_ms if ts >= window_start]
+    if len(target.timestamps_ms) >= limit_max:
+        oldest = min(target.timestamps_ms) if target.timestamps_ms else now
+        return False, max(0, oldest + window_ms - now)
+
+    target.timestamps_ms.append(now)
+    await _save_config()
+    return True, 0
 
 
 # ─── Monthly quota helper ────────────────────────────────────

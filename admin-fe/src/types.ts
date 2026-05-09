@@ -169,6 +169,12 @@ export interface ApiKey {
   models: string[];
   effectiveModels: string[];
   createdAt?: string;
+  source?: 'admin' | 'self_service';
+  templateId?: string | null;
+  templateName?: string | null;
+  applicantName?: string | null;
+  applicantContact?: string | null;
+  applicantNote?: string | null;
 
   // ——— 权限粒度扩展字段 ———
   /** 独立速率限制（req/window），null 继承全局 */
@@ -181,4 +187,22 @@ export interface ApiKey {
   monthlyUsage?: number;
   /** IP 白名单 */
   ipWhitelist?: string[];
+}
+
+/** API Key 自助申领模板 */
+export interface ApiKeyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  models: string[];
+  requireClaimCode: boolean;
+  claimCode?: string;
+  rateLimitMax?: number | null;
+  rateLimitWindowMs?: number | null;
+  monthlyQuota?: number | null;
+  claimIpLimitMax: number;
+  claimIpLimitWindowMs: number;
+  createdAt?: string;
+  updatedAt?: string | null;
 }

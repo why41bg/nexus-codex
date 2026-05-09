@@ -31,6 +31,10 @@ data/
 *.swp
 *.swo
 
+# Codex local config/state
+.codex
+.codex/
+
 # Node (admin-fe)
 node_modules/
 *.tsbuildinfo

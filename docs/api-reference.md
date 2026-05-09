@@ -30,6 +30,64 @@ Nexus Codex 是一个兼容 OpenAI API 的 Codex 账号池网关。后端基于 
 
 ---
 
+### GET `/api/public/key-templates`
+
+列出门户可用的 API Key 自助申领模板。仅返回已启用模板，不包含申领码明文。
+
+**认证:** 无
+
+**响应示例:**
+```json
+{
+  "templates": [
+    {
+      "id": "tpl_1234abcd",
+      "name": "默认申领模板",
+      "description": "适用于普通用户",
+      "models": ["gpt-5.4-mini"],
+      "requireClaimCode": true,
+      "rateLimitMax": 60,
+      "rateLimitWindowMs": 60000,
+      "monthlyQuota": 1000,
+      "claimIpLimitMax": 1,
+      "claimIpLimitWindowMs": 86400000
+    }
+  ]
+}
+```
+
+---
+
+### POST `/api/public/keys/claim`
+
+通过申领模板创建新的 API Key。接口按模板和客户端 IP 做持久化限流，错误申领码也会计入限流次数。
+
+**认证:** 无
+
+**请求体参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `templateId` | string | ✅ | 申领模板 ID |
+| `applicantName` | string | ✅ | 申请人名称 |
+| `applicantContact` | string | ✅ | 联系方式 |
+| `note` | string | ❌ | 用途备注 |
+| `claimCode` | string | 条件必填 | 模板需要申领码时必填 |
+
+**响应示例:**
+```json
+{
+  "key": "sk-full-key-string",
+  "keyPrefix": "sk-123456789",
+  "models": ["gpt-5.4-mini"],
+  "rateLimitMax": 60,
+  "rateLimitWindowMs": 60000,
+  "monthlyQuota": 1000
+}
+```
+
+---
+
 ## OpenAI 兼容接口 (`/v1`)
 
 > 所有 `/v1` 接口需要在请求头中携带 API Key：
@@ -386,6 +444,12 @@ Responses API 接口，兼容 OpenAI Responses API。
       "models": [],
       "effectiveModels": ["gpt-5.4"],
       "createdAt": "2025-01-01T00:00:00Z",
+      "source": "self_service",
+      "templateId": "tpl_1234abcd",
+      "templateName": "默认申领模板",
+      "applicantName": "Alice",
+      "applicantContact": "alice@example.com",
+      "applicantNote": "Codex CLI 测试",
       "rateLimitMax": 60,
       "rateLimitWindowMs": 60000,
       "monthlyQuota": 1000,
@@ -474,6 +538,92 @@ Responses API 接口，兼容 OpenAI Responses API。
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `key_prefix` | string | Key 前缀或完整 Key |
+
+---
+
+### GET `/api/admin/key-templates`
+
+列出 API Key 自助申领模板。
+
+**认证:** Admin Session Token
+
+**响应示例:**
+```json
+{
+  "templates": [
+    {
+      "id": "tpl_1234abcd",
+      "name": "默认申领模板",
+      "description": "适用于普通用户",
+      "enabled": true,
+      "models": ["gpt-5.4-mini"],
+      "requireClaimCode": true,
+      "claimCode": "team-code",
+      "rateLimitMax": 60,
+      "rateLimitWindowMs": 60000,
+      "monthlyQuota": 1000,
+      "claimIpLimitMax": 1,
+      "claimIpLimitWindowMs": 86400000,
+      "createdAt": "2025-01-01T00:00:00Z",
+      "updatedAt": "2025-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### POST `/api/admin/key-templates`
+
+创建 API Key 自助申领模板。
+
+**认证:** Admin Session Token
+
+**请求体参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | ✅ | 模板名称 |
+| `description` | string | ❌ | 模板说明 |
+| `enabled` | boolean | ❌ | 是否启用 |
+| `models` | array | ✅ | 自助申领 Key 的可用模型，不能为空 |
+| `requireClaimCode` | boolean | ❌ | 是否需要申领码 |
+| `claimCode` | string | 条件必填 | `requireClaimCode=true` 时必填 |
+| `rateLimitMax` | integer | ❌ | 生成 Key 的速率限制最大请求数 |
+| `rateLimitWindowMs` | integer | ❌ | 生成 Key 的速率限制窗口（毫秒） |
+| `monthlyQuota` | integer | ❌ | 生成 Key 的月度配额 |
+| `claimIpLimitMax` | integer | ❌ | 同一 IP 在窗口内最多申领次数 |
+| `claimIpLimitWindowMs` | integer | ❌ | IP 申领限流窗口（毫秒，最小 60000） |
+
+---
+
+### PATCH `/api/admin/key-templates/{template_id}`
+
+更新 API Key 自助申领模板。
+
+**认证:** Admin Session Token
+
+**路径参数:**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `template_id` | string | 模板 ID |
+
+请求体字段同创建接口，均可选。`models` 更新后仍不能为空。
+
+---
+
+### DELETE `/api/admin/key-templates/{template_id}`
+
+删除 API Key 自助申领模板。已通过该模板生成的 API Key 不会被删除。
+
+**认证:** Admin Session Token
+
+**路径参数:**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `template_id` | string | 模板 ID |
 
 ---
 

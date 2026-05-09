@@ -60,7 +60,15 @@ export default function DashboardPage() {
             />
             <Route
               path="apikeys"
-              element={<ApiKeysTab apiKeys={data.apiKeys} models={data.models} loading={loading} onRefresh={refresh} />}
+              element={
+                <ApiKeysTab
+                  apiKeys={data.apiKeys}
+                  templates={data.apiKeyTemplates}
+                  models={data.models}
+                  loading={loading}
+                  onRefresh={refresh}
+                />
+              }
             />
             <Route
               path="banned-ips"

@@ -63,7 +63,7 @@ export default function PortalHome() {
       </header>
 
       {/* Feature Cards */}
-      <section className="mx-auto grid w-full max-w-5xl gap-6 px-6 pb-20 sm:grid-cols-2 lg:grid-cols-3">
+      <section className="mx-auto grid w-full max-w-5xl gap-6 px-6 pb-20 sm:grid-cols-2 lg:grid-cols-4">
         {/* Guide */}
         <FeatureCard
           icon={
@@ -103,6 +103,28 @@ export default function PortalHome() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-2.5 text-sm font-semibold text-gray-700 dark:text-slate-200 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors"
             >
               了解详情
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+              </svg>
+            </Link>
+          }
+        />
+
+        {/* Claim Key */}
+        <FeatureCard
+          icon={
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 1 1 3 3m-3-3a3 3 0 0 0-3 3m3-3h3m-6 3a3 3 0 0 1 3-3m-3 3H4.5m8.25 0h3.75m-3.75 0a3 3 0 0 0 3 3m0 0a3 3 0 1 1-3 3m3-3H4.5m8.25 3H8.25" />
+            </svg>
+          }
+          title="申领 API Key"
+          description="通过管理员配置的模板自助生成 API Key，获得对应模型访问权限。"
+          action={
+            <Link
+              to="/claim"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
+            >
+              立即申领
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
               </svg>

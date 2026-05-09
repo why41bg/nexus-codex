@@ -303,12 +303,14 @@ from app.routes.responses import router as responses_router
 from app.routes.messages import router as messages_router
 from app.routes.models import router as models_router
 from app.routes.admin import router as admin_router
+from app.routes.public import router as public_router
 
 app.include_router(chat_completions_router, prefix="/v1")
 app.include_router(responses_router, prefix="/v1")
 app.include_router(messages_router, prefix="/v1")
 app.include_router(models_router, prefix="/v1")
 app.include_router(admin_router, prefix="/api/admin")
+app.include_router(public_router, prefix="/api/public")
 
 
 # ─── 404 handler ─────────────────────────────────────────────

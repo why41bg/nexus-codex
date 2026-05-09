@@ -1,14 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Account, Dashboard, ApiKey, BannedIP } from '@/types';
+import type { Account, Dashboard, ApiKey, ApiKeyTemplate, BannedIP } from '@/types';
 import { api, getAuthToken, API_BASE } from '@/lib/api';
 
 async function fetchDashboardData() {
-  const [dashRes, accRes, modelsRes, keysRes, bannedRes] = await Promise.all([
+  const [dashRes, accRes, modelsRes, keysRes, templatesRes, bannedRes] = await Promise.all([
     api<Dashboard>('GET', '/api/admin/dashboard'),
     api<{ accounts: Account[] }>('GET', '/api/admin/accounts'),
     api<{ models: string[] }>('GET', '/api/admin/models'),
     api<{ keys: ApiKey[] }>('GET', '/api/admin/keys'),
+    api<{ templates: ApiKeyTemplate[] }>('GET', '/api/admin/key-templates'),
     api<{ bannedIps: BannedIP[] }>('GET', '/api/admin/banned-ips'),
   ]);
 
@@ -17,6 +18,7 @@ async function fetchDashboardData() {
     accounts: accRes.ok ? (accRes.data.accounts || []) : [],
     models: modelsRes.ok ? (modelsRes.data.models || []) : [],
     apiKeys: keysRes.ok ? (keysRes.data.keys || []) : [],
+    apiKeyTemplates: templatesRes.ok ? (templatesRes.data.templates || []) : [],
     bannedIps: bannedRes.ok ? (bannedRes.data.bannedIps || []) : [],
   };
 }
@@ -35,6 +37,7 @@ export function useDashboardData() {
     accounts: [] as Account[],
     models: [] as string[],
     apiKeys: [] as ApiKey[],
+    apiKeyTemplates: [] as ApiKeyTemplate[],
     bannedIps: [] as BannedIP[],
   };
 
