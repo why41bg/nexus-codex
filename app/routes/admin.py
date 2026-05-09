@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -362,6 +362,29 @@ async def refresh_account_quota(account_id: str):
         )
 
     return JSONResponse(content={"quota": quota.to_dict()})
+
+
+@router.post("/accounts/quota/batch", dependencies=[Depends(admin_auth_dependency)])
+async def batch_refresh_quota():
+    """Batch refresh quota for all accounts (bypasses cache)."""
+    accounts = await load_accounts()
+    results: dict[str, dict[str, Any]] = {}
+
+    async def _fetch_one(acc) -> None:
+        quota = await refresh_quota(acc.codex_home)
+        if quota:
+            results[acc.id] = {"quota": quota.to_dict()}
+        else:
+            results[acc.id] = {
+                "error": {
+                    "message": "Failed to retrieve quota. The access token may be expired or the API may be unavailable.",
+                    "type": "server_error",
+                    "code": "quota_unavailable",
+                }
+            }
+
+    await asyncio.gather(*(_fetch_one(acc) for acc in accounts))
+    return JSONResponse(content={"quotas": results})
 
 
 # ─── API Key CRUD ────────────────────────────────────────────

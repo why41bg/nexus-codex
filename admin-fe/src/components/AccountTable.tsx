@@ -35,6 +35,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
   const [detailTarget, setDetailTarget] = useState<Account | null>(null);
 
   const [quotaMap, setQuotaMap] = useState<Record<string, QuotaState>>({});
+  const [batchFetching, setBatchFetching] = useState(false);
 
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -71,6 +72,47 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
       return true;
     });
   }, [accounts, filter]);
+
+  const fetchAllQuota = useCallback(async () => {
+    setBatchFetching(true);
+    // Mark all accounts as loading
+    setQuotaMap((prev) => {
+      const next = { ...prev };
+      for (const acc of accounts) {
+        next[acc.id] = { loading: true, data: prev[acc.id]?.data ?? null, error: null };
+      }
+      return next;
+    });
+    try {
+      const res = await api<{ quotas?: Record<string, { quota?: QuotaInfo; error?: { message: string } }> }>(
+        'POST',
+        '/api/admin/accounts/quota/batch',
+      );
+      if (authGuard(res.status)) { setBatchFetching(false); return; }
+      if (res.ok && res.data.quotas) {
+        setQuotaMap((prev) => {
+          const next = { ...prev };
+          for (const [id, result] of Object.entries(res.data.quotas!)) {
+            if (result.quota) {
+              next[id] = { loading: false, data: result.quota, error: null };
+            } else {
+              const msg = extractErrorMessage(result, '获取额度失败');
+              next[id] = { loading: false, data: null, error: msg };
+            }
+          }
+          return next;
+        });
+        toast('已刷新全部账号额度', 'success');
+      } else {
+        const msg = extractErrorMessage(res.data, '批量查询失败');
+        toast(msg, 'error');
+      }
+    } catch {
+      toast('请求失败', 'error');
+    } finally {
+      setBatchFetching(false);
+    }
+  }, [accounts, authGuard, toast]);
 
   const fetchQuota = useCallback(async (acc: Account, forceRefresh = false) => {
     setQuotaMap((prev) => ({
@@ -186,7 +228,18 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                 <tr>
                   <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">账号</th>
                   <th className="whitespace-nowrap px-4 py-3 font-medium text-gray-500 dark:text-slate-400">并发</th>
-                  <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">额度</th>
+                  <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span>额度</span>
+                      <button
+                        onClick={fetchAllQuota}
+                        disabled={batchFetching}
+                        className="rounded px-2 py-0.5 text-[11px] font-normal text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {batchFetching ? '查询中...' : '一键查询'}
+                      </button>
+                    </div>
+                  </th>
                   <th className="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-slate-400">使用情况</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-slate-400">操作</th>
                 </tr>
