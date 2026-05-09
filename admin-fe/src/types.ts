@@ -115,6 +115,41 @@ export interface SummaryResponse {
   range: string;
 }
 
+/** 结构化日志条目 */
+export interface LogEntry {
+  id: number;
+  timestamp: number;
+  level: string;
+  source: string;
+  event: string;
+  message: string;
+  context: Record<string, unknown> | null;
+  trace_id: string | null;
+  session_id: string | null;
+  account_id: string | null;
+  api_key_id: string | null;
+  client_ip: string | null;
+  duration_ms: number | null;
+  tags: string[];
+}
+
+/** 日志查询结果 */
+export interface LogQueryResult {
+  items: LogEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** 错误汇总条目 */
+export interface ErrorSummaryItem {
+  event: string;
+  source: string;
+  count: number;
+  last_seen: number;
+  sample_message: string;
+}
+
 /** 被拉黑的 IP */
 export interface BannedIP {
   ip: string;
