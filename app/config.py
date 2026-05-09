@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     log_level: str = "info"
     log_format: str = "pretty"  # "json" or "pretty"
 
+    # Log store (structured event collection)
+    log_store_enabled: bool = True
+    log_store_retention_days: int = 30
+    log_store_level: str = "info"  # min level to collect: debug/info/warn/error
+    log_store_max_context_size: int = 8192
+
     # Extended events
     codex_chat_completions_extended_events: bool = False
     codex_stream_extended_events: bool = True
