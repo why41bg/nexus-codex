@@ -147,9 +147,8 @@ class ChatGPTClient:
             "stream": stream,
             "store": False,
             "include": [],
+            "instructions": instructions or "",
         }
-        if instructions:
-            payload["instructions"] = instructions
         if tools:
             payload["tools"] = tools
         if tool_choice:
