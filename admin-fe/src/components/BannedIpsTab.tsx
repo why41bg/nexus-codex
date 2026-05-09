@@ -1,9 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import type { BannedIP } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { relativeTime } from '@/lib/time';
 import ConfirmModal from './ConfirmModal';
+
+// ─── Helper Components ──────────────────────────────────────────
 
 /** 可展开的原因单元格：文本过长时截断，hover 显示完整 Tooltip */
 function ReasonCell({ reason }: { reason: string }) {
@@ -78,6 +80,28 @@ function TimeCell({ iso }: { iso: string | undefined | null }) {
   );
 }
 
+// ─── Sort types ────────────────────────────────────────────────
+
+type SortField = 'bannedAt' | 'hitCount';
+type SortDirection = 'asc' | 'desc';
+
+function SortIcon({ field, currentField, currentDir }: { field: SortField; currentField: SortField | null; currentDir: SortDirection }) {
+  const isActive = field === currentField;
+  return (
+    <svg className={`inline-block ml-1 h-3.5 w-3.5 ${isActive ? 'text-brand-600 dark:text-brand-400' : 'text-gray-400 dark:text-slate-500'}`} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+      {isActive && currentDir === 'asc' ? (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+      ) : isActive && currentDir === 'desc' ? (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+      ) : (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+      )}
+    </svg>
+  );
+}
+
+// ─── Main Component ─────────────────────────────────────────────
+
 interface Props {
   bannedIps: BannedIP[];
   loading: boolean;
@@ -92,6 +116,41 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
   const [adding, setAdding] = useState(false);
   const [unbanTarget, setUnbanTarget] = useState<string | null>(null);
   const [unbanning, setUnbanning] = useState(false);
+
+  // Sorting
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDir, setSortDir] = useState<SortDirection>('desc');
+
+  // Sorted data
+  const sortedIps = useMemo(() => {
+    const items = [...bannedIps];
+    if (!sortField) return items;
+
+    return items.sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'bannedAt') {
+        const tA = a.bannedAt ? new Date(a.bannedAt).getTime() : 0;
+        const tB = b.bannedAt ? new Date(b.bannedAt).getTime() : 0;
+        cmp = tA - tB;
+      } else if (sortField === 'hitCount') {
+        cmp = a.hitCount - b.hitCount;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [bannedIps, sortField, sortDir]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortDir === 'desc') {
+        setSortDir('asc');
+      } else {
+        setSortField(null);
+      }
+    } else {
+      setSortField(field);
+      setSortDir('desc');
+    }
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,13 +285,25 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">IP 地址</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">原因</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">拉黑时间</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">命中次数</th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-slate-200 transition-colors"
+                    onClick={() => handleSort('bannedAt')}
+                  >
+                    拉黑时间
+                    <SortIcon field="bannedAt" currentField={sortField} currentDir={sortDir} />
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-slate-200 transition-colors"
+                    onClick={() => handleSort('hitCount')}
+                  >
+                    命中次数
+                    <SortIcon field="hitCount" currentField={sortField} currentDir={sortDir} />
+                  </th>
                   <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
-                {bannedIps.map((item) => (
+                {sortedIps.map((item) => (
                   <tr key={item.ip} className="hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors">
                     <td className="whitespace-nowrap px-4 py-3 text-sm font-mono text-gray-900 dark:text-slate-100">
                       {item.ip}
