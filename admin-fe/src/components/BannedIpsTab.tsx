@@ -100,6 +100,10 @@ function SortIcon({ field, currentField, currentDir }: { field: SortField; curre
   );
 }
 
+// ─── Constants ──────────────────────────────────────────────────
+
+const PAGE_SIZE = 10;
+
 // ─── Main Component ─────────────────────────────────────────────
 
 interface Props {
@@ -121,6 +125,14 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDirection>('desc');
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset page when data changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [bannedIps.length]);
+
   // Sorted data
   const sortedIps = useMemo(() => {
     const items = [...bannedIps];
@@ -139,6 +151,13 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
     });
   }, [bannedIps, sortField, sortDir]);
 
+  // Paginated data
+  const totalPages = Math.max(1, Math.ceil(sortedIps.length / PAGE_SIZE));
+  const paginatedIps = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return sortedIps.slice(start, start + PAGE_SIZE);
+  }, [sortedIps, currentPage]);
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       if (sortDir === 'desc') {
@@ -150,6 +169,7 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
       setSortField(field);
       setSortDir('desc');
     }
+    setCurrentPage(1);
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -279,60 +299,130 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
             <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">异常请求会被自动识别和拦截</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
-              <thead className="bg-gray-50 dark:bg-slate-750">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">IP 地址</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">原因</th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-slate-200 transition-colors"
-                    onClick={() => handleSort('bannedAt')}
-                  >
-                    拉黑时间
-                    <SortIcon field="bannedAt" currentField={sortField} currentDir={sortDir} />
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-slate-200 transition-colors"
-                    onClick={() => handleSort('hitCount')}
-                  >
-                    命中次数
-                    <SortIcon field="hitCount" currentField={sortField} currentDir={sortDir} />
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
-                {sortedIps.map((item) => (
-                  <tr key={item.ip} className="hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors">
-                    <td className="whitespace-nowrap px-4 py-3 text-sm font-mono text-gray-900 dark:text-slate-100">
-                      {item.ip}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-slate-400">
-                      <ReasonCell reason={item.reason} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500 dark:text-slate-400">
-                      <TimeCell iso={item.bannedAt} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500 dark:text-slate-400">
-                      {item.hitCount}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right">
-                      <button
-                        onClick={() => setUnbanTarget(item.ip)}
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
-                      >
-                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-                        </svg>
-                        解除拉黑
-                      </button>
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+                <thead className="bg-gray-50 dark:bg-slate-750">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">IP 地址</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">原因</th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-slate-200 transition-colors"
+                      onClick={() => handleSort('bannedAt')}
+                    >
+                      拉黑时间
+                      <SortIcon field="bannedAt" currentField={sortField} currentDir={sortDir} />
+                    </th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400 cursor-pointer select-none hover:text-gray-700 dark:hover:text-slate-200 transition-colors"
+                      onClick={() => handleSort('hitCount')}
+                    >
+                      命中次数
+                      <SortIcon field="hitCount" currentField={sortField} currentDir={sortDir} />
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
+                  {paginatedIps.map((item) => (
+                    <tr key={item.ip} className="hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors">
+                      <td className="whitespace-nowrap px-4 py-3 text-sm font-mono text-gray-900 dark:text-slate-100">
+                        {item.ip}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-slate-400">
+                        <ReasonCell reason={item.reason} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500 dark:text-slate-400">
+                        <TimeCell iso={item.bannedAt} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500 dark:text-slate-400">
+                        {item.hitCount}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right">
+                        <button
+                          onClick={() => setUnbanTarget(item.ip)}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                          </svg>
+                          解除拉黑
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-gray-200 dark:border-slate-700 px-4 py-3">
+                <p className="text-sm text-gray-500 dark:text-slate-400">
+                  共 {sortedIps.length} 条，第 {currentPage}/{totalPages} 页
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="rounded-md px-2 py-1 text-xs font-medium text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    首页
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="rounded-md px-2 py-1 text-xs font-medium text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                    </svg>
+                  </button>
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let page: number;
+                    if (totalPages <= 5) {
+                      page = i + 1;
+                    } else if (currentPage <= 3) {
+                      page = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      page = totalPages - 4 + i;
+                    } else {
+                      page = currentPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                          page === currentPage
+                            ? 'bg-brand-600 text-white'
+                            : 'text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="rounded-md px-2 py-1 text-xs font-medium text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="rounded-md px-2 py-1 text-xs font-medium text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    末页
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
