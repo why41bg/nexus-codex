@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import PortalHome from '@/components/PortalHome';
+import SupportPage from '@/components/SupportPage';
 import LoginPage from '@/components/LoginPage';
 import DashboardPage from '@/components/DashboardPage';
 import Spinner from '@/components/Spinner';
@@ -37,6 +39,11 @@ function AppContent() {
 
   return (
     <Routes>
+      {/* 公开路由 */}
+      <Route path="/" element={<PortalHome />} />
+      <Route path="/support" element={<SupportPage />} />
+
+      {/* 认证路由 */}
       <Route
         path="/login"
         element={authenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
@@ -44,10 +51,6 @@ function AppContent() {
       <Route
         path="/dashboard/*"
         element={authenticated ? <DashboardPage /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="*"
-        element={<Navigate to={authenticated ? '/dashboard' : '/login'} replace />}
       />
     </Routes>
   );
@@ -59,9 +62,9 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <ToastProvider>
-            <HashRouter>
+            <BrowserRouter>
               <AppContent />
-            </HashRouter>
+            </BrowserRouter>
           </ToastProvider>
         </AuthProvider>
       </QueryClientProvider>
