@@ -70,8 +70,8 @@ class TestWithRetry:
         pool = MagicMock()
         pool.acquire_async = AsyncMock()
         pool.release = MagicMock()
-        metrics = MetricsCollector()
-        return AppDependencies(pool=pool, metrics_collector=metrics)
+        metrics = MetricsCollector(MagicMock())
+        return AppDependencies(pool=pool, metrics_collector=metrics, metrics_store=MagicMock())
 
     @pytest.mark.asyncio
     async def test_successful_first_attempt(self, mock_deps):
@@ -209,8 +209,8 @@ class TestWithStreamRetry:
         pool = MagicMock()
         pool.acquire_async = AsyncMock()
         pool.release = MagicMock()
-        metrics = MetricsCollector()
-        return AppDependencies(pool=pool, metrics_collector=metrics)
+        metrics = MetricsCollector(MagicMock())
+        return AppDependencies(pool=pool, metrics_collector=metrics, metrics_store=MagicMock())
 
     @pytest.mark.asyncio
     async def test_successful_stream(self, mock_deps):

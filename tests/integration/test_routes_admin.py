@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import AppDependencies
 from app.services.metrics_collector import MetricsCollector
-from tests.conftest import (
+from tests.integration.conftest import (
     MockAccountPool,
     MockPoolEntry,
     build_test_app,
@@ -24,12 +24,21 @@ from tests.conftest import (
 
 def _make_admin_client(**overrides) -> TestClient:
     """Create a TestClient with admin auth bypassed and service mocks."""
+    from unittest.mock import MagicMock
     from app.middleware.auth import admin_auth_dependency
 
     pool = MockAccountPool()
+    mock_store = MagicMock()
+    mock_store.get_time_series.return_value = {"buckets": [], "range": "1h"}
+    mock_store.get_breakdown.return_value = {
+        "byModel": [],
+        "byAccount": [],
+        "totals": {"requests": 0, "errors": 0, "avgLatencyMs": 0, "errorRate": 0.0},
+    }
     deps = AppDependencies(
         pool=pool,  # type: ignore[arg-type]
-        metrics_collector=MetricsCollector(),
+        metrics_collector=MetricsCollector(mock_store),
+        metrics_store=mock_store,
     )
     app = build_test_app(deps)
 
