@@ -55,6 +55,7 @@ from app.services.config_store import (
     remove_api_key,
     remove_api_key_template,
     remove_default_model,
+    reset_claim_code_usage,
     save_banned_ips,
     update_api_key,
     update_api_key_template,
@@ -95,6 +96,8 @@ def _template_to_admin_dict(template) -> dict:
         "models": template.models,
         "requireClaimCode": template.require_claim_code,
         "claimCode": template.claim_code,
+        "claimCodeMaxUsage": template.claim_code_max_usage,
+        "claimCodeUsedCount": template.claim_code_used_count,
         "rateLimitMax": template.rate_limit_max,
         "rateLimitWindowMs": template.rate_limit_window_ms,
         "monthlyQuota": template.monthly_quota,
@@ -656,6 +659,7 @@ async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemp
         models=merged["models"],
         require_claim_code=merged["require_claim_code"],
         claim_code=merged["claim_code"],
+        claim_code_max_usage=merged.get("claim_code_max_usage"),
         rate_limit_max=merged.get("rate_limit_max"),
         rate_limit_window_ms=merged.get("rate_limit_window_ms"),
         monthly_quota=merged.get("monthly_quota"),
@@ -672,6 +676,15 @@ async def delete_api_key_template(template_id: str):
     """Delete an API key self-service claim template."""
     removed = await remove_api_key_template(template_id)
     if not removed:
+        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
+    return JSONResponse(content={"ok": True})
+
+
+@router.post("/key-templates/{template_id}/reset-usage", dependencies=[Depends(admin_auth_dependency)])
+async def reset_template_claim_usage(template_id: str):
+    """Reset the claim code used count for a template."""
+    ok = await reset_claim_code_usage(template_id)
+    if not ok:
         return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
     return JSONResponse(content={"ok": True})
 

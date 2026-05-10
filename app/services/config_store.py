@@ -295,6 +295,7 @@ async def add_api_key_template(
     models: list[str] | None = None,
     require_claim_code: bool = True,
     claim_code: str = "",
+    claim_code_max_usage: int | None = None,
     rate_limit_max: int | None = None,
     rate_limit_window_ms: int | None = None,
     monthly_quota: int | None = None,
@@ -313,6 +314,7 @@ async def add_api_key_template(
         models=models or [],
         require_claim_code=require_claim_code,
         claim_code=claim_code,
+        claim_code_max_usage=claim_code_max_usage,
         rate_limit_max=rate_limit_max,
         rate_limit_window_ms=rate_limit_window_ms,
         monthly_quota=monthly_quota,
@@ -339,6 +341,29 @@ async def update_api_key_template(template_id: str, **updates: object) -> ApiKey
             await _save_config()
             return template
     return None
+
+
+async def increment_claim_code_usage(template_id: str) -> None:
+    """Increment the claim code used count for a template."""
+    if _config is None:
+        return
+    for template in _config.api_key_templates:
+        if template.id == template_id:
+            template.claim_code_used_count += 1
+            await _save_config()
+            return
+
+
+async def reset_claim_code_usage(template_id: str) -> bool:
+    """Reset the claim code used count for a template back to zero."""
+    if _config is None:
+        return False
+    for template in _config.api_key_templates:
+        if template.id == template_id:
+            template.claim_code_used_count = 0
+            await _save_config()
+            return True
+    return False
 
 
 async def remove_api_key_template(template_id: str) -> bool:

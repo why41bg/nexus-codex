@@ -63,6 +63,8 @@ class ApiKeyTemplate(BaseModel):
     models: list[str] = Field(default_factory=list)
     require_claim_code: bool = True
     claim_code: str = ""
+    claim_code_max_usage: int | None = None
+    claim_code_used_count: int = 0
     rate_limit_max: int | None = None
     rate_limit_window_ms: int | None = None
     monthly_quota: int | None = None
@@ -340,6 +342,7 @@ class AddApiKeyTemplateRequest(CamelModel):
     models: list[str] = Field(default_factory=list)
     require_claim_code: bool = True
     claim_code: str = ""
+    claim_code_max_usage: int | None = None
     rate_limit_max: int | None = None
     rate_limit_window_ms: int | None = None
     monthly_quota: int | None = None
@@ -354,6 +357,7 @@ class UpdateApiKeyTemplateRequest(CamelModel):
     models: list[str] | None = None
     require_claim_code: bool | None = None
     claim_code: str | None = None
+    claim_code_max_usage: int | None = None
     rate_limit_max: int | None = None
     rate_limit_window_ms: int | None = None
     monthly_quota: int | None = None

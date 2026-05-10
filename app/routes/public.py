@@ -58,6 +58,12 @@ def _template_to_public_dict(template) -> dict:
         "description": template.description,
         "models": template.models,
         "requireClaimCode": template.require_claim_code,
+        "claimCodeMaxUsage": template.claim_code_max_usage,
+        "claimCodeRemaining": (
+            max(0, template.claim_code_max_usage - template.claim_code_used_count)
+            if template.claim_code_max_usage is not None
+            else None
+        ),
         "rateLimitMax": template.rate_limit_max,
         "rateLimitWindowMs": template.rate_limit_window_ms,
         "monthlyQuota": template.monthly_quota,
@@ -119,6 +125,13 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
     ):
         return JSONResponse(status_code=403, content={"error": {"message": "申领码错误"}})
 
+    if (
+        template.require_claim_code
+        and template.claim_code_max_usage is not None
+        and template.claim_code_used_count >= template.claim_code_max_usage
+    ):
+        return JSONResponse(status_code=403, content={"error": {"message": "申领码已达到使用次数上限"}})
+
     key = f"sk-{secrets.token_hex(16)}"
     entry = await add_api_key(
         key=key,
@@ -134,6 +147,9 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
         rate_limit_window_ms=template.rate_limit_window_ms,
         monthly_quota=template.monthly_quota,
     )
+
+    if template.require_claim_code and template.claim_code_max_usage is not None:
+        await increment_claim_code_usage(template.id)
     return JSONResponse(
         content={
             "key": entry.key,

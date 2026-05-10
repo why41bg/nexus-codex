@@ -24,6 +24,7 @@ const defaultForm = {
   models: [] as string[],
   requireClaimCode: true,
   claimCode: '',
+  claimCodeMaxUsage: '',
   rateLimitMax: '',
   rateLimitWindowMs: '',
   monthlyQuota: '',
@@ -74,6 +75,7 @@ function toForm(template: ApiKeyTemplate): TemplateForm {
     models: [...template.models],
     requireClaimCode: template.requireClaimCode,
     claimCode: template.claimCode || '',
+    claimCodeMaxUsage: template.claimCodeMaxUsage != null ? String(template.claimCodeMaxUsage) : '',
     rateLimitMax: template.rateLimitMax != null ? String(template.rateLimitMax) : '',
     rateLimitWindowMs: template.rateLimitWindowMs != null ? String(template.rateLimitWindowMs) : '',
     monthlyQuota: template.monthlyQuota != null ? String(template.monthlyQuota) : '',
@@ -90,6 +92,7 @@ function toPayload(form: TemplateForm) {
     models: form.models,
     requireClaimCode: form.requireClaimCode,
     claimCode: form.claimCode.trim(),
+    claimCodeMaxUsage: form.claimCodeMaxUsage ? Number(form.claimCodeMaxUsage) : null,
     rateLimitMax: form.rateLimitMax ? Number(form.rateLimitMax) : null,
     rateLimitWindowMs: form.rateLimitWindowMs ? Number(form.rateLimitWindowMs) : null,
     monthlyQuota: form.monthlyQuota ? Number(form.monthlyQuota) : null,
@@ -218,18 +221,28 @@ function TemplateFormModal({ editing, models, onClose, onSaved }: TemplateFormMo
             需要申领码
           </label>
           {form.requireClaimCode && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">申领码</label>
-              <div className="flex gap-2">
-                <input value={form.claimCode} onChange={(e) => setForm({ ...form, claimCode: e.target.value })} className={`flex-1 ${inputClass}`} placeholder="用户需要输入此码才能申领" />
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, claimCode: generateClaimCode() })}
-                  className="rounded-lg bg-gray-100 dark:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 whitespace-nowrap"
-                  title="生成随机申领码"
-                >
-                  随机生成
-                </button>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">申领码</label>
+                <div className="flex gap-2">
+                  <input value={form.claimCode} onChange={(e) => setForm({ ...form, claimCode: e.target.value })} className={`flex-1 ${inputClass}`} placeholder="用户需要输入此码才能申领" />
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, claimCode: generateClaimCode() })}
+                    className="rounded-lg bg-gray-100 dark:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 whitespace-nowrap"
+                    title="生成随机申领码"
+                  >
+                    随机生成
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">申领码使用次数上限</label>
+                <div className="flex items-center gap-1">
+                  <input type="number" min="1" value={form.claimCodeMaxUsage} onChange={(e) => setForm({ ...form, claimCodeMaxUsage: e.target.value })} placeholder="不限制" className={inputClass} />
+                  <span className="text-xs text-gray-400 dark:text-slate-500 whitespace-nowrap">次</span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-slate-500">留空表示不限制使用次数</p>
               </div>
             </div>
           )}
@@ -365,6 +378,17 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
     toast('申领码已复制', 'success');
   };
 
+  const resetClaimUsage = async (templateId: string) => {
+    const res = await api('POST', `/api/admin/key-templates/${encodeURIComponent(templateId)}/reset-usage`);
+    if (authGuard(res.status)) return;
+    if (res.ok) {
+      toast('申领码用量已重置', 'success');
+      onRefresh();
+    } else {
+      toast(extractErrorMessage(res.data, '重置失败'), 'error');
+    }
+  };
+
   const deleteTemplate = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -442,6 +466,11 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
                   <span className="rounded bg-gray-50 px-2 py-0.5 ring-1 ring-gray-200 dark:bg-slate-700 dark:ring-slate-600">
                     同 IP 限 {template.claimIpLimitMax} 次 / {formatDuration(template.claimIpLimitWindowMs)}
                   </span>
+                  {template.requireClaimCode && template.claimCodeMaxUsage != null && (
+                    <span className="rounded bg-gray-50 px-2 py-0.5 ring-1 ring-gray-200 dark:bg-slate-700 dark:ring-slate-600">
+                      申领码限 {template.claimCodeMaxUsage} 次（已用 {template.claimCodeUsedCount ?? 0}）
+                    </span>
+                  )}
                   {template.rateLimitMax != null && (
                     <span className="rounded bg-gray-50 px-2 py-0.5 ring-1 ring-gray-200 dark:bg-slate-700 dark:ring-slate-600">
                       限速 {template.rateLimitMax} 次 / {formatDuration(template.rateLimitWindowMs ?? 60000)}
@@ -483,6 +512,16 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
                     链接
                   </span>
                 </button>
+                {template.requireClaimCode && template.claimCodeMaxUsage != null && (template.claimCodeUsedCount ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => resetClaimUsage(template.id)}
+                    className="rounded-md bg-yellow-50 px-2.5 py-1 text-xs font-medium text-yellow-700 hover:bg-yellow-100 dark:bg-yellow-950 dark:text-yellow-400 dark:hover:bg-yellow-900"
+                    title="重置申领码用量"
+                  >
+                    重置用量
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => openEdit(template)}
