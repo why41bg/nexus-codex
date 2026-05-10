@@ -42,16 +42,16 @@ def _ensure_db() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_metrics_model
         ON metrics(model)
     """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_metrics_api_key
-        ON metrics(api_key)
-    """)
     # Migrate: add api_key column if missing (existing databases)
     try:
         conn.execute("SELECT api_key FROM metrics LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE metrics ADD COLUMN api_key TEXT NOT NULL DEFAULT ''")
         conn.commit()
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_metrics_api_key
+        ON metrics(api_key)
+    """)
     conn.commit()
     return conn
 
