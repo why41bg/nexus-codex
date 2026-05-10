@@ -123,7 +123,7 @@ async def _do_non_stream(
         }
 
     latency_ms = int((time.time() - req_start) * 1000)
-    deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True)
+    deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True, api_key)
     return JSONResponse(content=result)
 
 

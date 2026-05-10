@@ -199,7 +199,7 @@ async def with_stream_retry(
                 yield chunk
 
             latency_ms = int((time.time() - req_start) * 1000)
-            deps.metrics_collector.record(model, entry.account_id, latency_ms, True)
+            deps.metrics_collector.record(model, entry.account_id, latency_ms, True, api_key)
             deps.pool.release(entry.account_id)
             if collector:
                 collector.on_account_released(
@@ -210,7 +210,7 @@ async def with_stream_retry(
         except Exception as e:
             deps.pool.release(entry.account_id)
             latency_ms = int((time.time() - req_start) * 1000)
-            deps.metrics_collector.record(model, entry.account_id, latency_ms, False)
+            deps.metrics_collector.record(model, entry.account_id, latency_ms, False, api_key)
 
             if attempt < MAX_RETRIES and is_retryable(e):
                 log.warn(

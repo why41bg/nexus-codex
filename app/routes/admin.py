@@ -789,6 +789,12 @@ async def get_metrics_summary(range: str = "24h", deps: AppDependencies = Depend
     return JSONResponse(content=deps.metrics_collector.get_summary(range))
 
 
+@router.get("/metrics/per-key", dependencies=[Depends(admin_auth_dependency)])
+async def get_metrics_per_key(range: str = "24h", deps: AppDependencies = Depends(get_deps)):
+    """Get per API key usage statistics."""
+    return JSONResponse(content=deps.metrics_collector.get_per_key_stats(range))
+
+
 # ─── IP Ban Management ────────────────────────────────────────
 
 

@@ -30,7 +30,8 @@ def _ensure_db() -> sqlite3.Connection:
             model TEXT NOT NULL,
             account_id TEXT NOT NULL,
             latency_ms INTEGER NOT NULL,
-            success INTEGER NOT NULL DEFAULT 1
+            success INTEGER NOT NULL DEFAULT 1,
+            api_key TEXT NOT NULL DEFAULT ''
         )
     """)
     conn.execute("""
@@ -41,6 +42,16 @@ def _ensure_db() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_metrics_model
         ON metrics(model)
     """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_metrics_api_key
+        ON metrics(api_key)
+    """)
+    # Migrate: add api_key column if missing (existing databases)
+    try:
+        conn.execute("SELECT api_key FROM metrics LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE metrics ADD COLUMN api_key TEXT NOT NULL DEFAULT ''")
+        conn.commit()
     conn.commit()
     return conn
 
@@ -70,15 +81,15 @@ class MetricsStore:
         )
 
     def record(
-        self, model: str, account_id: str, latency_ms: int, success: bool
+        self, model: str, account_id: str, latency_ms: int, success: bool, api_key: str = ""
     ) -> None:
         """Record a single request metric."""
         now_ms = int(time.time() * 1000)
         try:
             self._conn.execute(
-                "INSERT INTO metrics (timestamp_ms, model, account_id, latency_ms, success) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (now_ms, model, account_id, latency_ms, 1 if success else 0),
+                "INSERT INTO metrics (timestamp_ms, model, account_id, latency_ms, success, api_key) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (now_ms, model, account_id, latency_ms, 1 if success else 0, api_key),
             )
             self._conn.commit()
         except Exception as e:
@@ -289,6 +300,45 @@ class MetricsStore:
             },
             "range": range_str,
         }
+
+    def get_per_key_stats(self, range_str: str) -> dict:
+        """Get per API key usage stats for a given time range."""
+        range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000, "7d": 604800_000, "30d": 2592000_000}.get(
+            range_str, 86400_000
+        )
+        now_ms = int(time.time() * 1000)
+        since_ms = now_ms - range_ms
+
+        rows = self._conn.execute(
+            """
+            SELECT
+                api_key,
+                COUNT(*) AS total_requests,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS total_errors,
+                AVG(latency_ms) AS avg_latency,
+                MAX(timestamp_ms) AS last_used
+            FROM metrics
+            WHERE timestamp_ms >= ? AND timestamp_ms <= ? AND api_key != ''
+            GROUP BY api_key
+            ORDER BY total_requests DESC
+            """,
+            (since_ms, now_ms),
+        ).fetchall()
+
+        keys = []
+        for row in rows:
+            total = row[1]
+            errors = row[2] or 0
+            keys.append({
+                "apiKeyPrefix": row[0][:12] if len(row[0]) >= 12 else row[0],
+                "totalRequests": total,
+                "totalErrors": errors,
+                "errorRate": round(errors / total * 100, 2) if total > 0 else 0,
+                "avgLatencyMs": round(row[3]) if row[3] else 0,
+                "lastUsed": row[4],
+            })
+
+        return {"keys": keys, "range": range_str}
 
     def close(self) -> None:
         """Close the database connection."""

@@ -16,11 +16,11 @@ class MetricsCollector:
         self._store = metrics_store
 
     def record(
-        self, model: str, account_id: str, latency_ms: int, success: bool
+        self, model: str, account_id: str, latency_ms: int, success: bool, api_key: str = ""
     ) -> None:
         """Record a single request metric to persistent store."""
         try:
-            self._store.record(model, account_id, latency_ms, success)
+            self._store.record(model, account_id, latency_ms, success, api_key)
         except Exception as e:
             log.error("Failed to persist metric", extra={"error": str(e)})
 
@@ -39,3 +39,7 @@ class MetricsCollector:
     def get_summary(self, range_str: str) -> dict:
         """Get KPI summary with period-over-period comparison."""
         return self._store.get_summary(range_str)
+
+    def get_per_key_stats(self, range_str: str) -> dict:
+        """Get per API key usage stats."""
+        return self._store.get_per_key_stats(range_str)
