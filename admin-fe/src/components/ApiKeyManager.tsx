@@ -34,6 +34,10 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
   const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
   const [deletingKey, setDeletingKey] = useState(false);
 
+  // Batch selection
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [batchLoading, setBatchLoading] = useState(false);
+
   // Reveal key with password
   const [revealTarget, setRevealTarget] = useState<ApiKey | null>(null);
   const [revealLoading, setRevealLoading] = useState(false);
@@ -113,6 +117,58 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
     }
   };
 
+  const toggleKeyEnabled = async (k: ApiKey) => {
+    const newEnabled = !(k.enabled ?? true);
+    const res = await api('PATCH', `/api/admin/keys/${encodeURIComponent(k.keyPrefix)}`, { enabled: newEnabled });
+    if (authGuard(res.status)) return;
+    if (res.ok) {
+      toast(newEnabled ? '已启用' : '已禁用', 'success');
+      onRefresh();
+    } else {
+      toast(extractErrorMessage(res.data, '操作失败'), 'error');
+    }
+  };
+
+  const doBatchAction = async (action: 'delete' | 'enable' | 'disable') => {
+    if (selectedKeys.size === 0) return;
+    setBatchLoading(true);
+    try {
+      const res = await api<{ succeeded: number; failed: number }>('POST', '/api/admin/keys/batch', {
+        keyPrefixes: Array.from(selectedKeys),
+        action,
+      });
+      if (authGuard(res.status)) return;
+      if (res.ok) {
+        toast(`操作完成：成功 ${res.data.succeeded}，失败 ${res.data.failed}`, 'success');
+        setSelectedKeys(new Set());
+        onRefresh();
+      } else {
+        toast(extractErrorMessage(res.data, '批量操作失败'), 'error');
+      }
+    } catch {
+      toast('请求失败', 'error');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedKeys.size === filteredKeys.length) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(filteredKeys.map((k) => k.keyPrefix)));
+    }
+  };
+
+  const toggleSelect = (prefix: string) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(prefix)) next.delete(prefix);
+      else next.add(prefix);
+      return next;
+    });
+  };
+
   const filteredKeys = useMemo(() => {
     if (sourceFilter === 'all') return apiKeys;
     return apiKeys.filter((k) => {
@@ -190,6 +246,18 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         </div>
       )}
 
+      {/* Batch Actions Bar */}
+      {selectedKeys.size > 0 && (
+        <div className="mt-4 flex items-center gap-3 rounded-lg bg-brand-50 dark:bg-brand-950 px-4 py-2.5 ring-1 ring-brand-200 dark:ring-brand-800">
+          <span className="text-sm font-medium text-brand-700 dark:text-brand-300">已选 {selectedKeys.size} 项</span>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => doBatchAction('enable')} disabled={batchLoading} className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50">批量启用</button>
+            <button onClick={() => doBatchAction('disable')} disabled={batchLoading} className="rounded-md bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-700 disabled:opacity-50">批量禁用</button>
+            <button onClick={() => doBatchAction('delete')} disabled={batchLoading} className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">批量删除</button>
+          </div>
+        </div>
+      )}
+
       {filteredKeys.length > 0 && (
         <>
           {/* Desktop Table */}
@@ -197,7 +265,11 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
             <table className="w-full text-left text-sm">
               <thead className="border-b border-gray-100 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/60">
                 <tr>
+                  <th className="px-2 py-3 w-8">
+                    <input type="checkbox" checked={selectedKeys.size === filteredKeys.length && filteredKeys.length > 0} onChange={toggleSelectAll} className="rounded border-gray-300 dark:border-slate-600" />
+                  </th>
                   <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">名称</th>
+                  <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">状态</th>
                   <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">Key</th>
                   <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">可用模型</th>
                   <th className="px-4 py-3 font-medium text-gray-500 dark:text-slate-400">限制</th>
@@ -207,7 +279,10 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                 {filteredKeys.map((k) => (
-                  <tr key={k.keyPrefix} className="transition-colors hover:bg-gray-50/50 dark:hover:bg-slate-700/50">
+                  <tr key={k.keyPrefix} className={`transition-colors hover:bg-gray-50/50 dark:hover:bg-slate-700/50 ${(k.enabled === false) ? 'opacity-50' : ''}`}>
+                    <td className="px-2 py-3">
+                      <input type="checkbox" checked={selectedKeys.has(k.keyPrefix)} onChange={() => toggleSelect(k.keyPrefix)} className="rounded border-gray-300 dark:border-slate-600" />
+                    </td>
                     <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
                       <div className="flex items-center gap-2">
                         <span>{k.name || '—'}</span>
@@ -244,6 +319,15 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                           )}
                         </div>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => toggleKeyEnabled(k)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${(k.enabled ?? true) ? 'bg-green-500' : 'bg-gray-300 dark:bg-slate-600'}`}
+                        title={(k.enabled ?? true) ? '点击禁用' : '点击启用'}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${(k.enabled ?? true) ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
@@ -489,6 +573,15 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
 
 function KeyRestrictionTags({ apiKey }: { apiKey: ApiKey }) {
   const tags: Array<{ label: string; color: string }> = [];
+
+  if (apiKey.expiresAt) {
+    const expired = new Date(apiKey.expiresAt) <= new Date();
+    if (expired) {
+      tags.push({ label: '已过期', color: 'bg-red-50 text-red-700 ring-red-200 dark:bg-red-950 dark:text-red-400 dark:ring-red-800' });
+    } else {
+      tags.push({ label: `${relativeTime(apiKey.expiresAt)} 过期`, color: 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950 dark:text-orange-400 dark:ring-orange-800' });
+    }
+  }
 
   if (apiKey.rateLimitMax != null) {
     const windowSec = (apiKey.rateLimitWindowMs ?? 60000) / 1000;

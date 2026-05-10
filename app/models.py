@@ -37,8 +37,10 @@ class Account(BaseModel):
 class ApiKeyEntry(BaseModel):
     key: str
     name: str
+    enabled: bool = True
     models: list[str] = Field(default_factory=list)
     created_at: str
+    expires_at: str | None = None
     source: str = "admin"
     template_id: str | None = None
     template_name: str | None = None
@@ -313,6 +315,7 @@ class AddApiKeyRequest(CamelModel):
     key: str | None = None
     name: str = ""
     models: list[str] = Field(default_factory=list)
+    expires_at: str | None = None
     rate_limit_max: int | None = None
     rate_limit_window_ms: int | None = None
     monthly_quota: int | None = None
@@ -321,7 +324,9 @@ class AddApiKeyRequest(CamelModel):
 
 class UpdateApiKeyRequest(CamelModel):
     name: str | None = None
+    enabled: bool | None = None
     models: list[str] | None = None
+    expires_at: str | None = None
     rate_limit_max: int | None = None
     rate_limit_window_ms: int | None = None
     monthly_quota: int | None = None

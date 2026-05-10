@@ -109,8 +109,30 @@ async def api_key_auth_dependency(request: Request) -> str:
             detail={"error": {"message": "Invalid API key provided.", "type": "invalid_request_error", "code": "invalid_api_key"}},
         )
 
-    # IP whitelist check
+    # Key existence & enabled check
     entry = find_api_key(api_key)
+
+    if entry and not entry.enabled:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": {"message": "This API key has been disabled.", "type": "invalid_request_error", "code": "api_key_disabled"}},
+        )
+
+    # Expiration check
+    if entry and entry.expires_at:
+        from datetime import datetime, timezone
+
+        try:
+            expires = datetime.fromisoformat(entry.expires_at)
+            if datetime.now(timezone.utc) >= expires:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"error": {"message": "This API key has expired.", "type": "invalid_request_error", "code": "api_key_expired"}},
+                )
+        except ValueError:
+            pass
+
+    # IP whitelist check
     if entry and entry.ip_whitelist:
         client_ip = (
             request.headers.get("x-forwarded-for", "").split(",")[0].strip()
