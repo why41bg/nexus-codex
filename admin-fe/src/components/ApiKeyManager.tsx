@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { ApiKey } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -12,6 +12,8 @@ import ConfirmModal from './ConfirmModal';
 import PasswordConfirmModal from './PasswordConfirmModal';
 import Spinner from './Spinner';
 
+type SourceFilter = 'all' | 'admin' | 'self_service';
+
 interface Props {
   apiKeys: ApiKey[];
   models: string[];
@@ -23,6 +25,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
   const { toast } = useToast();
   const authGuard = useAuthGuard();
 
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [newKeyName, setNewKeyName] = useState('');
   const [addingKey, setAddingKey] = useState(false);
   const [lastCreatedKey, setLastCreatedKey] = useState<string | null>(null);
@@ -110,12 +113,62 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
     }
   };
 
+  const filteredKeys = useMemo(() => {
+    if (sourceFilter === 'all') return apiKeys;
+    return apiKeys.filter((k) => {
+      if (sourceFilter === 'self_service') return k.source === 'self_service';
+      return k.source !== 'self_service';
+    });
+  }, [apiKeys, sourceFilter]);
+
+  const selfServiceCount = useMemo(() => apiKeys.filter((k) => k.source === 'self_service').length, [apiKeys]);
+  const adminCount = useMemo(() => apiKeys.filter((k) => k.source !== 'self_service').length, [apiKeys]);
+
   return (
     <div className={`mt-8 ${cardClass} p-6`}>
       <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">API Key 管理</h2>
       <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
         管理 API Key 访问权限。每个 Key 可独立配置允许使用的模型列表，未配置时继承全局默认模型。
       </p>
+
+      {/* Source Filter Tabs */}
+      {apiKeys.length > 0 && (
+        <div className="mt-4 flex gap-1 rounded-lg bg-gray-100 dark:bg-slate-800 p-1 w-fit">
+          <button
+            type="button"
+            onClick={() => setSourceFilter('all')}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              sourceFilter === 'all'
+                ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm'
+                : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+            }`}
+          >
+            全部 ({apiKeys.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourceFilter('admin')}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              sourceFilter === 'admin'
+                ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm'
+                : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+            }`}
+          >
+            管理员创建 ({adminCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourceFilter('self_service')}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              sourceFilter === 'self_service'
+                ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm'
+                : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+            }`}
+          >
+            自助申领 ({selfServiceCount})
+          </button>
+        </div>
+      )}
 
       {/* Key List */}
       {loading && apiKeys.length === 0 && (
@@ -131,7 +184,13 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         </div>
       )}
 
-      {apiKeys.length > 0 && (
+      {!loading && apiKeys.length > 0 && filteredKeys.length === 0 && (
+        <div className="mt-4 py-10 text-center text-sm text-gray-400 dark:text-slate-500">
+          当前筛选条件下没有 API Key
+        </div>
+      )}
+
+      {filteredKeys.length > 0 && (
         <>
           {/* Desktop Table */}
           <div className={`mt-4 hidden overflow-hidden ${cardClass} md:block`}>
@@ -147,15 +206,42 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                {apiKeys.map((k) => (
+                {filteredKeys.map((k) => (
                   <tr key={k.keyPrefix} className="transition-colors hover:bg-gray-50/50 dark:hover:bg-slate-700/50">
                     <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
-                      <div>{k.name || '—'}</div>
+                      <div className="flex items-center gap-2">
+                        <span>{k.name || '—'}</span>
+                        {k.source === 'self_service' && (
+                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
+                        )}
+                      </div>
                       {k.source === 'self_service' && (
-                        <div className="mt-1 flex flex-wrap gap-1 text-xs text-gray-500 dark:text-slate-400">
-                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
-                          {k.templateName && <span>{k.templateName}</span>}
-                          {k.applicantContact && <span>{k.applicantContact}</span>}
+                        <div className="mt-1.5 space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-slate-400">
+                            {k.applicantName && (
+                              <span className="inline-flex items-center gap-1">
+                                <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0" /></svg>
+                                {k.applicantName}
+                              </span>
+                            )}
+                            {k.applicantContact && (
+                              <span className="inline-flex items-center gap-1">
+                                <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                                {k.applicantContact}
+                              </span>
+                            )}
+                            {k.templateName && (
+                              <span className="inline-flex items-center gap-1">
+                                <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                                {k.templateName}
+                              </span>
+                            )}
+                          </div>
+                          {k.applicantNote && (
+                            <p className="text-[11px] text-gray-400 dark:text-slate-500 italic truncate max-w-xs" title={k.applicantNote}>
+                              备注: {k.applicantNote}
+                            </p>
+                          )}
                         </div>
                       )}
                     </td>
@@ -217,16 +303,43 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
 
           {/* Mobile Card List */}
           <div className="mt-4 space-y-3 md:hidden">
-            {apiKeys.map((k) => (
+            {filteredKeys.map((k) => (
               <div key={k.keyPrefix} className={`${cardClass} p-4`}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{k.name || '—'}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{k.name || '—'}</span>
+                      {k.source === 'self_service' && (
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
+                      )}
+                    </div>
                     {k.source === 'self_service' && (
-                      <div className="mt-1 flex flex-wrap gap-1 text-xs text-gray-500 dark:text-slate-400">
-                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
-                        {k.templateName && <span>{k.templateName}</span>}
-                        {k.applicantContact && <span>{k.applicantContact}</span>}
+                      <div className="mt-1.5 space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-slate-400">
+                          {k.applicantName && (
+                            <span className="inline-flex items-center gap-1">
+                              <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0" /></svg>
+                              {k.applicantName}
+                            </span>
+                          )}
+                          {k.applicantContact && (
+                            <span className="inline-flex items-center gap-1">
+                              <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                              {k.applicantContact}
+                            </span>
+                          )}
+                          {k.templateName && (
+                            <span className="inline-flex items-center gap-1">
+                              <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                              {k.templateName}
+                            </span>
+                          )}
+                        </div>
+                        {k.applicantNote && (
+                          <p className="text-[11px] text-gray-400 dark:text-slate-500 italic truncate" title={k.applicantNote}>
+                            备注: {k.applicantNote}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
