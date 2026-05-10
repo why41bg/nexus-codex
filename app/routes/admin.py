@@ -19,6 +19,7 @@ from app.models import (
     AddApiKeyTemplateRequest,
     AddBannedIpRequest,
     AddModelRequest,
+    BatchKeyActionRequest,
     BatchUnbanRequest,
     BootstrapAccountRequest,
     BulkImportRequest,
@@ -587,6 +588,39 @@ async def delete_api_key(key_prefix: str):
     if not removed:
         return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
     return JSONResponse(content={"ok": True})
+
+
+@router.post("/keys/batch", dependencies=[Depends(admin_auth_dependency)])
+async def batch_key_action(body: BatchKeyActionRequest):
+    """Perform batch action on multiple API keys."""
+    if body.action not in ("delete", "enable", "disable"):
+        return JSONResponse(status_code=400, content={"error": {"message": "Invalid action. Must be: delete, enable, disable"}})
+    succeeded = 0
+    failed = 0
+    for prefix in body.key_prefixes:
+        full_key = _resolve_key(prefix)
+        if not full_key:
+            failed += 1
+            continue
+        if body.action == "delete":
+            ok = await remove_api_key(full_key)
+            if ok:
+                succeeded += 1
+            else:
+                failed += 1
+        elif body.action == "enable":
+            entry = await update_api_key(full_key, enabled=True)
+            if entry:
+                succeeded += 1
+            else:
+                failed += 1
+        elif body.action == "disable":
+            entry = await update_api_key(full_key, enabled=False)
+            if entry:
+                succeeded += 1
+            else:
+                failed += 1
+    return JSONResponse(content={"succeeded": succeeded, "failed": failed})
 
 
 # ─── API Key Claim Templates ─────────────────────────────────

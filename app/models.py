@@ -383,6 +383,12 @@ class AddModelRequest(BaseModel):
     model: str
 
 
+class BatchKeyActionRequest(BaseModel):
+    """Request to perform batch action on API keys."""
+    key_prefixes: list[str]
+    action: str  # "delete" | "enable" | "disable"
+
+
 class AddBannedIpRequest(BaseModel):
     """Request to manually ban an IP address."""
     ip: str
