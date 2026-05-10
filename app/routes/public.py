@@ -5,19 +5,50 @@ from __future__ import annotations
 import hmac
 import secrets
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from app.dependencies import AppDependencies, get_deps
 from app.models import ClaimApiKeyRequest
+from app.services.account_store import load_accounts
 from app.services.config_store import (
     add_api_key,
     find_api_key_template,
     get_api_key_templates,
+    increment_claim_code_usage,
     record_claim_attempt,
 )
 from app.services.ip_ban_store import get_client_ip
 
 router = APIRouter()
+
+
+@router.get("/system-status")
+async def public_system_status(deps: AppDependencies = Depends(get_deps)):
+    """Public system availability status for portal users."""
+    accounts = await load_accounts()
+    status = deps.pool.get_status()
+    total = len(accounts)
+    healthy = sum(1 for e in status if e["healthy"])
+    total_slots = sum(e["max_concurrency"] for e in status)
+    active_slots = sum(e["active_count"] for e in status)
+    available_slots = total_slots - active_slots
+
+    # Determine overall health: green / yellow / red
+    if total == 0 or healthy == 0:
+        level = "red"
+    elif healthy < total * 0.5 or available_slots == 0:
+        level = "yellow"
+    else:
+        level = "green"
+
+    return JSONResponse(content={
+        "level": level,
+        "totalAccounts": total,
+        "healthyAccounts": healthy,
+        "totalSlots": total_slots,
+        "availableSlots": available_slots,
+    })
 
 
 def _template_to_public_dict(template) -> dict:

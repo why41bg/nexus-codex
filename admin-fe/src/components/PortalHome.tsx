@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTheme } from '@/contexts/ThemeContext';
+import { API_BASE } from '@/lib/api';
+import type { SystemStatus } from '@/types';
 
 const GUIDE_URL = 'https://why41bg.github.io/nexus-codex/';
 
@@ -44,6 +47,35 @@ function ThemeToggle() {
   );
 }
 
+function SystemStatusBanner() {
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/public/system-status`)
+      .then((r) => r.json())
+      .then((d) => setStatus(d))
+      .catch(() => {});
+  }, []);
+
+  if (!status) return null;
+
+  const config = {
+    green: { bg: 'bg-green-50 dark:bg-green-900/20', text: 'text-green-700 dark:text-green-300', dot: 'bg-green-500', label: '系统正常' },
+    yellow: { bg: 'bg-yellow-50 dark:bg-yellow-900/20', text: 'text-yellow-700 dark:text-yellow-300', dot: 'bg-yellow-500', label: '部分受限' },
+    red: { bg: 'bg-red-50 dark:bg-red-900/20', text: 'text-red-700 dark:text-red-300', dot: 'bg-red-500', label: '服务不可用' },
+  }[status.level];
+
+  return (
+    <div className={`mx-auto mt-6 flex max-w-lg items-center gap-3 rounded-xl px-5 py-3 ${config.bg}`}>
+      <span className={`inline-block h-2.5 w-2.5 rounded-full ${config.dot} animate-pulse`} />
+      <span className={`text-sm font-medium ${config.text}`}>{config.label}</span>
+      <span className={`ml-auto text-xs ${config.text} opacity-75`}>
+        {status.healthyAccounts}/{status.totalAccounts} 账号健康 · {status.availableSlots}/{status.totalSlots} 可用槽位
+      </span>
+    </div>
+  );
+}
+
 export default function PortalHome() {
   return (
     <div className="relative flex min-h-screen flex-col bg-gray-50 dark:bg-slate-900">
@@ -60,6 +92,7 @@ export default function PortalHome() {
         <p className="mt-4 max-w-lg text-lg text-gray-500 dark:text-slate-400">
           OpenAI API 兼容的多账号池网关，统一管理、负载均衡、健康探测。
         </p>
+        <SystemStatusBanner />
       </header>
 
       {/* Feature Cards */}

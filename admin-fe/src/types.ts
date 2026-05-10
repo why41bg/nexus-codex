@@ -166,9 +166,13 @@ export interface ApiKey {
   /** key 前缀，用于标识（如 sk-abcde） */
   keyPrefix: string;
   name?: string;
+  /** 是否启用 */
+  enabled?: boolean;
   models: string[];
   effectiveModels: string[];
   createdAt?: string;
+  /** 过期时间（ISO 字符串），null 表示永不过期 */
+  expiresAt?: string | null;
   source?: 'admin' | 'self_service';
   templateId?: string | null;
   templateName?: string | null;
@@ -189,6 +193,25 @@ export interface ApiKey {
   ipWhitelist?: string[];
 }
 
+/** Per-Key 使用统计 */
+export interface PerKeyStats {
+  apiKeyPrefix: string;
+  totalRequests: number;
+  totalErrors: number;
+  errorRate: number;
+  avgLatencyMs: number;
+  lastUsed: number;
+}
+
+/** 系统可用性状态 */
+export interface SystemStatus {
+  level: 'green' | 'yellow' | 'red';
+  totalAccounts: number;
+  healthyAccounts: number;
+  totalSlots: number;
+  availableSlots: number;
+}
+
 /** API Key 自助申领模板 */
 export interface ApiKeyTemplate {
   id: string;
@@ -198,6 +221,8 @@ export interface ApiKeyTemplate {
   models: string[];
   requireClaimCode: boolean;
   claimCode?: string;
+  claimCodeMaxUsage?: number | null;
+  claimCodeUsedCount?: number;
   rateLimitMax?: number | null;
   rateLimitWindowMs?: number | null;
   monthlyQuota?: number | null;
