@@ -35,6 +35,10 @@ class TokenExpiredError(Exception):
     """Raised when the access_token is expired and cannot be refreshed."""
 
 
+class QuotaExhaustedError(Exception):
+    """Raised when the account quota is exhausted (HTTP 429)."""
+
+
 # ─── ChatGPTClient ──────────────────────────────────────────
 
 
@@ -190,6 +194,8 @@ class ChatGPTClient:
                     timeout=DEFAULT_TIMEOUT,
                 )
                 if resp.status_code != 200:
+                    if resp.status_code == 429:
+                        raise QuotaExhaustedError(f"HTTP 429: {resp.text[:200]}")
                     raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
                 yield json.dumps(resp.json())
 
@@ -216,6 +222,10 @@ class ChatGPTClient:
                     if b"_cf_chl_opt" in body or b"challenge-platform" in body:
                         raise CloudflareChallengeError("Blocked by Cloudflare")
                     raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
+
+                if resp.status_code == 429:
+                    body = await resp.aread()
+                    raise QuotaExhaustedError(f"HTTP 429: {body.decode(errors='replace')[:200]}")
 
                 if resp.status_code != 200:
                     body = await resp.aread()

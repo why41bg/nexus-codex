@@ -12,6 +12,7 @@ handles HTTP routing, retry, and metrics.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import uuid
@@ -38,6 +39,24 @@ router = APIRouter()
 
 def _generate_completion_id() -> str:
     return f"chatcmpl-nexus-{uuid.uuid4()}"
+
+
+def _extract_session_id(body: ChatCompletionRequest, api_key: str) -> str | None:
+    """Extract session ID from request for session affinity.
+
+    Uses api_key + hash of message content to create a stable session identifier.
+    This ensures the same conversation thread always routes to the same account.
+    """
+    if not body.messages:
+        return None
+    # Use api_key + first user message as session key for stability
+    first_user_msg = next((m for m in body.messages if m.role == "user"), None)
+    if first_user_msg:
+        content = first_user_msg.content
+        if isinstance(content, str):
+            content_hash = hashlib.md5(content.encode()).hexdigest()[:12]
+            return f"{api_key}:{content_hash}"
+    return None
 
 
 @router.post("/chat/completions")
@@ -72,6 +91,7 @@ async def chat_completions(
                 deps,
                 lambda entry: _do_non_stream(deps, entry, body, completion_id, req_start, api_key),
                 model=body.model,
+                session_id=_extract_session_id(body, api_key),
             )
             return result
         except RetryExhaustedError as e:
@@ -186,5 +206,6 @@ async def _stream_completion_with_retry(
         format_no_slot_error=_no_slot_error,
         format_error=_format_error,
         append_done=True,
+        session_id=_extract_session_id(body, api_key),
     ):
         yield chunk

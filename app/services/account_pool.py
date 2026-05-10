@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -45,6 +47,12 @@ class AccountPool:
             asyncio.Queue()
         )
         self._event_handlers: list[Callable[[dict[str, Any]], None]] = []
+        # Session affinity: session_id -> account_id (LRU ordered dict)
+        self._session_bindings: OrderedDict[str, str] = OrderedDict()
+        # Track which sessions are bound to each account
+        self._account_sessions: dict[str, set[str]] = {}
+        # Session binding max size to prevent memory growth
+        self._max_session_bindings: int = 10000
 
     async def init_async(self, accounts: list[Account]) -> None:
         """Initialize the pool with accounts."""
@@ -73,12 +81,69 @@ class AccountPool:
             },
         )
 
-    def acquire(self) -> PoolEntry | None:
+    def bind_session(self, session_id: str, account_id: str) -> None:
+        """Bind a session to a specific account for session affinity.
+        
+        Uses LRU semantics: moving an existing binding to end of OrderedDict.
+        Automatically evicts oldest binding when max size is reached.
+        """
+        # Unbind from previous account if any
+        if session_id in self._session_bindings:
+            prev_account = self._session_bindings[session_id]
+            if prev_account in self._account_sessions:
+                self._account_sessions[prev_account].discard(session_id)
+        
+        # Evict oldest if at max capacity
+        while len(self._session_bindings) >= self._max_session_bindings:
+            oldest_session_id, oldest_account_id = self._session_bindings.popitem(last=False)
+            if oldest_account_id in self._account_sessions:
+                self._account_sessions[oldest_account_id].discard(oldest_session_id)
+        
+        self._session_bindings[session_id] = account_id
+        if account_id not in self._account_sessions:
+            self._account_sessions[account_id] = set()
+        self._account_sessions[account_id].add(session_id)
+
+    def unbind_session(self, session_id: str) -> None:
+        """Unbind a session from its account."""
+        if session_id in self._session_bindings:
+            account_id = self._session_bindings[session_id]
+            if account_id in self._account_sessions:
+                self._account_sessions[account_id].discard(session_id)
+            del self._session_bindings[session_id]
+
+    def touch_session(self, session_id: str) -> None:
+        """Move session to end of OrderedDict for LRU tracking."""
+        if session_id in self._session_bindings:
+            self._session_bindings.move_to_end(session_id)
+
+    def get_session_account(self, session_id: str) -> str | None:
+        """Get the account bound to a session, or None if not bound."""
+        return self._session_bindings.get(session_id)
+
+    def acquire(self, session_id: str | None = None) -> PoolEntry | None:
         """
         Synchronously acquire an available healthy account.
 
+        If session_id is provided and has a bound account that is still available
+        and has capacity, prefer that account (session affinity).
+        
+        Otherwise, select the least-loaded available account (round-robin tie-breaker).
+        
         Returns None if no slots available.
         """
+        # Try session affinity first: if session has a bound account with capacity, use it
+        if session_id:
+            bound_account_id = self._session_bindings.get(session_id)
+            if bound_account_id:
+                bound_entry = self._find_entry(bound_account_id)
+                if (bound_entry and bound_entry.healthy and 
+                    bound_entry.active_count < bound_entry.max_concurrency):
+                    bound_entry.active_count += 1
+                    self._emit_event({"type": "pool_changed"})
+                    return bound_entry
+
+        # Fall back to least-loaded selection
         available = sorted(
             [e for e in self._pool if e.healthy and e.active_count < e.max_concurrency],
             key=lambda e: e.active_count,
@@ -96,9 +161,9 @@ class AccountPool:
         self._emit_event({"type": "pool_changed"})
         return entry
 
-    async def acquire_async(self, timeout_ms: int | None = None) -> PoolEntry | None:
+    async def acquire_async(self, timeout_ms: int | None = None, session_id: str | None = None) -> PoolEntry | None:
         """Acquire with async queuing and timeout."""
-        entry = self.acquire()
+        entry = self.acquire(session_id)
         if entry:
             return entry
 
@@ -125,7 +190,7 @@ class AccountPool:
     def _drain_queue(self) -> None:
         """Try to assign accounts to waiting requests."""
         while not self._wait_queue.empty():
-            entry = self.acquire()
+            entry = self.acquire()  # Queue entries don't have session_id, use default
             if not entry:
                 break
             try:
@@ -188,6 +253,12 @@ class AccountPool:
     def remove_entry(self, account_id: str) -> None:
         """Remove an account from the pool."""
         self._pool = [e for e in self._pool if e.account_id != account_id]
+        # Clean up session bindings for this account
+        if account_id in self._account_sessions:
+            for session_id in list(self._account_sessions[account_id]):
+                if session_id in self._session_bindings:
+                    del self._session_bindings[session_id]
+            del self._account_sessions[account_id]
         log.info("Account removed from pool", extra={"account_id": account_id})
 
     def entries(self) -> list[PoolEntry]:

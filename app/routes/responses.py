@@ -64,6 +64,7 @@ async def responses(
                 deps,
                 lambda entry: _do_non_stream(deps, entry, body, response_id, req_start, api_key),
                 model=body.model,
+                session_id=body.previous_response_id,
             )
             return result
         except RetryExhaustedError as e:
@@ -196,5 +197,6 @@ async def _stream_response_with_retry(
         deps, _stream, body.model, api_key, req_start,
         format_no_slot_error=_no_slot_error,
         format_error=_format_error,
+        session_id=body.previous_response_id,
     ):
         yield chunk

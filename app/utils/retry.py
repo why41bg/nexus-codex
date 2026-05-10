@@ -16,7 +16,7 @@ from typing import TypeVar
 from app.dependencies import AppDependencies
 from app.exceptions import RetryExhaustedError
 from app.services.account_pool import AccountPool, PoolEntry
-from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError
+from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError, QuotaExhaustedError
 from app.services.health_check import trigger_probe
 from app.utils.logger import log
 
@@ -28,6 +28,7 @@ T = TypeVar("T")
 RETRYABLE_ERRORS = (
     CloudflareChallengeError,
     TokenExpiredError,
+    QuotaExhaustedError,
     ConnectionError,
     TimeoutError,
     OSError,
@@ -59,6 +60,7 @@ async def with_retry(
     operation: Callable[[PoolEntry], Awaitable[T]],
     acquire_timeout_ms: int | None = None,
     model: str | None = None,
+    session_id: str | None = None,
 ) -> T:
     """Execute an operation with automatic account failover on retryable errors.
 
@@ -77,12 +79,14 @@ async def with_retry(
     Raises:
         RuntimeError: If all retry attempts are exhausted.
     """
+    # Successful operation result (used to conditionally bind session)
+    result: T | None = None
     last_error: Exception | None = None
     collector = deps.log_collector
     model_name = model or "unknown"
 
     for attempt in range(MAX_RETRIES + 1):
-        entry = await deps.pool.acquire_async(acquire_timeout_ms)
+        entry = await deps.pool.acquire_async(acquire_timeout_ms, session_id)
         if not entry:
             if collector:
                 collector.on_account_exhausted(
@@ -100,6 +104,9 @@ async def with_retry(
         try:
             result = await operation(entry)
             deps.pool.release(entry.account_id)
+            # Bind session after successful operation
+            if session_id:
+                deps.pool.bind_session(session_id, entry.account_id)
             if collector:
                 collector.on_account_released(account_id=entry.account_id, model=model_name)
             return result
@@ -122,6 +129,9 @@ async def with_retry(
                         error=str(e),
                         retry_count=attempt + 1,
                     )
+                # Unbind session if this is a quota exhaustion error
+                if session_id and isinstance(e, QuotaExhaustedError):
+                    deps.pool.unbind_session(session_id)
                 await _release_and_probe(entry, deps.pool)
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
@@ -155,6 +165,7 @@ async def with_stream_retry(
     format_error: Callable[[str], str],
     *,
     append_done: bool = False,
+    session_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Execute a streaming operation with automatic account failover.
 
@@ -180,7 +191,7 @@ async def with_stream_retry(
     last_error: Exception | None = None
 
     for attempt in range(MAX_RETRIES + 1):
-        entry = await deps.pool.acquire_async()
+        entry = await deps.pool.acquire_async(session_id=session_id)
         if not entry:
             if collector:
                 collector.on_account_exhausted(model=model, pool_size=len(deps.pool.entries()))
@@ -205,6 +216,9 @@ async def with_stream_retry(
                 collector.on_account_released(
                     account_id=entry.account_id, model=model, usage_ms=latency_ms,
                 )
+            # Bind session after successful operation
+            if session_id:
+                deps.pool.bind_session(session_id, entry.account_id)
             return
 
         except Exception as e:
@@ -229,6 +243,9 @@ async def with_stream_retry(
                         error=str(e),
                         retry_count=attempt + 1,
                     )
+                # Unbind session if this is a quota exhaustion error
+                if session_id and isinstance(e, QuotaExhaustedError):
+                    deps.pool.unbind_session(session_id)
                 asyncio.create_task(trigger_probe_safe(entry.account_id))
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
