@@ -16,6 +16,7 @@ from app.middleware.auth import admin_auth_dependency
 from app.models import (
     AddAccountRequest,
     AddApiKeyRequest,
+    AddApiKeyTemplateRequest,
     AddBannedIpRequest,
     AddModelRequest,
     BatchUnbanRequest,
@@ -25,6 +26,7 @@ from app.models import (
     RevealApiKeyRequest,
     UpdateAccountRequest,
     UpdateApiKeyRequest,
+    UpdateApiKeyTemplateRequest,
 )
 from app.services.account_bootstrap import (
     cancel_bootstrap,
@@ -43,15 +45,19 @@ from app.services.account_store import (
 from app.services.admin_emitter import emit_admin_event, subscribe, unsubscribe
 from app.services.config_store import (
     add_api_key,
+    add_api_key_template,
     add_default_model,
     find_api_key,
+    get_api_key_templates,
     get_api_keys,
     get_default_models,
     get_models_for_key,
     remove_api_key,
+    remove_api_key_template,
     remove_default_model,
     save_banned_ips,
     update_api_key,
+    update_api_key_template,
     verify_admin_auth,
     verify_admin_password,
 )
@@ -78,6 +84,25 @@ def _resolve_key(key_prefix: str) -> str | None:
         if k.key.startswith(key_prefix):
             return k.key
     return None
+
+
+def _template_to_admin_dict(template) -> dict:
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "enabled": template.enabled,
+        "models": template.models,
+        "requireClaimCode": template.require_claim_code,
+        "claimCode": template.claim_code,
+        "rateLimitMax": template.rate_limit_max,
+        "rateLimitWindowMs": template.rate_limit_window_ms,
+        "monthlyQuota": template.monthly_quota,
+        "claimIpLimitMax": template.claim_ip_limit_max,
+        "claimIpLimitWindowMs": template.claim_ip_limit_window_ms,
+        "createdAt": template.created_at,
+        "updatedAt": template.updated_at,
+    }
 
 
 # ─── SSE Stream ──────────────────────────────────────────────
@@ -291,7 +316,7 @@ async def cancel_bootstrap_account(session_id: str):
 @router.patch("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)])
 async def update_account_route(account_id: str, body: UpdateAccountRequest, deps: AppDependencies = Depends(get_deps)):
     """Update an account."""
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     acc = await update_account(account_id, **updates)
     if not acc:
         raise AccountNotFoundError(account_id)
@@ -488,6 +513,12 @@ async def list_api_keys():
             "models": k.models,
             "effectiveModels": effective_models,
             "createdAt": k.created_at,
+            "source": k.source,
+            "templateId": k.template_id,
+            "templateName": k.template_name,
+            "applicantName": k.applicant_name,
+            "applicantContact": k.applicant_contact,
+            "applicantNote": k.applicant_note,
             "rateLimitMax": k.rate_limit_max,
             "rateLimitWindowMs": k.rate_limit_window_ms,
             "monthlyQuota": k.monthly_quota,
@@ -549,6 +580,96 @@ async def delete_api_key(key_prefix: str):
     removed = await remove_api_key(full_key)
     if not removed:
         return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
+    return JSONResponse(content={"ok": True})
+
+
+# ─── API Key Claim Templates ─────────────────────────────────
+
+
+@router.get("/key-templates", dependencies=[Depends(admin_auth_dependency)])
+async def list_api_key_templates():
+    """List API key self-service claim templates."""
+    templates = [_template_to_admin_dict(t) for t in get_api_key_templates()]
+    return JSONResponse(content={"templates": templates})
+
+
+def _validate_template_payload(data: dict) -> str | None:
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return "模板名称不能为空"
+    models = data.get("models")
+    if not isinstance(models, list) or len([m for m in models if str(m).strip()]) == 0:
+        return "模板至少需要配置一个可用模型"
+    if data.get("require_claim_code") and not str(data.get("claim_code") or "").strip():
+        return "启用申领码时必须填写申领码"
+    try:
+        if int(data.get("claim_ip_limit_max") or 0) <= 0:
+            return "IP 限流次数必须大于 0"
+        if int(data.get("claim_ip_limit_window_ms") or 0) < 60000:
+            return "IP 限流窗口不能小于 60000ms"
+    except (TypeError, ValueError):
+        return "IP 限流配置必须是数字"
+    return None
+
+
+@router.post("/key-templates", dependencies=[Depends(admin_auth_dependency)])
+async def create_api_key_template(body: AddApiKeyTemplateRequest):
+    """Create an API key self-service claim template."""
+    data = body.model_dump()
+    data["name"] = body.name.strip()
+    data["description"] = body.description.strip()
+    data["models"] = [m.strip() for m in body.models if m.strip()]
+    data["claim_code"] = body.claim_code.strip()
+    error = _validate_template_payload(data)
+    if error:
+        return JSONResponse(status_code=400, content={"error": {"message": error}})
+    template = await add_api_key_template(**data)
+    return JSONResponse(content={"template": _template_to_admin_dict(template)})
+
+
+@router.patch("/key-templates/{template_id}", dependencies=[Depends(admin_auth_dependency)])
+async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemplateRequest):
+    """Update an API key self-service claim template."""
+    existing = next((t for t in get_api_key_templates() if t.id == template_id), None)
+    if not existing:
+        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
+
+    updates = body.model_dump(exclude_none=True)
+    merged = existing.model_dump()
+    merged.update(updates)
+    merged["name"] = str(merged.get("name") or "").strip()
+    merged["description"] = str(merged.get("description") or "").strip()
+    merged["models"] = [str(m).strip() for m in merged.get("models", []) if str(m).strip()]
+    merged["claim_code"] = str(merged.get("claim_code") or "").strip()
+    error = _validate_template_payload(merged)
+    if error:
+        return JSONResponse(status_code=400, content={"error": {"message": error}})
+
+    template = await update_api_key_template(
+        template_id,
+        name=merged["name"],
+        description=merged["description"],
+        enabled=merged["enabled"],
+        models=merged["models"],
+        require_claim_code=merged["require_claim_code"],
+        claim_code=merged["claim_code"],
+        rate_limit_max=merged.get("rate_limit_max"),
+        rate_limit_window_ms=merged.get("rate_limit_window_ms"),
+        monthly_quota=merged.get("monthly_quota"),
+        claim_ip_limit_max=merged["claim_ip_limit_max"],
+        claim_ip_limit_window_ms=merged["claim_ip_limit_window_ms"],
+    )
+    if not template:
+        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
+    return JSONResponse(content={"template": _template_to_admin_dict(template)})
+
+
+@router.delete("/key-templates/{template_id}", dependencies=[Depends(admin_auth_dependency)])
+async def delete_api_key_template(template_id: str):
+    """Delete an API key self-service claim template."""
+    removed = await remove_api_key_template(template_id)
+    if not removed:
+        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
     return JSONResponse(content={"ok": True})
 
 

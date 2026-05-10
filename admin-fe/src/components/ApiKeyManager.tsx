@@ -149,7 +149,16 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                 {apiKeys.map((k) => (
                   <tr key={k.keyPrefix} className="transition-colors hover:bg-gray-50/50 dark:hover:bg-slate-700/50">
-                    <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{k.name || '—'}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
+                      <div>{k.name || '—'}</div>
+                      {k.source === 'self_service' && (
+                        <div className="mt-1 flex flex-wrap gap-1 text-xs text-gray-500 dark:text-slate-400">
+                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
+                          {k.templateName && <span>{k.templateName}</span>}
+                          {k.applicantContact && <span>{k.applicantContact}</span>}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-xs text-gray-600 dark:text-slate-400">{k.keyMasked}</span>
@@ -211,7 +220,16 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
             {apiKeys.map((k) => (
               <div key={k.keyPrefix} className={`${cardClass} p-4`}>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{k.name || '—'}</span>
+                  <div>
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{k.name || '—'}</span>
+                    {k.source === 'self_service' && (
+                      <div className="mt-1 flex flex-wrap gap-1 text-xs text-gray-500 dark:text-slate-400">
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
+                        {k.templateName && <span>{k.templateName}</span>}
+                        {k.applicantContact && <span>{k.applicantContact}</span>}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono text-xs text-gray-500 dark:text-slate-400">{k.keyMasked}</span>
                     <button

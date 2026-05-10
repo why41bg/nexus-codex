@@ -39,12 +39,41 @@ class ApiKeyEntry(BaseModel):
     name: str
     models: list[str] = Field(default_factory=list)
     created_at: str
+    source: str = "admin"
+    template_id: str | None = None
+    template_name: str | None = None
+    applicant_name: str | None = None
+    applicant_contact: str | None = None
+    applicant_note: str | None = None
     rate_limit_max: int | None = None
     rate_limit_window_ms: int | None = None
     monthly_quota: int | None = None
     monthly_usage: int = 0
     monthly_reset_at: str | None = None
     ip_whitelist: list[str] = Field(default_factory=list)
+
+
+class ApiKeyTemplate(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    enabled: bool = True
+    models: list[str] = Field(default_factory=list)
+    require_claim_code: bool = True
+    claim_code: str = ""
+    rate_limit_max: int | None = None
+    rate_limit_window_ms: int | None = None
+    monthly_quota: int | None = None
+    claim_ip_limit_max: int = 1
+    claim_ip_limit_window_ms: int = 24 * 60 * 60 * 1000
+    created_at: str
+    updated_at: str | None = None
+
+
+class ClaimRateLimitEntry(BaseModel):
+    ip: str
+    template_id: str
+    timestamps_ms: list[int] = Field(default_factory=list)
 
 
 class BannedIP(BaseModel):
@@ -65,6 +94,8 @@ class AppConfig(BaseModel):
         ]
     )
     api_keys: list[ApiKeyEntry] = Field(default_factory=list)
+    api_key_templates: list[ApiKeyTemplate] = Field(default_factory=list)
+    claim_rate_limits: list[ClaimRateLimitEntry] = Field(default_factory=list)
     banned_ips: list[BannedIP] = Field(default_factory=list)
 
 
@@ -295,6 +326,42 @@ class UpdateApiKeyRequest(CamelModel):
     rate_limit_window_ms: int | None = None
     monthly_quota: int | None = None
     ip_whitelist: list[str] | None = None
+
+
+class AddApiKeyTemplateRequest(CamelModel):
+    name: str
+    description: str = ""
+    enabled: bool = True
+    models: list[str] = Field(default_factory=list)
+    require_claim_code: bool = True
+    claim_code: str = ""
+    rate_limit_max: int | None = None
+    rate_limit_window_ms: int | None = None
+    monthly_quota: int | None = None
+    claim_ip_limit_max: int = 1
+    claim_ip_limit_window_ms: int = 24 * 60 * 60 * 1000
+
+
+class UpdateApiKeyTemplateRequest(CamelModel):
+    name: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+    models: list[str] | None = None
+    require_claim_code: bool | None = None
+    claim_code: str | None = None
+    rate_limit_max: int | None = None
+    rate_limit_window_ms: int | None = None
+    monthly_quota: int | None = None
+    claim_ip_limit_max: int | None = None
+    claim_ip_limit_window_ms: int | None = None
+
+
+class ClaimApiKeyRequest(CamelModel):
+    template_id: str
+    applicant_name: str
+    applicant_contact: str
+    note: str = ""
+    claim_code: str = ""
 
 
 class RevealApiKeyRequest(CamelModel):
