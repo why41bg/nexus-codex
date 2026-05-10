@@ -90,26 +90,7 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
     if not template or not template.enabled:
         return JSONResponse(status_code=404, content={"error": {"message": "申领模板不存在或未启用"}})
 
-    client_ip = get_client_ip(request)
-    allowed, retry_after_ms = await record_claim_attempt(
-        client_ip,
-        template.id,
-        limit_max=template.claim_ip_limit_max,
-        window_ms=template.claim_ip_limit_window_ms,
-    )
-    if not allowed:
-        retry_after_sec = max(1, (retry_after_ms + 999) // 1000)
-        return JSONResponse(
-            status_code=429,
-            headers={"Retry-After": str(retry_after_sec)},
-            content={
-                "error": {
-                    "message": f"申领过于频繁，请 {retry_after_sec} 秒后再试",
-                    "retryAfterMs": retry_after_ms,
-                }
-            },
-        )
-
+    # Validate input fields first — don't consume rate limit quota for bad requests
     applicant_name = body.applicant_name.strip()
     applicant_contact = body.applicant_contact.strip()
     note = body.note.strip()
@@ -131,6 +112,27 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
         and template.claim_code_used_count >= template.claim_code_max_usage
     ):
         return JSONResponse(status_code=403, content={"error": {"message": "申领码已达到使用次数上限"}})
+
+    # IP rate limit — last check before actually creating the key
+    client_ip = get_client_ip(request)
+    allowed, retry_after_ms = await record_claim_attempt(
+        client_ip,
+        template.id,
+        limit_max=template.claim_ip_limit_max,
+        window_ms=template.claim_ip_limit_window_ms,
+    )
+    if not allowed:
+        retry_after_sec = max(1, (retry_after_ms + 999) // 1000)
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(retry_after_sec)},
+            content={
+                "error": {
+                    "message": f"申领过于频繁，请 {retry_after_sec} 秒后再试",
+                    "retryAfterMs": retry_after_ms,
+                }
+            },
+        )
 
     key = f"sk-{secrets.token_hex(16)}"
     entry = await add_api_key(
