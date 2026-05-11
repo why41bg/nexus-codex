@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import bcrypt
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -17,21 +17,21 @@ class Settings(BaseSettings):
     port: int = 3000
     host: str = "0.0.0.0"
 
-    # Admin auth (plaintext from env; hashed immediately on load)
+    # Admin auth (plaintext from env; hashed once via model_validator)
     admin_username: str = "admin"
     admin_password_plaintext: str = Field(default="admin", validation_alias="ADMIN_PASSWORD")
-    # bcrypt hash of the password — computed once at startup, never stored as plaintext after init
+    # bcrypt hash of the password — computed once at validation time, never stored as plaintext
     admin_password_hash: bytes = b""
 
     admin_session_ttl_ms: int = 24 * 60 * 60 * 1000  # 24 hours
 
     # Rate limiting
-    rate_limit_max: int = 60
-    rate_limit_window_ms: int = 60_000  # 1 minute
+    rate_limit_max: int = Field(default=60, ge=1)
+    rate_limit_window_ms: int = Field(default=60_000, ge=1000)  # 1 minute
 
     # Account pool
-    default_max_concurrency: int = 1
-    acquire_timeout_ms: int = 30_000
+    default_max_concurrency: int = Field(default=1, ge=1)
+    acquire_timeout_ms: int = Field(default=30_000, ge=1000)
 
     # Request
     request_timeout_ms: int = 5 * 60 * 1000  # 5 minutes
@@ -76,14 +76,17 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
-    def __init__(self, **data: object) -> None:
-        super().__init__(**data)
-        # Hash the plaintext password immediately so it never lingers in memory as plaintext.
-        self.admin_password_hash = bcrypt.hashpw(
-            self.admin_password_plaintext.encode("utf-8"), bcrypt.gensalt(rounds=12)
-        )
+    @model_validator(mode="after")
+    def _hash_and_scrub_password(self) -> "Settings":
+        """Hash the plaintext password once at validation time, then scrub it."""
+        if self.admin_password_plaintext and not self.admin_password_hash:
+            self.admin_password_hash = bcrypt.hashpw(
+                self.admin_password_plaintext.encode("utf-8"),
+                bcrypt.gensalt(rounds=12),
+            )
         # Scrub plaintext from the instance
         self.admin_password_plaintext = ""
+        return self
 
     # ─── Backward-compatible property (read-only) ──────────────
 
@@ -101,7 +104,7 @@ class Settings(BaseSettings):
         """Verify a plaintext password against the stored bcrypt hash."""
         try:
             return bcrypt.checkpw(plaintext.encode("utf-8"), self.admin_password_hash)
-        except Exception:
+        except (ValueError, TypeError):
             return False
 
 
