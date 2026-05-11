@@ -29,6 +29,7 @@ export async function api<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
+  timeoutMs = 30000,
 ): Promise<{ ok: boolean; status: number; data: T }> {
   const headers: Record<string, string> = {};
   const token = getAuthToken();
@@ -36,21 +37,32 @@ export async function api<T = unknown>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const opts: RequestInit = { method, headers };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const opts: RequestInit = { method, headers, signal: controller.signal };
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   }
 
-  const res = await fetch(`${API_BASE}${path}`, opts);
-  let data: T;
   try {
-    data = (await res.json()) as T;
-  } catch {
-    data = null as T;
+    const res = await fetch(`${API_BASE}${path}`, opts);
+    clearTimeout(timeoutId);
+    let data: T;
+    try {
+      data = (await res.json()) as T;
+    } catch {
+      data = null as T;
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw err;
   }
-
-  return { ok: res.ok, status: res.status, data };
 }
 
 /**
