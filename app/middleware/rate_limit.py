@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
-from fastapi import Request, HTTPException
+from fastapi import Request
 
 from app.config import settings
-from app.services.config_store import find_api_key
-from app.dependencies import AppDependencies
+from app.exceptions import RateLimitError
+
+if TYPE_CHECKING:
+    from app.dependencies import AppDependencies
 
 
 class RateLimiter:
@@ -36,8 +39,10 @@ class RateLimiter:
 
     async def check(self, request: Request, api_key: str) -> None:
         """Rate limit check. Raises HTTPException(429) if limit exceeded."""
-        # Determine limits for this key
-        key_config = find_api_key(api_key)
+        # Determine limits for this key via DI
+        deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+        config_store = deps.config_store if deps else None
+        key_config = config_store.find_api_key(api_key) if config_store else None
         limit_max = key_config.rate_limit_max if (key_config and key_config.rate_limit_max) else settings.rate_limit_max
         limit_window_ms = key_config.rate_limit_window_ms if (key_config and key_config.rate_limit_window_ms) else settings.rate_limit_window_ms
 
@@ -53,7 +58,6 @@ class RateLimiter:
             retry_after = max(1, int((reset_time - now_ms) / 1000))
 
             # Log rate limit event
-            deps: AppDependencies | None = getattr(request.app.state, "deps", None)
             if deps and deps.log_collector:
                 client_ip = request.client.host if request.client else "-"
                 await deps.log_collector.emit(
@@ -64,15 +68,8 @@ class RateLimiter:
                     client_ip=client_ip,
                 )
 
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "error": {
-                        "message": f"Rate limit exceeded. Please retry after {retry_after} seconds.",
-                        "type": "rate_limit_error",
-                        "code": "rate_limit_exceeded",
-                    }
-                },
+            raise RateLimitError(
+                f"Rate limit exceeded. Please retry after {retry_after} seconds."
             )
 
         # Record this request
@@ -85,15 +82,13 @@ class RateLimiter:
             self._purge_stale_keys(limit_window_ms)
 
 
-# ─── Module-level singleton for backward compat ────────────────────
-
-_default_limiter = RateLimiter()
-
-
-def _get_default() -> RateLimiter:
-    return _default_limiter
-
-
 async def rate_limit_dependency(request: Request, api_key: str) -> None:
-    """Rate limit check as a dependency. Call after api_key_auth_dependency."""
-    await _get_default().check(request, api_key)
+    """Rate limit check as a dependency. Call after api_key_auth_dependency.
+
+    Uses the RateLimiter instance from AppDependencies so that state is
+    shared consistently through the DI container rather than a module-level
+    singleton.
+    """
+    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    limiter = deps.rate_limiter if deps else RateLimiter()
+    await limiter.check(request, api_key)

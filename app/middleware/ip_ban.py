@@ -6,18 +6,26 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.services.ip_ban_store import get_client_ip, is_banned
+from app.services.ip_ban_store import get_client_ip
 
 
 class IPBanMiddleware(BaseHTTPMiddleware):
-    """Middleware that blocks requests from banned IP addresses."""
+    """Middleware that blocks requests from banned IP addresses.
+
+    Uses the IPBanStore instance from AppDependencies (if available)
+    rather than a module-level singleton. Falls back gracefully when
+    deps have not yet been attached (during early startup).
+    """
 
     async def dispatch(self, request: Request, call_next):
         client_ip = get_client_ip(request)
 
-        if is_banned(client_ip):
+        # Use the DI-managed ip_ban_store from app.state.deps
+        deps = getattr(request.app.state, "deps", None)
+        ip_ban_store = deps.ip_ban_store if deps else None
+
+        if ip_ban_store and ip_ban_store.is_banned(client_ip):
             # Log the blocked request
-            deps = getattr(request.app.state, "deps", None)
             if deps and deps.log_collector:
                 await deps.log_collector.emit(
                     "ip_blocked",

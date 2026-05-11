@@ -7,13 +7,15 @@ and responses.py to reduce code duplication and improve maintainability.
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from app.services.account_store import increment_usage_count
-from app.services.config_store import increment_key_monthly_usage
 from app.utils.logger import log
+
+if TYPE_CHECKING:
+    from app.dependencies import AppDependencies
 
 
 def mask_api_key(api_key: str) -> str:
@@ -56,22 +58,27 @@ def error_response(message: str, code: str, status: int = 500) -> JSONResponse:
     )
 
 
-async def increment_counters(account_id: str, api_key: str) -> None:
+async def increment_counters(deps: "AppDependencies", account_id: str, api_key: str) -> None:
     """Increment usage counters for account and API key (fire-and-forget)."""
     try:
-        await increment_usage_count(account_id)
+        await deps.account_store.increment_usage_count(account_id)
     except Exception as e:
         log.error("Failed to update usage stats", extra={"error": str(e)})
     try:
-        await increment_key_monthly_usage(api_key)
+        await deps.config_store.increment_key_monthly_usage(api_key)
     except Exception as e:
         log.error("Failed to update key monthly usage", extra={"error": str(e)})
 
 
-async def trigger_probe_safe(account_id: str) -> None:
-    """Trigger a health probe for an account, swallowing any errors."""
+async def trigger_probe_safe(account_id: str, health_checker=None) -> None:
+    """Trigger a health probe for an account, swallowing any errors.
+
+    Args:
+        account_id: The account to probe.
+        health_checker: HealthChecker instance from DI container.
+    """
     try:
-        from app.services.health_check import trigger_probe
-        await trigger_probe(account_id)
+        if health_checker:
+            await health_checker.trigger_probe(account_id)
     except Exception:
         pass

@@ -17,7 +17,6 @@ from app.dependencies import AppDependencies
 from app.exceptions import RetryExhaustedError
 from app.services.account_pool import AccountPool, PoolEntry
 from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError, QuotaExhaustedError
-from app.services.health_check import trigger_probe
 from app.utils.logger import log
 from app.utils.route_helpers import mask_api_key
 
@@ -47,11 +46,12 @@ def is_retryable(exc: Exception) -> bool:
     return False
 
 
-async def _release_and_probe(entry: PoolEntry, pool: AccountPool) -> None:
+async def _release_and_probe(entry: PoolEntry, deps: AppDependencies) -> None:
     """Release an account slot and trigger a health probe."""
-    pool.release(entry.account_id)
+    deps.pool.release(entry.account_id)
     try:
-        await trigger_probe(entry.account_id)
+        if deps.health_checker:
+            await deps.health_checker.trigger_probe(entry.account_id)
     except Exception:
         pass
 
@@ -144,7 +144,7 @@ async def with_retry(
                 # Unbind session if this is a quota exhaustion error
                 if session_id and isinstance(e, QuotaExhaustedError):
                     deps.pool.unbind_session(session_id)
-                await _release_and_probe(entry, deps.pool)
+                await _release_and_probe(entry, deps)
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
@@ -202,7 +202,7 @@ async def with_stream_retry(
             error event (Chat Completions SSE convention).
     """
     from app.utils.bg_task import create_bg_task
-    from app.utils.route_helpers import increment_counters, trigger_probe_safe
+    from app.utils.route_helpers import increment_counters, trigger_probe_safe  # noqa: F811
 
     collector = deps.log_collector
     last_error: Exception | None = None
@@ -230,7 +230,7 @@ async def with_stream_retry(
                 account_id=entry.account_id,
             )
 
-        create_bg_task(increment_counters(entry.account_id, api_key), name="increment-counters")
+        create_bg_task(increment_counters(deps, entry.account_id, api_key), name="increment-counters")
 
         try:
             async for chunk in stream_fn(entry):
@@ -278,7 +278,7 @@ async def with_stream_retry(
                 # Unbind session if this is a quota exhaustion error
                 if session_id and isinstance(e, QuotaExhaustedError):
                     deps.pool.unbind_session(session_id)
-                create_bg_task(trigger_probe_safe(entry.account_id), name="trigger-probe", message=f"retry attempt {attempt + 1}")
+                create_bg_task(trigger_probe_safe(entry.account_id, health_checker=deps.health_checker), name="trigger-probe", message=f"retry attempt {attempt + 1}")
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
@@ -297,7 +297,7 @@ async def with_stream_retry(
             yield format_error(str(e))
             if append_done:
                 yield "data: [DONE]\n\n"
-            create_bg_task(trigger_probe_safe(entry.account_id), name="trigger-probe", message="stream error final")
+            create_bg_task(trigger_probe_safe(entry.account_id, health_checker=deps.health_checker), name="trigger-probe", message="stream error final")
             return
 
     if collector:

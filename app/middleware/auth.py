@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import base64
+from typing import TYPE_CHECKING
 
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.services.config_store import (
-    get_api_key_set,
-    find_api_key,
-    verify_admin_auth,
-)
-from app.services.session_manager import validate_session
+if TYPE_CHECKING:
+    from app.dependencies import AppDependencies
 
 
 def _error_response(message: str, error_type: str, code: str, status: int) -> JSONResponse:
@@ -22,12 +19,27 @@ def _error_response(message: str, error_type: str, code: str, status: int) -> JS
     )
 
 
+def _get_deps(request: Request) -> "AppDependencies | None":
+    """Get the AppDependencies from app state."""
+    return getattr(request.app.state, "deps", None)
+
+
+def _get_session_manager(request: Request):
+    """Get the SessionManager from DI container."""
+    deps = _get_deps(request)
+    if deps:
+        return deps.session_manager
+    return None
+
+
 async def admin_auth_dependency(request: Request) -> None:
     """Dependency for admin route authentication."""
+    session_mgr = _get_session_manager(request)
+
     # Check query token (for SSE/EventSource)
     query_token = request.query_params.get("token")
     if query_token:
-        if validate_session(query_token):
+        if session_mgr and session_mgr.validate_session(query_token):
             return
         raise HTTPException(
             status_code=401,
@@ -44,7 +56,7 @@ async def admin_auth_dependency(request: Request) -> None:
     # Try Bearer token
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:]
-        if validate_session(token):
+        if session_mgr and session_mgr.validate_session(token):
             return
         raise HTTPException(
             status_code=401,
@@ -63,7 +75,8 @@ async def admin_auth_dependency(request: Request) -> None:
                 status_code=401,
                 detail={"error": {"message": "Invalid Basic auth encoding.", "type": "authentication_error", "code": "invalid_credentials"}},
             )
-        if not verify_admin_auth(username, password):
+        deps = _get_deps(request)
+        if not deps or not deps.config_store.verify_admin_auth(username, password):
             raise HTTPException(
                 status_code=401,
                 detail={"error": {"message": "Invalid username or password.", "type": "authentication_error", "code": "invalid_credentials"}},
@@ -81,7 +94,15 @@ async def api_key_auth_dependency(request: Request) -> str:
     Dependency for API key authentication.
     Returns the validated API key string.
     """
-    allowed_keys = get_api_key_set()
+    deps = _get_deps(request)
+    if not deps:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": "Application not initialized.", "type": "server_error", "code": "not_ready"}},
+        )
+
+    config_store = deps.config_store
+    allowed_keys = config_store.get_api_key_set()
 
     if not allowed_keys:
         raise HTTPException(
@@ -110,7 +131,7 @@ async def api_key_auth_dependency(request: Request) -> str:
         )
 
     # Key existence & enabled check
-    entry = find_api_key(api_key)
+    entry = config_store.find_api_key(api_key)
 
     if entry and not entry.enabled:
         raise HTTPException(

@@ -9,7 +9,7 @@ import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,16 +24,19 @@ from app.routes.messages import router as messages_router
 from app.routes.models import router as models_router
 from app.routes.public import router as public_router
 from app.routes.responses import router as responses_router
+from app.services.account_bootstrap import BootstrapManager
 from app.services.account_pool import AccountPool
-from app.services.account_store import flush_usage_counters, load_accounts
-from app.services.config_store import get_banned_ips_from_config, load_config, save_banned_ips
-from app.services.health_check import start_health_check, stop_health_check
+from app.services.account_store import AccountStore
+from app.services.config_store import ConfigStore
+from app.services.admin_emitter import AdminEmitter
+from app.services.health_check import HealthChecker
 from app.services.ip_ban_store import IPBanStore, get_client_ip
 from app.services.log_collector import LogCollector
 from app.services.log_store import LogStore
 from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
-from app.services.session_manager import cleanup_expired_sessions
+from app.services.quota_probe import QuotaProbeService
+from app.services.session_manager import SessionManager
 from app.utils.logger import log
 
 
@@ -43,18 +46,22 @@ async def lifespan(app: FastAPI):
     # ─── Startup ──────────────────────────────────────────
     log.info("Starting Nexus Codex (Python)")
 
-    # Load persistent config
-    await load_config()
+    # Initialize config store and load persistent config
+    config_store = ConfigStore()
+    await config_store.load_config()
 
     # Load persisted runtime settings (data/settings.json)
     _load_persisted_settings()
 
     # Initialize IP ban store and load from persisted config
     ip_ban_store = IPBanStore()
-    ip_ban_store.init_banned_ips(get_banned_ips_from_config())
+    ip_ban_store.init_banned_ips(config_store.get_banned_ips_from_config())
+
+    # Initialize account store and load accounts
+    account_store = AccountStore()
+    accounts = await account_store.load_accounts()
 
     # Initialize account pool
-    accounts = await load_accounts()
     pool = AccountPool()
     await pool.init_async(accounts)
 
@@ -66,21 +73,39 @@ async def lifespan(app: FastAPI):
     log_store = LogStore(retention_days=settings.log_store_retention_days) if settings.log_store_enabled else None
     log_collector = LogCollector(log_store, min_level=settings.log_store_level) if log_store else None
 
+    # Initialize admin emitter and session manager
+    admin_emitter = AdminEmitter()
+    session_manager = SessionManager()
+
+    # Initialize health checker
+    health_checker = HealthChecker(pool, log_collector=log_collector, admin_emitter=admin_emitter, account_store=account_store)
+
+    # Initialize bootstrap manager and quota probe service
+    bootstrap_manager = BootstrapManager()
+    quota_probe_service = QuotaProbeService()
+
     # Create dependency injection container
     app.state.deps = AppDependencies(
         pool=pool,
         metrics_collector=metrics_collector,
         metrics_store=metrics_store,
+        config_store=config_store,
+        account_store=account_store,
         log_collector=log_collector,
         log_store=log_store,
         ip_ban_store=ip_ban_store,
+        admin_emitter=admin_emitter,
+        session_manager=session_manager,
+        health_checker=health_checker,
+        bootstrap_manager=bootstrap_manager,
+        quota_probe_service=quota_probe_service,
     )
 
     # Start health check background tasks
-    start_health_check(pool, log_collector=log_collector)
+    health_checker.start()
 
     # Start session cleanup timer
-    cleanup_task = asyncio.create_task(_session_cleanup_loop())
+    cleanup_task = asyncio.create_task(_session_cleanup_loop(session_manager))
 
     # Start log cleanup timer
     log_cleanup_task = asyncio.create_task(_log_cleanup_loop(log_store))
@@ -106,11 +131,11 @@ async def lifespan(app: FastAPI):
     log.info("Shutting down Nexus Codex")
     if log_collector:
         await log_collector.emit("service_stopped", "Nexus Codex shutting down")
-    stop_health_check()
+    health_checker.stop()
     cleanup_task.cancel()
     log_cleanup_task.cancel()
     # Flush buffered usage counters before closing
-    await flush_usage_counters()
+    await account_store.flush_usage_counters()
     await pool.close()
     if hasattr(app.state, 'deps'):
         app.state.deps.metrics_store.close()
@@ -133,11 +158,11 @@ def _load_persisted_settings():
         log.warn("Failed to load persisted settings", extra={"error": str(e)})
 
 
-async def _session_cleanup_loop():
+async def _session_cleanup_loop(session_manager: SessionManager):
     """Periodically clean up expired admin sessions."""
     while True:
         await asyncio.sleep(600)  # every 10 minutes
-        cleanup_expired_sessions()
+        session_manager.cleanup_expired()
 
 
 async def _log_cleanup_loop(log_store: LogStore | None):
@@ -147,7 +172,7 @@ async def _log_cleanup_loop(log_store: LogStore | None):
     while True:
         await asyncio.sleep(3600)  # every hour
         try:
-            deleted = log_store.cleanup()
+            deleted = await log_store.cleanup()
             if deleted > 0:
                 log.info("Log cleanup completed", extra={"deleted": deleted})
         except Exception as e:
@@ -278,6 +303,37 @@ async def nexus_exception_handler(request: Request, exc: NexusError):
     )
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Normalize HTTPException to a consistent OpenAI-compatible error format.
+
+    FastAPI dependencies (like auth middleware) raise HTTPException;
+    this handler ensures a uniform error envelope regardless of how
+    the error was raised.
+    """
+    # If detail is already a dict with our standard format, pass through
+    if isinstance(exc.detail, dict) and "error" in exc.detail:
+        content = exc.detail
+    else:
+        # Wrap plain string detail into our standard format
+        content = {
+            "error": {
+                "message": str(exc.detail) if exc.detail else "An error occurred.",
+                "type": "invalid_request_error",
+                "code": "http_error",
+            }
+        }
+
+    if _is_anthropic_request(request):
+        msg = content.get("error", {}).get("message", str(exc.detail))
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=AnthropicAdapter.format_error(msg),
+        )
+
+    return JSONResponse(status_code=exc.status_code, content=content)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     tb_str = traceback.format_exc()
@@ -359,7 +415,7 @@ async def catch_all(request: Request, path_name: str):
     was_banned = deps.ip_ban_store.record_suspicious_hit(client_ip, reason) if deps else False
     if was_banned:
         # Persist the updated ban list
-        await save_banned_ips(deps.ip_ban_store.get_banned_ips())
+        await deps.config_store.save_banned_ips(deps.ip_ban_store.get_banned_ips())
 
         # Log the auto-ban event
         if deps.log_collector:
