@@ -90,9 +90,10 @@ async def with_retry(
         entry = await deps.pool.acquire_async(acquire_timeout_ms, session_id)
         if not entry:
             if collector:
-                collector.on_account_exhausted(
-                    model=model_name,
-                    pool_size=len(deps.pool.entries()),
+                collector.emit(
+                    "all_accounts_exhausted",
+                    f"No available accounts for {model_name}",
+                    context={"model": model_name, "pool_size": len(deps.pool.entries())},
                 )
             raise RetryExhaustedError(
                 "All account concurrency slots are currently in use. "
@@ -100,7 +101,12 @@ async def with_retry(
             )
 
         if collector:
-            collector.on_account_acquired(account_id=entry.account_id, model=model_name)
+            collector.emit(
+                "account_acquired",
+                f"Acquired account {entry.account_id} for {model_name}",
+                context={"model": model_name},
+                account_id=entry.account_id,
+            )
 
         try:
             result = await operation(entry)
@@ -109,7 +115,12 @@ async def with_retry(
             if session_id:
                 deps.pool.bind_session(session_id, entry.account_id)
             if collector:
-                collector.on_account_released(account_id=entry.account_id, model=model_name)
+                collector.emit(
+                    "account_released",
+                    f"Released account {entry.account_id} for {model_name}",
+                    context={"model": model_name},
+                    account_id=entry.account_id,
+                )
             return result
         except Exception as e:
             if attempt < MAX_RETRIES and is_retryable(e):
@@ -124,12 +135,11 @@ async def with_retry(
                     },
                 )
                 if collector:
-                    collector.on_upstream_error(
+                    collector.emit(
+                        "upstream_error",
+                        f"Upstream error 0 for {model_name}: {e}",
+                        context={"model": model_name, "upstream_status": 0, "error": str(e), "retry_count": attempt + 1},
                         account_id=entry.account_id,
-                        model=model_name,
-                        status=0,
-                        error=str(e),
-                        retry_count=attempt + 1,
                     )
                 # Unbind session if this is a quota exhaustion error
                 if session_id and isinstance(e, QuotaExhaustedError):
@@ -141,16 +151,20 @@ async def with_retry(
             else:
                 deps.pool.release(entry.account_id)
                 if collector:
-                    collector.on_upstream_error(
+                    collector.emit(
+                        "upstream_error",
+                        f"Upstream error 0 for {model_name}: {e}",
+                        context={"model": model_name, "upstream_status": 0, "error": str(e)},
                         account_id=entry.account_id,
-                        model=model_name,
-                        status=0,
-                        error=str(e),
                     )
                 raise
 
     if collector:
-        collector.on_account_exhausted(model=model_name, pool_size=len(deps.pool.entries()))
+        collector.emit(
+            "all_accounts_exhausted",
+            f"No available accounts for {model_name}",
+            context={"model": model_name, "pool_size": len(deps.pool.entries())},
+        )
     raise RetryExhaustedError(
         f"All {MAX_RETRIES + 1} retry attempts exhausted. "
         f"Last error: {last_error}"
@@ -197,14 +211,23 @@ async def with_stream_retry(
         entry = await deps.pool.acquire_async(session_id=session_id)
         if not entry:
             if collector:
-                collector.on_account_exhausted(model=model, pool_size=len(deps.pool.entries()))
+                collector.emit(
+                    "all_accounts_exhausted",
+                    f"No available accounts for {model}",
+                    context={"model": model, "pool_size": len(deps.pool.entries())},
+                )
             yield format_no_slot_error()
             if append_done:
                 yield "data: [DONE]\n\n"
             return
 
         if collector:
-            collector.on_account_acquired(account_id=entry.account_id, model=model)
+            collector.emit(
+                "account_acquired",
+                f"Acquired account {entry.account_id} for {model}",
+                context={"model": model},
+                account_id=entry.account_id,
+            )
 
         asyncio.create_task(increment_counters(entry.account_id, api_key))
 
@@ -216,8 +239,12 @@ async def with_stream_retry(
             deps.metrics_collector.record(model, entry.account_id, latency_ms, True, api_key)
             deps.pool.release(entry.account_id)
             if collector:
-                collector.on_account_released(
-                    account_id=entry.account_id, model=model, usage_ms=latency_ms,
+                collector.emit(
+                    "account_released",
+                    f"Released account {entry.account_id} for {model}",
+                    context={"model": model},
+                    account_id=entry.account_id,
+                    duration_ms=latency_ms,
                 )
             # Bind session after successful operation
             if session_id:
@@ -241,12 +268,11 @@ async def with_stream_retry(
                     },
                 )
                 if collector:
-                    collector.on_upstream_error(
+                    collector.emit(
+                        "upstream_error",
+                        f"Upstream error 0 for {model}: {e}",
+                        context={"model": model, "upstream_status": 0, "error": str(e), "retry_count": attempt + 1},
                         account_id=entry.account_id,
-                        model=model,
-                        status=0,
-                        error=str(e),
-                        retry_count=attempt + 1,
                     )
                 # Unbind session if this is a quota exhaustion error
                 if session_id and isinstance(e, QuotaExhaustedError):
@@ -261,11 +287,11 @@ async def with_stream_retry(
                 "model": model, "api_key": api_key_masked,
             })
             if collector:
-                collector.on_upstream_error(
+                collector.emit(
+                    "upstream_error",
+                    f"Upstream error 0 for {model}: {e}",
+                    context={"model": model, "upstream_status": 0, "error": str(e)},
                     account_id=entry.account_id,
-                    model=model,
-                    status=0,
-                    error=str(e),
                 )
             yield format_error(str(e))
             if append_done:
@@ -274,7 +300,11 @@ async def with_stream_retry(
             return
 
     if collector:
-        collector.on_account_exhausted(model=model, pool_size=len(deps.pool.entries()))
+        collector.emit(
+            "all_accounts_exhausted",
+            f"No available accounts for {model}",
+            context={"model": model, "pool_size": len(deps.pool.entries())},
+        )
     yield format_error(f"All retry attempts exhausted. Last error: {last_error}")
     if append_done:
         yield "data: [DONE]\n\n"

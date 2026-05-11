@@ -43,10 +43,12 @@ async def rate_limit_dependency(request: Request, api_key: str) -> None:
         deps: AppDependencies | None = getattr(request.app.state, "deps", None)
         if deps and deps.log_collector:
             client_ip = request.client.host if request.client else "-"
-            deps.log_collector.on_rate_limit_hit(
-                client_ip=client_ip,
+            deps.log_collector.emit(
+                "rate_limit_hit",
+                f"Rate limit hit from {client_ip}",
+                context={"path": request.url.path},
                 api_key_id=api_key[:8] + "..." if api_key else None,
-                path=request.url.path,
+                client_ip=client_ip,
             )
 
         raise HTTPException(

@@ -153,14 +153,23 @@ async def login(body: LoginRequest, request: Request, deps: AppDependencies = De
 
     if not verify_admin_auth(body.username, body.password):
         if deps.log_collector:
-            deps.log_collector.on_login_failure(username=body.username, client_ip=client_ip)
+            deps.log_collector.emit(
+                "login_failure", f"Admin login failed: {body.username}",
+                context={"username": body.username},
+                client_ip=client_ip,
+            )
         return JSONResponse(
             status_code=401,
             content={"error": {"message": "Invalid credentials.", "type": "authentication_error", "code": "invalid_credentials"}},
         )
     token = create_session()
     if deps.log_collector:
-        deps.log_collector.on_login_success(username=body.username, client_ip=client_ip, session_id=token)
+        deps.log_collector.emit(
+            "login_success", f"Admin login: {body.username}",
+            context={"username": body.username},
+            session_id=token,
+            client_ip=client_ip,
+        )
     return JSONResponse(content={"token": token})
 
 

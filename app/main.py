@@ -75,9 +75,8 @@ async def lifespan(app: FastAPI):
 
     # Record startup event
     if log_collector:
-        log_collector.on_system_event(
-            event="service_started",
-            message="Nexus Codex started",
+        log_collector.emit(
+            "service_started", "Nexus Codex started",
             context={"port": settings.port, "accounts": len(accounts)},
         )
 
@@ -94,7 +93,7 @@ async def lifespan(app: FastAPI):
     # ─── Shutdown ─────────────────────────────────────────
     log.info("Shutting down Nexus Codex")
     if log_collector:
-        log_collector.on_system_event(event="service_stopped", message="Nexus Codex shutting down")
+        log_collector.emit("service_stopped", "Nexus Codex shutting down")
     stop_health_check()
     cleanup_task.cancel()
     log_cleanup_task.cancel()
@@ -207,17 +206,18 @@ async def access_log_middleware(request: Request, call_next):
     # Structured log collection (reuse extracted context from above)
     deps: AppDependencies | None = getattr(request.app.state, "deps", None)
     if deps and deps.log_collector:
-        deps.log_collector.on_request_complete(
-            method=request.method,
-            path=path,
-            status=status,
-            latency_ms=elapsed_ms,
-            client_ip=client,
-            model=_model,
-            trace_id=_req_id,
-            api_key_id=_api_key,
-            account_id=_account,
-        )
+        # Only persist error/warn requests (>= 400); 2xx/3xx covered by metrics
+        if status >= 400:
+            deps.log_collector.emit(
+                "request_complete",
+                f"{request.method} {path} → {status}",
+                context={"method": request.method, "path": path, "status": status, "model": _model, "account_id": _account},
+                trace_id=_req_id,
+                api_key_id=_api_key,
+                account_id=_account,
+                client_ip=client,
+                duration_ms=elapsed_ms,
+            )
 
     return response
 
@@ -284,10 +284,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     # Structured log collection
     deps: AppDependencies | None = getattr(request.app.state, "deps", None)
     if deps and deps.log_collector:
-        deps.log_collector.on_unhandled_exception(
-            error=str(exc),
-            traceback_str=tb_str,
-            path=request.url.path,
+        deps.log_collector.emit(
+            "unhandled_exception",
+            f"Unhandled exception: {exc}",
+            context={"error": str(exc), "traceback": tb_str, "path": request.url.path},
         )
 
     if _is_anthropic_request(request):
@@ -364,7 +364,11 @@ async def catch_all(request: Request, path_name: str):
         # Log the auto-ban event
         deps: AppDependencies | None = getattr(request.app.state, "deps", None)
         if deps and deps.log_collector:
-            deps.log_collector.on_ip_banned(ip=client_ip, reason=reason)
+            deps.log_collector.emit(
+                "ip_auto_banned", f"IP auto-banned: {client_ip}",
+                context={"reason": reason},
+                client_ip=client_ip,
+            )
 
     return JSONResponse(
         status_code=404,

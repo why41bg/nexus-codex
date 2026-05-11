@@ -43,11 +43,11 @@ async def _handle_probe_result(
         count = _fail_counts.get(account_id, 0) + 1
         _fail_counts[account_id] = count
         if _log_collector:
-            _log_collector.on_health_check_fail(
+            _log_collector.emit(
+                "health_check_fail",
+                f"Health check failed for {account_id}: Probe failed ({source})",
+                context={"reason": f"Probe failed ({source})", "check_type": source, "fail_count": count},
                 account_id=account_id,
-                reason=f"Probe failed ({source})",
-                check_type=source,
-                fail_count=count,
             )
         if count >= fail_threshold and was_healthy:
             _pool.update_entry(account_id, healthy=False)
@@ -73,7 +73,10 @@ async def probe_local(entry) -> bool:
 
     # No valid token and not refreshable — log token expiry event
     if _log_collector:
-        _log_collector.on_token_expired(account_id=entry.account_id)
+        _log_collector.emit(
+            "token_expired", f"Token expired for {entry.account_id}",
+            account_id=entry.account_id,
+        )
     return False
 
 
