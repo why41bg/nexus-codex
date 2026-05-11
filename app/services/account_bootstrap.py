@@ -256,3 +256,30 @@ class BootstrapManager:
         )
 
         return True
+
+    async def finalize_bootstrap(
+        self,
+        session_id: str,
+        *,
+        remove_directory: bool = False,
+    ) -> dict | None:
+        """Finalize a bootstrap session after success/failure handling.
+
+        Removes the session from the in-memory registry. Optionally deletes
+        the generated CODEX_HOME directory when the session should be discarded.
+        """
+        session = self._sessions.pop(session_id, None)
+        if not session:
+            return None
+
+        if remove_directory:
+            codex_dir = Path(session.codex_home)
+            if codex_dir.exists():
+                shutil.rmtree(str(codex_dir), ignore_errors=True)
+
+        return {
+            "session_id": session.session_id,
+            "codex_home": session.codex_home,
+            "status": session.status,
+            "error": session.error,
+        }

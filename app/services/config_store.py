@@ -17,7 +17,16 @@ from pathlib import Path
 
 import aiofiles
 
-from app.models import ApiKeyEntry, ApiKeyTemplate, AppConfig, BannedIP, ClaimRateLimitEntry
+from app.models import (
+    ApiKeyEntry,
+    ApiKeyTemplate,
+    AppConfig,
+    BannedIP,
+    ClaimRateLimitEntry,
+    ContributionInvite,
+    ContributionRateLimitEntry,
+    ContributionRecord,
+)
 from app.config import DATA_DIR, settings
 from app.utils.bg_task import create_bg_task
 from app.utils.logger import log
@@ -86,6 +95,15 @@ class ConfigStore:
                 api_key_templates=[ApiKeyTemplate(**t) for t in parsed.get("api_key_templates", [])],
                 claim_rate_limits=[
                     ClaimRateLimitEntry(**r) for r in parsed.get("claim_rate_limits", [])
+                ],
+                contribution_invites=[
+                    ContributionInvite(**i) for i in parsed.get("contribution_invites", [])
+                ],
+                contribution_rate_limits=[
+                    ContributionRateLimitEntry(**r) for r in parsed.get("contribution_rate_limits", [])
+                ],
+                contribution_records=[
+                    ContributionRecord(**r) for r in parsed.get("contribution_records", [])
                 ],
                 banned_ips=[BannedIP(**b) for b in parsed.get("banned_ips", [])],
             )
@@ -394,6 +412,153 @@ class ConfigStore:
             return False
         await self._save_config()
         return True
+
+    # ─── Contribution invites / records ─────────────────────────
+
+    def get_contribution_invites(self) -> list[ContributionInvite]:
+        if self._config is None:
+            return []
+        return self._config.contribution_invites
+
+    def find_contribution_invite_by_id(self, invite_id: str) -> ContributionInvite | None:
+        if self._config is None:
+            return None
+        for invite in self._config.contribution_invites:
+            if invite.id == invite_id:
+                return invite
+        return None
+
+    def find_contribution_invite_by_code(self, code: str) -> ContributionInvite | None:
+        if self._config is None:
+            return None
+        for invite in self._config.contribution_invites:
+            if invite.code == code:
+                return invite
+        return None
+
+    async def add_contribution_invite(
+        self,
+        *,
+        name: str,
+        note: str = "",
+        code: str | None = None,
+        enabled: bool = True,
+        expires_at: str | None = None,
+        max_uses: int | None = None,
+        max_active_sessions: int = 1,
+        per_ip_limit_max: int = 3,
+        per_ip_limit_window_ms: int = 24 * 60 * 60 * 1000,
+    ) -> ContributionInvite:
+        if self._config is None:
+            raise RuntimeError("Config not loaded")
+        now = datetime.now(timezone.utc).isoformat()
+        invite = ContributionInvite(
+            id=f"inv_{secrets.token_hex(8)}",
+            code=code or f"invite_{secrets.token_urlsafe(12)}",
+            name=name,
+            note=note,
+            enabled=enabled,
+            created_at=now,
+            expires_at=expires_at,
+            max_uses=max_uses,
+            used_count=0,
+            max_active_sessions=max_active_sessions,
+            per_ip_limit_max=per_ip_limit_max,
+            per_ip_limit_window_ms=per_ip_limit_window_ms,
+        )
+        self._config.contribution_invites.append(invite)
+        await self._save_config()
+        return invite
+
+    async def update_contribution_invite(self, invite_id: str, **updates: object) -> ContributionInvite | None:
+        if self._config is None:
+            return None
+        invite = self.find_contribution_invite_by_id(invite_id)
+        if not invite:
+            return None
+        for key, value in updates.items():
+            if hasattr(invite, key):
+                setattr(invite, key, value)
+        await self._save_config()
+        return invite
+
+    async def remove_contribution_invite(self, invite_id: str) -> bool:
+        if self._config is None:
+            return False
+        original_len = len(self._config.contribution_invites)
+        self._config.contribution_invites = [
+            invite for invite in self._config.contribution_invites if invite.id != invite_id
+        ]
+        if len(self._config.contribution_invites) == original_len:
+            return False
+        await self._save_config()
+        return True
+
+    def get_contribution_records(self) -> list[ContributionRecord]:
+        if self._config is None:
+            return []
+        return self._config.contribution_records
+
+    def find_contribution_record(self, record_id: str) -> ContributionRecord | None:
+        if self._config is None:
+            return None
+        for record in self._config.contribution_records:
+            if record.id == record_id:
+                return record
+        return None
+
+    async def add_contribution_record(self, record: ContributionRecord) -> None:
+        if self._config is None:
+            raise RuntimeError("Config not loaded")
+        self._config.contribution_records.append(record)
+        await self._save_config()
+
+    async def update_contribution_record(self, record_id: str, **updates: object) -> ContributionRecord | None:
+        record = self.find_contribution_record(record_id)
+        if not record:
+            return None
+        for key, value in updates.items():
+            if hasattr(record, key):
+                setattr(record, key, value)
+        await self._save_config()
+        return record
+
+    async def increment_contribution_invite_usage(self, invite_id: str) -> None:
+        invite = self.find_contribution_invite_by_id(invite_id)
+        if not invite:
+            return
+        invite.used_count += 1
+        await self._save_config()
+
+    async def record_contribution_attempt(
+        self,
+        ip: str,
+        invite_id: str,
+        *,
+        limit_max: int,
+        window_ms: int,
+    ) -> tuple[bool, int]:
+        if self._config is None:
+            return False, window_ms
+        now = int(datetime.now(timezone.utc).timestamp() * 1000)
+        window_start = now - window_ms
+        target: ContributionRateLimitEntry | None = None
+        for entry in self._config.contribution_rate_limits:
+            if entry.ip == ip and entry.invite_id == invite_id:
+                target = entry
+                break
+        if target is None:
+            target = ContributionRateLimitEntry(ip=ip, invite_id=invite_id, timestamps_ms=[])
+            self._config.contribution_rate_limits.append(target)
+
+        target.timestamps_ms = [ts for ts in target.timestamps_ms if ts >= window_start]
+        if len(target.timestamps_ms) >= limit_max:
+            oldest = min(target.timestamps_ms) if target.timestamps_ms else now
+            return False, max(0, oldest + window_ms - now)
+
+        target.timestamps_ms.append(now)
+        await self._save_config()
+        return True, 0
 
     # ─── Self-service claim rate limit persistence ───────────────
 

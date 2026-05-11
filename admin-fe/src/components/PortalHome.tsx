@@ -139,7 +139,7 @@ export default function PortalHome() {
             </svg>
           }
           title="入池支持"
-          description="了解账号池的入池方式和申请流程，加入共享账号资源。"
+          description="了解账号池的入池方式和申请流程，也可以从这里发起共享账号登录并进入审核入池流程。"
           action={
             <Link
               to="/support"

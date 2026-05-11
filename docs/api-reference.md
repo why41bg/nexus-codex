@@ -88,6 +88,62 @@ Nexus Codex 是一个兼容 OpenAI API 的 Codex 账号池网关。后端基于 
 
 ---
 
+### POST `/api/public/contributions/start`
+
+通过邀请码发起公开共享账号登录流程。成功后返回 device auth 所需的登录链接和验证码。登录完成后账号不会直接进入正式池，而是进入管理员审核队列。
+
+**认证:** 无
+
+**请求体参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `inviteCode` | string | ✅ | 管理员发放的邀请码 |
+| `applicantName` | string | ✅ | 申请人名称 |
+| `applicantContact` | string | ✅ | 联系方式 |
+| `note` | string | ❌ | 备注 |
+| `requestedMaxConcurrency` | integer | ❌ | 建议账号入池并发度，默认 `1`，受系统上限约束 |
+
+**响应示例:**
+```json
+{
+  "contributionId": "ctr_bootstrap-123456789abc",
+  "loginUrl": "https://auth.openai.com/activate?user_code=ABCD-EFGH",
+  "deviceCode": "ABCD-EFGH",
+  "status": "waiting_for_login",
+  "error": null,
+  "expiresAt": 1747046400
+}
+```
+
+---
+
+### GET `/api/public/contributions/{record_id}`
+
+查询公开共享登录流程状态。
+
+**认证:** 无
+
+**响应说明:**
+- `waiting_for_login`: 等待用户完成 device auth
+- `pending_review`: 登录成功，等待管理员审核
+- `failed` / `timeout` / `cancelled`: 流程结束但未入池
+
+---
+
+### POST `/api/public/contributions/{record_id}/cancel`
+
+取消当前公开共享登录流程。
+
+**认证:** 无
+
+**响应示例:**
+```json
+{ "ok": true }
+```
+
+---
+
 ## OpenAI 兼容接口 (`/v1`)
 
 > 所有 `/v1` 接口需要在请求头中携带 API Key：
@@ -275,6 +331,102 @@ Responses API 接口，兼容 OpenAI Responses API。
   "avgLatency1h": 1200
 }
 ```
+
+---
+
+### GET `/api/admin/contribution-invites`
+
+列出共享账号邀请码。
+
+**认证:** Admin Session Token
+
+**响应示例:**
+```json
+{
+  "invites": [
+    {
+      "id": "inv_1234abcd",
+      "name": "核心团队邀请码",
+      "note": "内部共享",
+      "enabled": true,
+      "code": "invite_xxxxx",
+      "codeMasked": "invi***xxxx",
+      "createdAt": "2026-05-12T00:00:00+00:00",
+      "maxUses": 10,
+      "usedCount": 2,
+      "maxActiveSessions": 1,
+      "perIpLimitMax": 3,
+      "perIpLimitWindowMs": 86400000
+    }
+  ]
+}
+```
+
+---
+
+### POST `/api/admin/contribution-invites`
+
+创建共享账号邀请码。
+
+**认证:** Admin Session Token
+
+**请求体参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | ✅ | 邀请码名称 |
+| `note` | string | ❌ | 备注 |
+| `code` | string | ❌ | 自定义邀请码，留空则后端生成 |
+| `enabled` | boolean | ❌ | 是否启用 |
+| `expiresAt` | string | ❌ | 过期时间，ISO 8601 |
+| `maxUses` | integer | ❌ | 最大使用次数 |
+| `maxActiveSessions` | integer | ❌ | 同邀请码最大活跃登录流程数 |
+| `perIpLimitMax` | integer | ❌ | 单 IP 发起次数限制 |
+| `perIpLimitWindowMs` | integer | ❌ | 单 IP 发起限制窗口 |
+
+---
+
+### PATCH `/api/admin/contribution-invites/{invite_id}`
+
+更新邀请码配置，例如启停邀请码。
+
+**认证:** Admin Session Token
+
+---
+
+### DELETE `/api/admin/contribution-invites/{invite_id}`
+
+删除邀请码。
+
+**认证:** Admin Session Token
+
+---
+
+### GET `/api/admin/contributions`
+
+列出共享账号贡献记录与审核状态。
+
+**认证:** Admin Session Token
+
+---
+
+### POST `/api/admin/contributions/{record_id}/review`
+
+审核共享账号贡献记录。
+
+**认证:** Admin Session Token
+
+**请求体参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `action` | string | ✅ | `approve` 或 `reject` |
+| `reviewerNote` | string | ❌ | 审核备注 |
+| `approvedMaxConcurrency` | integer | ❌ | 审核通过时最终采用的并发度，默认使用用户建议值并受系统上限约束 |
+
+**说明:**
+- `approve` 会将待审核贡献账号正式导入账号池
+- `reject` 仅更新审核状态，不导入账号池
 
 ---
 

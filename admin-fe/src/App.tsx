@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import PortalHome from '@/components/PortalHome';
 import SupportPage from '@/components/SupportPage';
 import ClaimKeyPage from '@/components/ClaimKeyPage';
+import ContributeAccountPage from '@/components/ContributeAccountPage';
 import LoginPage from '@/components/LoginPage';
 import DashboardPage from '@/components/DashboardPage';
 import Spinner from '@/components/Spinner';
@@ -81,6 +82,7 @@ function AppContent() {
       <Route path="/" element={<PortalHome />} />
       <Route path="/support" element={<SupportPage />} />
       <Route path="/claim" element={<ClaimKeyPage />} />
+      <Route path="/contribute" element={<ContributeAccountPage />} />
 
       {/* 认证路由 */}
       <Route
