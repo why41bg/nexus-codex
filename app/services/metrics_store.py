@@ -7,6 +7,7 @@ service restarts.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from collections import defaultdict
@@ -19,10 +20,10 @@ DB_PATH = DATA_DIR / "metrics.db"
 DEFAULT_RETENTION_DAYS = 30
 
 
-def _ensure_db() -> sqlite3.Connection:
+def _ensure_db(db_path: str | None = None, *, check_same_thread: bool = True) -> sqlite3.Connection:
     """Ensure the metrics database and table exist, return a connection."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(db_path or str(DB_PATH), check_same_thread=check_same_thread)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,25 +74,27 @@ class MetricsStore:
 
     def __init__(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> None:
         self._retention_days = retention_days
-        self._conn = _ensure_db()
+        self._conn = _ensure_db(str(DB_PATH), check_same_thread=False)
+        self._write_lock = asyncio.Lock()
         _cleanup_old(self._conn, retention_days)
         log.info(
             "MetricsStore initialized",
             extra={"db_path": str(DB_PATH), "retention_days": retention_days},
         )
 
-    def record(
+    async def record(
         self, model: str, account_id: str, latency_ms: int, success: bool, api_key: str = ""
     ) -> None:
         """Record a single request metric."""
         now_ms = int(time.time() * 1000)
         try:
-            self._conn.execute(
-                "INSERT INTO metrics (timestamp_ms, model, account_id, latency_ms, success, api_key) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (now_ms, model, account_id, latency_ms, 1 if success else 0, api_key),
-            )
-            self._conn.commit()
+            async with self._write_lock:
+                self._conn.execute(
+                    "INSERT INTO metrics (timestamp_ms, model, account_id, latency_ms, success, api_key) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (now_ms, model, account_id, latency_ms, 1 if success else 0, api_key),
+                )
+                self._conn.commit()
         except Exception as e:
             log.error("Failed to persist metric", extra={"error": str(e)})
 

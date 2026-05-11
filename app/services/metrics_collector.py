@@ -15,12 +15,12 @@ class MetricsCollector:
     def __init__(self, metrics_store: MetricsStore) -> None:
         self._store = metrics_store
 
-    def record(
+    async def record(
         self, model: str, account_id: str, latency_ms: int, success: bool, api_key: str = ""
     ) -> None:
         """Record a single request metric to persistent store."""
         try:
-            self._store.record(model, account_id, latency_ms, success, api_key)
+            await self._store.record(model, account_id, latency_ms, success, api_key)
         except Exception as e:
             log.error("Failed to persist metric", extra={"error": str(e)})
 

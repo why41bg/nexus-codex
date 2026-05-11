@@ -9,6 +9,7 @@ Provides persistent storage for application logs with flexible schema:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import time
@@ -22,10 +23,10 @@ DEFAULT_RETENTION_DAYS = 30
 CURRENT_SCHEMA_VER = 1
 
 
-def _ensure_db() -> sqlite3.Connection:
+def _ensure_db(db_path: str | None = None, *, check_same_thread: bool = True) -> sqlite3.Connection:
     """Create tables and indexes if they don't exist, return connection."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    conn = sqlite3.connect(db_path or str(DB_PATH), check_same_thread=check_same_thread)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
 
@@ -95,14 +96,15 @@ class LogStore:
 
     def __init__(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> None:
         self._retention_days = retention_days
-        self._conn = _ensure_db()
+        self._conn = _ensure_db(str(DB_PATH), check_same_thread=False)
+        self._write_lock = asyncio.Lock()
         deleted = _cleanup_old(self._conn, retention_days)
         log.info(
             "LogStore initialized",
             extra={"db_path": str(DB_PATH), "retention_days": retention_days, "cleaned": deleted},
         )
 
-    def write(
+    async def write(
         self,
         *,
         level: str,
@@ -123,28 +125,29 @@ class LogStore:
         context_json = json.dumps(context, ensure_ascii=False) if context else None
 
         try:
-            cursor = self._conn.execute(
-                """INSERT INTO logs
-                   (timestamp, level, source, event, message, context,
-                    trace_id, session_id, account_id, api_key_id, client_ip,
-                    duration_ms, schema_ver)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    now_ms, level, source, event, message, context_json,
-                    trace_id, session_id, account_id, api_key_id, client_ip,
-                    duration_ms, CURRENT_SCHEMA_VER,
-                ),
-            )
-            log_id = cursor.lastrowid
-
-            if tags:
-                self._conn.executemany(
-                    "INSERT OR IGNORE INTO log_tags (log_id, tag) VALUES (?, ?)",
-                    [(log_id, tag) for tag in tags],
+            async with self._write_lock:
+                cursor = self._conn.execute(
+                    """INSERT INTO logs
+                       (timestamp, level, source, event, message, context,
+                        trace_id, session_id, account_id, api_key_id, client_ip,
+                        duration_ms, schema_ver)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        now_ms, level, source, event, message, context_json,
+                        trace_id, session_id, account_id, api_key_id, client_ip,
+                        duration_ms, CURRENT_SCHEMA_VER,
+                    ),
                 )
+                log_id = cursor.lastrowid
 
-            self._conn.commit()
-            return log_id
+                if tags:
+                    self._conn.executemany(
+                        "INSERT OR IGNORE INTO log_tags (log_id, tag) VALUES (?, ?)",
+                        [(log_id, tag) for tag in tags],
+                    )
+
+                self._conn.commit()
+                return log_id
         except Exception as e:
             log.error("LogStore write failed", extra={"error": str(e)})
             return -1

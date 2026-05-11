@@ -98,7 +98,7 @@ class LogCollector:
 
     # ─── Public API ───────────────────────────────────────────────
 
-    def emit(
+    async def emit(
         self,
         event: str,
         message: str,
@@ -129,7 +129,7 @@ class LogCollector:
         if not self._should_record(resolved_level):
             return
 
-        self._store.write(
+        await self._store.write(
             level=resolved_level,
             source=resolved_source,
             event=event,
