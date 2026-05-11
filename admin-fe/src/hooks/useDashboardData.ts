@@ -47,9 +47,13 @@ export function useDashboardData() {
   const connectedRef = useRef(false);
 
   useEffect(() => {
+    const MAX_RETRIES = 10;
+    const MAX_RETRY_DELAY = 60_000;
+
     let es: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 1000;
+    let retryCount = 0;
     let destroyed = false;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -63,6 +67,7 @@ export function useDashboardData() {
       es.onopen = () => {
         connectedRef.current = true;
         retryDelay = 1000;
+        retryCount = 0;
       };
 
       es.onmessage = (e) => {
@@ -88,9 +93,10 @@ export function useDashboardData() {
         connectedRef.current = false;
         es?.close();
         es = null;
-        if (!destroyed) {
+        if (!destroyed && retryCount < MAX_RETRIES) {
+          retryCount++;
           retryTimer = setTimeout(() => {
-            retryDelay = Math.min(retryDelay * 2, 30_000);
+            retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
             connect();
           }, retryDelay);
         }
