@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models import Account
@@ -16,6 +18,16 @@ DATA_PATH = DATA_DIR / "accounts.json"
 
 _accounts_cache: list[Account] | None = None
 _write_lock = asyncio.Lock()
+
+# ─── Write-behind usage counter cache ────────────────────────
+# Pending increments are accumulated in memory and flushed to disk
+# periodically (every _FLUSH_INTERVAL_SEC) or when an explicit save
+# occurs. This avoids a full accounts.json read/write cycle per request.
+
+_FLUSH_INTERVAL_SEC: float = 30.0
+_pending_increments: dict[str, int] = {}  # account_id -> delta
+_pending_last_used: dict[str, str] = {}   # account_id -> ISO timestamp
+_last_flush_time: float = 0.0
 
 
 async def load_accounts() -> list[Account]:
@@ -77,12 +89,19 @@ async def add_account(
 async def update_account(
     account_id: str, **updates: object
 ) -> Account | None:
-    """Update an existing account."""
+    """Update an existing account.
+
+    Callers are expected to pass only the fields they want to change
+    (e.g. via ``model_dump(exclude_unset=True)``).  Values of ``None``
+    are applied as-is, allowing explicit clearing of optional fields.
+    The ``id`` field is always preserved to prevent accidental ID changes.
+    """
+    updates.pop("id", None)  # Never allow ID mutation
     accounts = await load_accounts()
     for i, acc in enumerate(accounts):
         if acc.id == account_id:
             data = acc.model_dump()
-            data.update({k: v for k, v in updates.items() if v is not None})
+            data.update(updates)
             accounts[i] = Account(**data)
             await _save_accounts(accounts)
             return accounts[i]
@@ -90,16 +109,52 @@ async def update_account(
 
 
 async def increment_usage_count(account_id: str) -> None:
-    """Atomically increment usage count."""
-    from datetime import datetime, timezone
+    """Increment the usage count for an account.
+
+    The increment is accumulated in memory and flushed to disk
+    periodically (every ``_FLUSH_INTERVAL_SEC`` seconds) to avoid a
+    full accounts.json read → modify → write cycle on every request.
+    """
+    global _last_flush_time
+
+    _pending_increments[account_id] = _pending_increments.get(account_id, 0) + 1
+    _pending_last_used[account_id] = datetime.now(timezone.utc).isoformat()
+
+    # Flush to disk if enough time has elapsed
+    now = time.monotonic()
+    if now - _last_flush_time >= _FLUSH_INTERVAL_SEC:
+        await flush_usage_counters()
+
+
+async def flush_usage_counters() -> None:
+    """Flush all pending usage increments to disk.
+
+    Safe to call at any time.  If there are no pending increments the
+    function returns immediately.
+    """
+    global _last_flush_time
+
+    if not _pending_increments:
+        _last_flush_time = time.monotonic()
+        return
+
+    # Snapshot and clear pending state atomically
+    increments = dict(_pending_increments)
+    last_used = dict(_pending_last_used)
+    _pending_increments.clear()
+    _pending_last_used.clear()
+    _last_flush_time = time.monotonic()
 
     accounts = await load_accounts()
+    changed = False
     for acc in accounts:
-        if acc.id == account_id:
-            acc.usage_count += 1
-            acc.last_used_at = datetime.now(timezone.utc).isoformat()
-            await _save_accounts(accounts)
-            return
+        delta = increments.get(acc.id)
+        if delta:
+            acc.usage_count += delta
+            acc.last_used_at = last_used.get(acc.id, acc.last_used_at)
+            changed = True
+    if changed:
+        await _save_accounts(accounts)
 
 
 async def remove_account(account_id: str) -> bool:

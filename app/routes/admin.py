@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.dependencies import AppDependencies, get_deps
@@ -70,6 +70,7 @@ from app.services.ip_ban_store import (
     unban_ip,
 )
 from app.services.quota_probe import probe_quota, refresh_quota
+from app.services.token_manager import TokenManager
 from app.services.session_manager import create_session, destroy_session
 
 router = APIRouter()
@@ -153,7 +154,7 @@ async def login(body: LoginRequest, request: Request, deps: AppDependencies = De
 
     if not verify_admin_auth(body.username, body.password):
         if deps.log_collector:
-            deps.log_collector.emit(
+            await deps.log_collector.emit(
                 "login_failure", f"Admin login failed: {body.username}",
                 context={"username": body.username},
                 client_ip=client_ip,
@@ -164,7 +165,7 @@ async def login(body: LoginRequest, request: Request, deps: AppDependencies = De
         )
     token = create_session()
     if deps.log_collector:
-        deps.log_collector.emit(
+        await deps.log_collector.emit(
             "login_success", f"Admin login: {body.username}",
             context={"username": body.username},
             session_id=token,
@@ -420,7 +421,7 @@ async def backup_all():
 
 
 @router.get("/accounts/{account_id}/quota", dependencies=[Depends(admin_auth_dependency)])
-async def get_account_quota(account_id: str):
+async def get_account_quota(account_id: str, deps: AppDependencies = Depends(get_deps)):
     """Get account quota info."""
     accounts = await load_accounts()
     account = next((a for a in accounts if a.id == account_id), None)
@@ -436,7 +437,10 @@ async def get_account_quota(account_id: str):
             },
         )
 
-    quota = await probe_quota(account.codex_home)
+    # Reuse the TokenManager from the pool if available
+    pool_entry = next((e for e in deps.pool.entries() if e.account_id == account_id), None)
+    tm = pool_entry.token_manager if pool_entry else None
+    quota = await probe_quota(account.codex_home, token_manager=tm)
     if not quota:
         return JSONResponse(
             status_code=503,
@@ -453,7 +457,7 @@ async def get_account_quota(account_id: str):
 
 
 @router.post("/accounts/{account_id}/quota/refresh", dependencies=[Depends(admin_auth_dependency)])
-async def refresh_account_quota(account_id: str):
+async def refresh_account_quota(account_id: str, deps: AppDependencies = Depends(get_deps)):
     """Refresh account quota (bypasses cache)."""
     accounts = await load_accounts()
     account = next((a for a in accounts if a.id == account_id), None)
@@ -469,7 +473,9 @@ async def refresh_account_quota(account_id: str):
             },
         )
 
-    quota = await refresh_quota(account.codex_home)
+    pool_entry = next((e for e in deps.pool.entries() if e.account_id == account_id), None)
+    tm = pool_entry.token_manager if pool_entry else None
+    quota = await refresh_quota(account.codex_home, token_manager=tm)
     if not quota:
         return JSONResponse(
             status_code=503,
@@ -486,13 +492,17 @@ async def refresh_account_quota(account_id: str):
 
 
 @router.post("/accounts/quota/batch", dependencies=[Depends(admin_auth_dependency)])
-async def batch_refresh_quota():
+async def batch_refresh_quota(deps: AppDependencies = Depends(get_deps)):
     """Batch refresh quota for all accounts (bypasses cache)."""
     accounts = await load_accounts()
     results: dict[str, dict[str, Any]] = {}
+    # Build a lookup for reusing existing TokenManagers
+    _pool_tm: dict[str, TokenManager] = {
+        e.account_id: e.token_manager for e in deps.pool.entries() if e.token_manager
+    }
 
     async def _fetch_one(acc) -> None:
-        quota = await refresh_quota(acc.codex_home)
+        quota = await refresh_quota(acc.codex_home, token_manager=_pool_tm.get(acc.id))
         if quota:
             results[acc.id] = {"quota": quota.to_dict()}
         else:
@@ -581,7 +591,7 @@ async def update_api_key_route(key_prefix: str, body: UpdateApiKeyRequest):
     full_key = _resolve_key(key_prefix)
     if not full_key:
         return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     entry = await update_api_key(full_key, **updates)
     if not entry:
         return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
@@ -684,7 +694,7 @@ async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemp
     if not existing:
         return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
 
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     merged = existing.model_dump()
     merged.update(updates)
     merged["name"] = str(merged.get("name") or "").strip()
@@ -775,10 +785,17 @@ async def get_pool_status(deps: AppDependencies = Depends(get_deps)):
 # ─── Metrics ──────────────────────────────────────────────────
 
 
+# Valid time range values accepted by metrics / log endpoints.
+TimeRange = Literal["1h", "6h", "24h", "7d", "30d"]
+
+
 @router.get("/metrics/timeseries", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_time_series(range: str = "1h", deps: AppDependencies = Depends(get_deps)):
+async def get_metrics_time_series(
+    time_range: TimeRange = Query("1h", alias="range"),
+    deps: AppDependencies = Depends(get_deps),
+):
     """Get metrics time series from persistent SQLite store."""
-    return JSONResponse(content=deps.metrics_collector.get_time_series(range))
+    return JSONResponse(content=deps.metrics_collector.get_time_series(time_range))
 
 
 @router.get("/metrics/breakdown", dependencies=[Depends(admin_auth_dependency)])
@@ -788,21 +805,30 @@ async def get_metrics_breakdown(deps: AppDependencies = Depends(get_deps)):
 
 
 @router.get("/metrics/percentiles", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_percentiles(range: str = "24h", deps: AppDependencies = Depends(get_deps)):
+async def get_metrics_percentiles(
+    time_range: TimeRange = Query("24h", alias="range"),
+    deps: AppDependencies = Depends(get_deps),
+):
     """Get latency percentiles (P50/P95/P99) from persistent store."""
-    return JSONResponse(content=deps.metrics_collector.get_percentiles(range))
+    return JSONResponse(content=deps.metrics_collector.get_percentiles(time_range))
 
 
 @router.get("/metrics/summary", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_summary(range: str = "24h", deps: AppDependencies = Depends(get_deps)):
+async def get_metrics_summary(
+    time_range: TimeRange = Query("24h", alias="range"),
+    deps: AppDependencies = Depends(get_deps),
+):
     """Get KPI summary with period-over-period comparison."""
-    return JSONResponse(content=deps.metrics_collector.get_summary(range))
+    return JSONResponse(content=deps.metrics_collector.get_summary(time_range))
 
 
 @router.get("/metrics/per-key", dependencies=[Depends(admin_auth_dependency)])
-async def get_metrics_per_key(range: str = "24h", deps: AppDependencies = Depends(get_deps)):
+async def get_metrics_per_key(
+    time_range: TimeRange = Query("24h", alias="range"),
+    deps: AppDependencies = Depends(get_deps),
+):
     """Get per API key usage statistics."""
-    return JSONResponse(content=deps.metrics_collector.get_per_key_stats(range))
+    return JSONResponse(content=deps.metrics_collector.get_per_key_stats(time_range))
 
 
 # ─── IP Ban Management ────────────────────────────────────────
@@ -956,7 +982,7 @@ async def query_logs(
 
 @router.get("/logs/error-summary", dependencies=[Depends(admin_auth_dependency)])
 async def logs_error_summary(
-    range: str = "24h",
+    time_range: TimeRange = Query("24h", alias="range"),
     deps: AppDependencies = Depends(get_deps),
 ):
     """Get error event statistics summary."""
@@ -965,7 +991,7 @@ async def logs_error_summary(
             status_code=503,
             content={"error": {"message": "Log store is disabled.", "type": "service_unavailable", "code": "log_store_disabled"}},
         )
-    result = deps.log_store.get_error_summary(range)
+    result = deps.log_store.get_error_summary(time_range)
     return JSONResponse(content=result)
 
 

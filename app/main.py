@@ -3,28 +3,38 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import traceback
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services.account_pool import AccountPool
+from app.adapters.anthropic_adapter import AnthropicAdapter
 from app.config import settings
 from app.dependencies import AppDependencies
 from app.exceptions import NexusError
-from app.services.account_store import load_accounts
-from app.services.config_store import get_banned_ips_from_config, load_config
+from app.middleware.ip_ban import IPBanMiddleware
+from app.routes.admin import router as admin_router
+from app.routes.chat_completions import router as chat_completions_router
+from app.routes.messages import router as messages_router
+from app.routes.models import router as models_router
+from app.routes.public import router as public_router
+from app.routes.responses import router as responses_router
+from app.services.account_pool import AccountPool
+from app.services.account_store import flush_usage_counters, load_accounts
+from app.services.config_store import get_banned_ips_from_config, load_config, save_banned_ips
 from app.services.health_check import start_health_check, stop_health_check
-from app.services.ip_ban_store import get_client_ip, init_banned_ips, record_suspicious_hit
+from app.services.ip_ban_store import IPBanStore, get_client_ip
 from app.services.log_collector import LogCollector
 from app.services.log_store import LogStore
 from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
 from app.services.session_manager import cleanup_expired_sessions
 from app.utils.logger import log
-from app.adapters.anthropic_adapter import AnthropicAdapter
 
 
 @asynccontextmanager
@@ -39,8 +49,9 @@ async def lifespan(app: FastAPI):
     # Load persisted runtime settings (data/settings.json)
     _load_persisted_settings()
 
-    # Initialize IP ban list from persisted config
-    init_banned_ips(get_banned_ips_from_config())
+    # Initialize IP ban store and load from persisted config
+    ip_ban_store = IPBanStore()
+    ip_ban_store.init_banned_ips(get_banned_ips_from_config())
 
     # Initialize account pool
     accounts = await load_accounts()
@@ -62,6 +73,7 @@ async def lifespan(app: FastAPI):
         metrics_store=metrics_store,
         log_collector=log_collector,
         log_store=log_store,
+        ip_ban_store=ip_ban_store,
     )
 
     # Start health check background tasks
@@ -75,7 +87,7 @@ async def lifespan(app: FastAPI):
 
     # Record startup event
     if log_collector:
-        log_collector.emit(
+        await log_collector.emit(
             "service_started", "Nexus Codex started",
             context={"port": settings.port, "accounts": len(accounts)},
         )
@@ -93,10 +105,12 @@ async def lifespan(app: FastAPI):
     # ─── Shutdown ─────────────────────────────────────────
     log.info("Shutting down Nexus Codex")
     if log_collector:
-        log_collector.emit("service_stopped", "Nexus Codex shutting down")
+        await log_collector.emit("service_stopped", "Nexus Codex shutting down")
     stop_health_check()
     cleanup_task.cancel()
     log_cleanup_task.cancel()
+    # Flush buffered usage counters before closing
+    await flush_usage_counters()
     await pool.close()
     if hasattr(app.state, 'deps'):
         app.state.deps.metrics_store.close()
@@ -107,9 +121,6 @@ async def lifespan(app: FastAPI):
 
 def _load_persisted_settings():
     """Load runtime settings from data/settings.json if it exists."""
-    import json
-    from pathlib import Path
-
     settings_file = Path("data/settings.json")
     if not settings_file.exists():
         return
@@ -162,8 +173,6 @@ app.add_middleware(
 )
 
 # IP Ban middleware (checked before routing)
-from app.middleware.ip_ban import IPBanMiddleware  # noqa: E402
-
 app.add_middleware(IPBanMiddleware)
 
 # Access log middleware (outermost — captures timing for every request).
@@ -208,7 +217,7 @@ async def access_log_middleware(request: Request, call_next):
     if deps and deps.log_collector:
         # Only persist error/warn requests (>= 400); 2xx/3xx covered by metrics
         if status >= 400:
-            deps.log_collector.emit(
+            await deps.log_collector.emit(
                 "request_complete",
                 f"{request.method} {path} → {status}",
                 context={"method": request.method, "path": path, "status": status, "model": _model, "account_id": _account},
@@ -284,7 +293,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     # Structured log collection
     deps: AppDependencies | None = getattr(request.app.state, "deps", None)
     if deps and deps.log_collector:
-        deps.log_collector.emit(
+        await deps.log_collector.emit(
             "unhandled_exception",
             f"Unhandled exception: {exc}",
             context={"error": str(exc), "traceback": tb_str, "path": request.url.path},
@@ -328,13 +337,6 @@ async def health_check(request: Request):
 
 # ─── Register routes ─────────────────────────────────────────
 
-from app.routes.chat_completions import router as chat_completions_router
-from app.routes.responses import router as responses_router
-from app.routes.messages import router as messages_router
-from app.routes.models import router as models_router
-from app.routes.admin import router as admin_router
-from app.routes.public import router as public_router
-
 app.include_router(chat_completions_router, prefix="/v1")
 app.include_router(responses_router, prefix="/v1")
 app.include_router(messages_router, prefix="/v1")
@@ -353,18 +355,15 @@ async def catch_all(request: Request, path_name: str):
     reason = f"{request.method} /{path_name}"
 
     # Record the suspicious hit (may trigger auto-ban)
-    was_banned = record_suspicious_hit(client_ip, reason)
+    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    was_banned = deps.ip_ban_store.record_suspicious_hit(client_ip, reason) if deps else False
     if was_banned:
         # Persist the updated ban list
-        from app.services.config_store import save_banned_ips
-        from app.services.ip_ban_store import get_banned_ips
-
-        await save_banned_ips(get_banned_ips())
+        await save_banned_ips(deps.ip_ban_store.get_banned_ips())
 
         # Log the auto-ban event
-        deps: AppDependencies | None = getattr(request.app.state, "deps", None)
-        if deps and deps.log_collector:
-            deps.log_collector.emit(
+        if deps.log_collector:
+            await deps.log_collector.emit(
                 "ip_auto_banned", f"IP auto-banned: {client_ip}",
                 context={"reason": reason},
                 client_ip=client_ip,
