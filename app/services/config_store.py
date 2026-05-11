@@ -19,6 +19,7 @@ import aiofiles
 
 from app.models import ApiKeyEntry, ApiKeyTemplate, AppConfig, BannedIP, ClaimRateLimitEntry
 from app.config import DATA_DIR, settings
+from app.utils.bg_task import create_bg_task
 from app.utils.logger import log
 
 CONFIG_PATH = DATA_DIR / "config.json"
@@ -457,7 +458,9 @@ class ConfigStore:
         """Schedule a deferred flush if one is not already pending."""
         if self._usage_flush_task is not None and not self._usage_flush_task.done():
             return  # already scheduled
-        self._usage_flush_task = asyncio.create_task(self._deferred_usage_flush())
+        self._usage_flush_task = create_bg_task(
+            self._deferred_usage_flush(), name="usage-flush"
+        )
 
     async def _deferred_usage_flush(self) -> None:
         """Wait a short interval then flush dirty usage counters to disk."""
@@ -473,7 +476,12 @@ class ConfigStore:
         if not self._usage_dirty:
             return
         self._usage_dirty = False
-        await self._save_config()
+        try:
+            await self._save_config()
+        except Exception:
+            # Restore the dirty flag so a subsequent flush will retry the write.
+            self._usage_dirty = True
+            raise
 
     # ─── Banned IPs persistence ──────────────────────────────
 
