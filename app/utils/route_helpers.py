@@ -46,16 +46,24 @@ def set_request_context(
 
 def error_response(message: str, code: str, status: int = 500) -> JSONResponse:
     """Build a standard OpenAI-compatible error JSONResponse."""
-    return JSONResponse(
-        status_code=status,
-        content={
-            "error": {
-                "message": message,
-                "type": "server_error",
-                "code": code,
-            }
-        },
-    )
+    return build_openai_error_response(status, message, "server_error", code)
+
+
+def build_openai_error_response(
+    status_code: int,
+    message: str,
+    error_type: str = "server_error",
+    code: str | None = None,
+) -> JSONResponse:
+    """Build a unified OpenAI-compatible error JSONResponse.
+
+    This is the single source of truth for error responses across all routes.
+    Use instead of manually constructing ``JSONResponse(content={"error": {...}})``.
+    """
+    error_body: dict[str, object] = {"message": message, "type": error_type}
+    if code is not None:
+        error_body["code"] = code
+    return JSONResponse(status_code=status_code, content={"error": error_body})
 
 
 async def increment_counters(deps: "AppDependencies", account_id: str, api_key: str) -> None:

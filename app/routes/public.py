@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.dependencies import AppDependencies, get_deps
 from app.models import ClaimApiKeyRequest
 from app.services.ip_ban_store import get_client_ip
+from app.utils.route_helpers import build_openai_error_response
 
 router = APIRouter()
 
@@ -80,30 +81,30 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request, deps: AppDep
     """Claim a new API key from an enabled self-service template."""
     template = deps.config_store.find_api_key_template(body.template_id)
     if not template or not template.enabled:
-        return JSONResponse(status_code=404, content={"error": {"message": "申领模板不存在或未启用"}})
+        return build_openai_error_response(404, "申领模板不存在或未启用")
 
     # Validate input fields first — don't consume rate limit quota for bad requests
     applicant_name = body.applicant_name.strip()
     applicant_contact = body.applicant_contact.strip()
     note = body.note.strip()
     if not applicant_name:
-        return JSONResponse(status_code=400, content={"error": {"message": "申请人名称不能为空"}})
+        return build_openai_error_response(400, "申请人名称不能为空")
     if not applicant_contact:
-        return JSONResponse(status_code=400, content={"error": {"message": "联系方式不能为空"}})
+        return build_openai_error_response(400, "联系方式不能为空")
     if not template.models:
-        return JSONResponse(status_code=409, content={"error": {"message": "申领模板未配置可用模型"}})
+        return build_openai_error_response(409, "申领模板未配置可用模型")
     if template.require_claim_code and not hmac.compare_digest(
         body.claim_code.strip(),
         template.claim_code,
     ):
-        return JSONResponse(status_code=403, content={"error": {"message": "申领码错误"}})
+        return build_openai_error_response(403, "申领码错误")
 
     if (
         template.require_claim_code
         and template.claim_code_max_usage is not None
         and template.claim_code_used_count >= template.claim_code_max_usage
     ):
-        return JSONResponse(status_code=403, content={"error": {"message": "申领码已达到使用次数上限"}})
+        return build_openai_error_response(403, "申领码已达到使用次数上限")
 
     # IP rate limit — last check before actually creating the key
     client_ip = get_client_ip(request)

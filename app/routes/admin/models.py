@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
+from app.utils.route_helpers import build_openai_error_response
 from app.models import AddModelRequest, ModelsAdminResponse, OkModelsResponse
 
 router = APIRouter()
@@ -23,10 +24,10 @@ async def add_model(body: AddModelRequest, deps: AppDependencies = Depends(get_d
     """Add a default model."""
     model_id = body.model.strip()
     if not model_id:
-        return JSONResponse(status_code=400, content={"error": {"message": "model is required"}})
+        return build_openai_error_response(400, "model is required")
     added = await deps.config_store.add_default_model(model_id)
     if not added:
-        return JSONResponse(status_code=409, content={"error": {"message": "Model already exists"}})
+        return build_openai_error_response(409, "Model already exists")
     return JSONResponse(content={"ok": True, "models": deps.config_store.get_default_models()})
 
 
@@ -35,5 +36,5 @@ async def delete_model(model_id: str, deps: AppDependencies = Depends(get_deps))
     """Remove a default model."""
     removed = await deps.config_store.remove_default_model(model_id)
     if not removed:
-        return JSONResponse(status_code=404, content={"error": {"message": "Model not found"}})
+        return build_openai_error_response(404, "Model not found")
     return JSONResponse(content={"ok": True, "models": deps.config_store.get_default_models()})

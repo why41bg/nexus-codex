@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
+from app.utils.route_helpers import build_openai_error_response
 from app.models import (
     AddApiKeyRequest,
     ApiKeyListResponse,
@@ -62,13 +63,10 @@ async def list_api_keys(deps: AppDependencies = Depends(get_deps)):
 async def reveal_api_key(body: RevealApiKeyRequest, deps: AppDependencies = Depends(get_deps)):
     """Reveal full API key after admin password verification."""
     if not deps.config_store.verify_admin_password(body.password):
-        return JSONResponse(
-            status_code=403,
-            content={"error": {"message": "密码错误", "type": "authentication_error", "code": "invalid_password"}},
-        )
+        return build_openai_error_response(403, "密码错误", "authentication_error", "invalid_password")
     full_key = resolve_key(deps.config_store, body.key_prefix)
     if not full_key:
-        return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
+        return build_openai_error_response(404, "API key not found")
     return JSONResponse(content={"key": full_key})
 
 
@@ -94,11 +92,11 @@ async def update_api_key_route(key_prefix: str, body: UpdateApiKeyRequest, deps:
     """Update an API key by prefix or full key."""
     full_key = resolve_key(deps.config_store, key_prefix)
     if not full_key:
-        return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
+        return build_openai_error_response(404, "API key not found")
     updates = body.model_dump(exclude_unset=True)
     entry = await deps.config_store.update_api_key(full_key, **updates)
     if not entry:
-        return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
+        return build_openai_error_response(404, "API key not found")
     return JSONResponse(content={"ok": True})
 
 
@@ -107,10 +105,10 @@ async def delete_api_key(key_prefix: str, deps: AppDependencies = Depends(get_de
     """Delete an API key by prefix or full key."""
     full_key = resolve_key(deps.config_store, key_prefix)
     if not full_key:
-        return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
+        return build_openai_error_response(404, "API key not found")
     removed = await deps.config_store.remove_api_key(full_key)
     if not removed:
-        return JSONResponse(status_code=404, content={"error": {"message": "API key not found"}})
+        return build_openai_error_response(404, "API key not found")
     return JSONResponse(content={"ok": True})
 
 
@@ -118,7 +116,7 @@ async def delete_api_key(key_prefix: str, deps: AppDependencies = Depends(get_de
 async def batch_key_action(body: BatchKeyActionRequest, deps: AppDependencies = Depends(get_deps)):
     """Perform batch action on multiple API keys."""
     if body.action not in ("delete", "enable", "disable"):
-        return JSONResponse(status_code=400, content={"error": {"message": "Invalid action. Must be: delete, enable, disable"}})
+        return build_openai_error_response(400, "Invalid action. Must be: delete, enable, disable")
     succeeded = 0
     failed = 0
     for prefix in body.key_prefixes:

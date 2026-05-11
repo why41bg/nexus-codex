@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
+from app.utils.route_helpers import build_openai_error_response
 from app.models import (
     AddBannedIpRequest,
     BannedIpListResponse,
@@ -42,17 +43,11 @@ async def add_banned_ip(body: AddBannedIpRequest, deps: AppDependencies = Depend
     reason = body.reason
 
     if not ip:
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"message": "IP address is required.", "type": "invalid_request_error", "code": "missing_ip"}},
-        )
+        return build_openai_error_response(400, "IP address is required.", "invalid_request_error", "missing_ip")
 
     entry = deps.ip_ban_store.ban_ip(ip, reason=reason)
     if not entry:
-        return JSONResponse(
-            status_code=409,
-            content={"error": {"message": "IP is already banned.", "type": "conflict", "code": "already_banned"}},
-        )
+        return build_openai_error_response(409, "IP is already banned.", "conflict", "already_banned")
 
     # Persist
     await deps.config_store.save_banned_ips(deps.ip_ban_store.get_banned_ips())
@@ -65,10 +60,7 @@ async def remove_banned_ip(ip: str, deps: AppDependencies = Depends(get_deps)):
     """Unban an IP address."""
     removed = deps.ip_ban_store.unban_ip(ip)
     if not removed:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"message": "IP not found in ban list.", "type": "invalid_request_error", "code": "not_found"}},
-        )
+        return build_openai_error_response(404, "IP not found in ban list.", "invalid_request_error", "not_found")
 
     # Persist
     await deps.config_store.save_banned_ips(deps.ip_ban_store.get_banned_ips())
@@ -80,10 +72,7 @@ async def remove_banned_ip(ip: str, deps: AppDependencies = Depends(get_deps)):
 async def batch_unban_ips(body: BatchUnbanRequest, deps: AppDependencies = Depends(get_deps)):
     """Unban multiple IP addresses at once."""
     if not body.ips:
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"message": "IP list is empty.", "type": "invalid_request_error", "code": "empty_list"}},
-        )
+        return build_openai_error_response(400, "IP list is empty.", "invalid_request_error", "empty_list")
 
     removed_count = 0
     for ip in body.ips:

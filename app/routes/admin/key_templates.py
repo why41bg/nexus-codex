@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
+from app.utils.route_helpers import build_openai_error_response
 from app.models import (
     AddApiKeyTemplateRequest,
     KeyTemplateListResponse,
@@ -55,7 +56,7 @@ async def create_api_key_template(body: AddApiKeyTemplateRequest, deps: AppDepen
     data["claim_code"] = body.claim_code.strip()
     error = _validate_template_payload(data)
     if error:
-        return JSONResponse(status_code=400, content={"error": {"message": error}})
+        return build_openai_error_response(400, error)
     template = await deps.config_store.add_api_key_template(**data)
     return JSONResponse(content={"template": template_to_admin_dict(template)})
 
@@ -65,7 +66,7 @@ async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemp
     """Update an API key self-service claim template."""
     existing = next((t for t in deps.config_store.get_api_key_templates() if t.id == template_id), None)
     if not existing:
-        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
+        return build_openai_error_response(404, "Template not found")
 
     updates = body.model_dump(exclude_unset=True)
     merged = existing.model_dump()
@@ -76,7 +77,7 @@ async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemp
     merged["claim_code"] = str(merged.get("claim_code") or "").strip()
     error = _validate_template_payload(merged)
     if error:
-        return JSONResponse(status_code=400, content={"error": {"message": error}})
+        return build_openai_error_response(400, error)
 
     template = await deps.config_store.update_api_key_template(
         template_id,
@@ -94,7 +95,7 @@ async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemp
         claim_ip_limit_window_ms=merged["claim_ip_limit_window_ms"],
     )
     if not template:
-        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
+        return build_openai_error_response(404, "Template not found")
     return JSONResponse(content={"template": template_to_admin_dict(template)})
 
 
@@ -103,7 +104,7 @@ async def delete_api_key_template(template_id: str, deps: AppDependencies = Depe
     """Delete an API key self-service claim template."""
     removed = await deps.config_store.remove_api_key_template(template_id)
     if not removed:
-        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
+        return build_openai_error_response(404, "Template not found")
     return JSONResponse(content={"ok": True})
 
 
@@ -112,5 +113,5 @@ async def reset_template_claim_usage(template_id: str, deps: AppDependencies = D
     """Reset the claim code used count for a template."""
     ok = await deps.config_store.reset_claim_code_usage(template_id)
     if not ok:
-        return JSONResponse(status_code=404, content={"error": {"message": "Template not found"}})
+        return build_openai_error_response(404, "Template not found")
     return JSONResponse(content={"ok": True})

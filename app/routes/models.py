@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import api_key_auth_dependency
+from app.utils.route_helpers import build_openai_error_response
 
 router = APIRouter()
 
@@ -34,14 +35,8 @@ async def get_model(model_id: str, api_key: str = Depends(api_key_auth_dependenc
     models = _build_model_objects(deps.config_store.get_models_for_key(api_key))
     model = next((m for m in models if m["id"] == model_id), None)
     if not model:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": {
-                    "message": f"The model '{model_id}' does not exist.",
-                    "type": "invalid_request_error",
-                    "code": "model_not_found",
-                }
-            },
+        return build_openai_error_response(
+            404, f"The model '{model_id}' does not exist.",
+            "invalid_request_error", "model_not_found",
         )
     return JSONResponse(content=model)
