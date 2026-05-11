@@ -294,13 +294,22 @@ class LogStore:
                 """
                 rows = self._conn.execute(query_sql, params + [limit, offset]).fetchall()
 
-                # Fetch tags for returned logs
+                # Fetch tags for all returned logs in a single batch query
+                # (avoids N+1: one query instead of one-per-row)
+                log_ids = [row[0] for row in rows]
+                tags_by_log_id: dict[int, list[str]] = {lid: [] for lid in log_ids}
+                if log_ids:
+                    placeholders = ",".join("?" * len(log_ids))
+                    tag_rows_all = self._conn.execute(
+                        f"SELECT log_id, tag FROM log_tags WHERE log_id IN ({placeholders})",
+                        log_ids,
+                    ).fetchall()
+                    for log_id, tag_val in tag_rows_all:
+                        tags_by_log_id[log_id].append(tag_val)
+
                 items = []
                 for row in rows:
                     log_id = row[0]
-                    tag_rows = self._conn.execute(
-                        "SELECT tag FROM log_tags WHERE log_id = ?", (log_id,)
-                    ).fetchall()
                     items.append({
                         "id": row[0],
                         "timestamp": row[1],
@@ -309,7 +318,7 @@ class LogStore:
                         "event": row[4],
                         "message": row[5],
                         "context": json.loads(row[6]) if row[6] else None,
-                        "tags": [r[0] for r in tag_rows],
+                        "tags": tags_by_log_id.get(log_id, []),
                         "trace_id": row[7],
                         "session_id": row[8],
                         "account_id": row[9],

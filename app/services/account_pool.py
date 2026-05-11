@@ -144,15 +144,12 @@ class AccountPool:
                     return bound_entry
 
         # Fall back to least-loaded selection
-        available = sorted(
-            [e for e in self._pool if e.healthy and e.active_count < e.max_concurrency],
-            key=lambda e: e.active_count,
-        )
+        available = [e for e in self._pool if e.healthy and e.active_count < e.max_concurrency]
         if not available:
             return None
 
-        # Round-robin tie-breaker among least-loaded
-        min_load = available[0].active_count
+        # Round-robin tie-breaker among least-loaded — O(n) instead of O(n log n)
+        min_load = min(e.active_count for e in available)
         candidates = [e for e in available if e.active_count == min_load]
         entry = candidates[self._counter % len(candidates)]
         self._counter += 1
@@ -197,8 +194,11 @@ class AccountPool:
                 future = self._wait_queue.get_nowait()
                 if not future.done():
                     future.set_result(entry)
+                else:
+                    # Future was already cancelled/done — release the slot we just acquired
+                    entry.active_count = max(0, entry.active_count - 1)
             except asyncio.QueueEmpty:
-                entry.active_count -= 1
+                entry.active_count = max(0, entry.active_count - 1)
                 break
 
     def get_status(self) -> list[dict[str, Any]]:
@@ -262,8 +262,8 @@ class AccountPool:
         log.info("Account removed from pool", extra={"account_id": account_id})
 
     def entries(self) -> list[PoolEntry]:
-        """Get all pool entries."""
-        return self._pool
+        """Get all pool entries (shallow copy to protect internal state)."""
+        return list(self._pool)
 
     def _find_entry(self, account_id: str) -> PoolEntry | None:
         """Find a pool entry by account ID."""

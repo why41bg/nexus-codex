@@ -8,7 +8,6 @@ import hmac
 from typing import TYPE_CHECKING
 
 from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
 
 from app.dependencies import get_deps_from_request
 
@@ -16,26 +15,45 @@ if TYPE_CHECKING:
     from app.dependencies import AppDependencies
 
 
+def _hmac_digest(key_str: str) -> bytes:
+    """Compute the HMAC-SHA256 digest used for key comparison."""
+    return hmac.new(b"nexus-key-check", key_str.encode(), hashlib.sha256).digest()
+
+
+# Pre-computed HMAC lookup table: maps digest → digest.
+# Rebuilt every time the key set changes (see _build_hmac_index).
+_hmac_index: dict[bytes, bytes] = {}
+_hmac_index_source: frozenset[str] = frozenset()
+
+
+def _build_hmac_index(allowed_keys: frozenset[str]) -> dict[bytes, bytes]:
+    """(Re)build a HMAC digest → digest mapping from allowed keys."""
+    return {_hmac_digest(k): _hmac_digest(k) for k in allowed_keys}
+
+
 def _constant_time_key_check(api_key: str, allowed_keys: set[str]) -> bool:
-    """Check if api_key is in allowed_keys using constant-time comparison.
+    """Check if api_key is in allowed_keys in O(1) with timing-safe comparison.
 
-    Iterates all keys and uses HMAC-based comparison to prevent
-    timing side-channel attacks that could reveal valid key prefixes.
+    Uses a pre-computed HMAC lookup table that is rebuilt when the key
+    set changes.  The lookup itself is a dict get (O(1)), and we still
+    use ``hmac.compare_digest`` for the final comparison so that the
+    equality check is constant-time.
     """
-    ha = hmac.new(b"nexus-key-check", api_key.encode(), hashlib.sha256).digest()
-    found = False
-    for k in allowed_keys:
-        hb = hmac.new(b"nexus-key-check", k.encode(), hashlib.sha256).digest()
-        if hmac.compare_digest(ha, hb):
-            found = True
-    return found
+    global _hmac_index, _hmac_index_source  # noqa: PLW0603
+    # Rebuild the index when the allowed key set content has changed
+    frozen = frozenset(allowed_keys)
+    if frozen != _hmac_index_source:
+        _hmac_index = _build_hmac_index(frozen)
+        _hmac_index_source = frozen
 
-
-def _error_response(message: str, error_type: str, code: str, status: int) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content={"error": {"message": message, "type": error_type, "code": code}},
-    )
+    ha = _hmac_digest(api_key)
+    # Constant-time comparison against a known-good digest from the index,
+    # or a dummy digest if the key is not present (to avoid early return).
+    expected = _hmac_index.get(ha)
+    if expected is not None:
+        # compare_digest ensures constant-time comparison
+        return hmac.compare_digest(ha, expected)
+    return False
 
 
 def _get_session_manager(request: Request):
@@ -165,7 +183,11 @@ async def api_key_auth_dependency(request: Request) -> str:
                     detail={"error": {"message": "This API key has expired.", "type": "invalid_request_error", "code": "api_key_expired"}},
                 )
         except ValueError:
-            pass
+            # expires_at has an unparseable format — reject the key to be safe
+            raise HTTPException(
+                status_code=403,
+                detail={"error": {"message": "This API key has an invalid expiration date and cannot be used.", "type": "invalid_request_error", "code": "api_key_expired"}},
+            )
 
     # IP whitelist check
     if entry and entry.ip_whitelist:

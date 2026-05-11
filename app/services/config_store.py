@@ -50,10 +50,18 @@ class ConfigStore:
     making the store testable and safe in multi-instance scenarios.
     """
 
+    # Flush buffered monthly usage counters to disk at most this often (seconds).
+    _USAGE_FLUSH_INTERVAL: float = 30.0
+
     def __init__(self) -> None:
         self._config: AppConfig | None = None
         self._write_lock = asyncio.Lock()
         self._api_key_set_cache: set[str] | None = None
+        self._key_index: dict[str, ApiKeyEntry] = {}
+        # Buffered monthly usage increments — flushed periodically to avoid
+        # writing the full config.json on every single request.
+        self._usage_dirty: bool = False
+        self._usage_flush_task: asyncio.Task | None = None
 
     # ─── Lifecycle ─────────────────────────────────────────────
 
@@ -85,6 +93,9 @@ class ConfigStore:
                 if k.monthly_reset_at is None:
                     k.monthly_reset_at = _get_next_month_reset()
 
+        # Build key index after loading
+        self._rebuild_key_index()
+
         # Security warning
         if settings.admin_username == "admin" and settings.verify_password("admin"):
             log.warning(
@@ -109,6 +120,14 @@ class ConfigStore:
 
     def _invalidate_api_key_cache(self) -> None:
         self._api_key_set_cache = None
+        self._rebuild_key_index()
+
+    def _rebuild_key_index(self) -> None:
+        """Rebuild the O(1) lookup index for API keys."""
+        if self._config is None:
+            self._key_index = {}
+            return
+        self._key_index = {k.key: k for k in self._config.api_keys}
 
     # ─── Read-only accessors ─────────────────────────────────────
 
@@ -133,18 +152,14 @@ class ConfigStore:
         return self._config.api_keys
 
     def find_api_key(self, key: str) -> ApiKeyEntry | None:
-        """Find an API key entry by key value using constant-time comparison.
+        """Find an API key entry by key value using O(1) dict index lookup.
 
-        Iterates all keys and uses ``_constant_time_equal`` to prevent
-        timing-based side-channel attacks that could reveal valid keys.
+        Uses an internal ``_key_index`` dict keyed by raw API key strings.
+        The dict is rebuilt whenever keys are added, updated, or removed.
         """
         if self._config is None:
             return None
-        found: ApiKeyEntry | None = None
-        for k in self._config.api_keys:
-            if _constant_time_equal(k.key, key):
-                found = k
-        return found
+        return self._key_index.get(key)
 
     def get_models_for_key(self, key: str) -> list[str]:
         """Get models available for a specific API key."""
@@ -419,7 +434,12 @@ class ConfigStore:
     # ─── Monthly quota helper ────────────────────────────────────
 
     async def increment_key_monthly_usage(self, key: str) -> None:
-        """Increment monthly usage for an API key."""
+        """Increment monthly usage for an API key (buffered write).
+
+        The in-memory counter is updated immediately so quota checks are
+        accurate, but the disk write is deferred and batched to avoid
+        writing the full config.json on every single request.
+        """
         entry = self.find_api_key(key)
         if not entry:
             return
@@ -430,6 +450,29 @@ class ConfigStore:
                 entry.monthly_usage = 0
                 entry.monthly_reset_at = _get_next_month_reset()
         entry.monthly_usage += 1
+        self._usage_dirty = True
+        self._schedule_usage_flush()
+
+    def _schedule_usage_flush(self) -> None:
+        """Schedule a deferred flush if one is not already pending."""
+        if self._usage_flush_task is not None and not self._usage_flush_task.done():
+            return  # already scheduled
+        self._usage_flush_task = asyncio.create_task(self._deferred_usage_flush())
+
+    async def _deferred_usage_flush(self) -> None:
+        """Wait a short interval then flush dirty usage counters to disk."""
+        await asyncio.sleep(self._USAGE_FLUSH_INTERVAL)
+        await self.flush_usage()
+
+    async def flush_usage(self) -> None:
+        """Flush buffered monthly usage counters to disk immediately.
+
+        Called by the deferred flush task and also during application
+        shutdown to ensure no data is lost.
+        """
+        if not self._usage_dirty:
+            return
+        self._usage_dirty = False
         await self._save_config()
 
     # ─── Banned IPs persistence ──────────────────────────────
