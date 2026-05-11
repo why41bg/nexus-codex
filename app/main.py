@@ -142,7 +142,7 @@ async def _shutdown(app: FastAPI, bg_tasks: dict) -> None:
     if deps and deps.log_collector:
         await deps.log_collector.emit("service_stopped", "Nexus Codex shutting down")
 
-    if deps:
+    if deps and deps.health_checker:
         deps.health_checker.stop()
 
     # Cancel and await background tasks to ensure CancelledError is handled
