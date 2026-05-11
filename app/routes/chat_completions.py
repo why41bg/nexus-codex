@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
+from app.utils.logger import log
 from app.models import ChatCompletionRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.services.account_pool import PoolEntry
@@ -119,7 +120,10 @@ async def _do_non_stream(
                 response_data, completion_id, body.model
             )
         except json.JSONDecodeError:
-            pass
+            log.warning(
+                "Non-stream chat completion: failed to parse response chunk as JSON",
+                extra={"completion_id": completion_id, "raw_data": raw_data[:200] if raw_data else ""},
+            )
 
     if result is None:
         result = ChatGPTAdapter.convert_non_stream_response(
@@ -165,7 +169,10 @@ async def _stream_completion_with_retry(
                 for chunk_json in chunks:
                     yield f"data: {chunk_json}\n\n"
             except json.JSONDecodeError:
-                pass
+                log.warning(
+                    "Stream chat completion: failed to parse SSE chunk as JSON",
+                    extra={"completion_id": completion_id, "raw_data": raw_data[:200] if raw_data else ""},
+                )
 
         yield "data: [DONE]\n\n"
 

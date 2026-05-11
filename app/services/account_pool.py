@@ -281,8 +281,8 @@ class AccountPool:
         for handler in self._event_handlers:
             try:
                 handler(event)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Event handler error", extra={"error": str(e)})
 
     async def close(self) -> None:
         """Clean up resources — close all ChatGPT HTTP clients."""
@@ -290,8 +290,11 @@ class AccountPool:
             if entry.chatgpt_client:
                 try:
                     await entry.chatgpt_client.aclose()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning(
+                        "Failed to close ChatGPT client",
+                        extra={"account_id": entry.account_id, "error": str(e)},
+                    )
         self._pool.clear()
         self._session_bindings.clear()
         self._account_sessions.clear()

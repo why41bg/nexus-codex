@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
+from app.utils.logger import log
 from app.models import ResponsesRequest
 from app.middleware.auth import api_key_auth_dependency
 from app.services.account_pool import PoolEntry
@@ -100,7 +101,10 @@ async def _do_non_stream(
             result = json.loads(raw_data)
             result["id"] = response_id
         except json.JSONDecodeError:
-            pass
+            log.warning(
+                "Non-stream responses: failed to parse response chunk as JSON",
+                extra={"response_id": response_id, "raw_data": raw_data[:200] if raw_data else ""},
+            )
 
     if result is None:
         result = {
@@ -158,7 +162,10 @@ async def _stream_response_with_retry(
 
                 yield ChatGPTAdapter.build_named_event(event_type, event_data)
             except json.JSONDecodeError:
-                pass
+                log.warning(
+                    "Stream responses: failed to parse SSE chunk as JSON",
+                    extra={"response_id": response_id, "raw_data": raw_data[:200] if raw_data else ""},
+                )
 
         if not seen_completed:
             yield ChatGPTAdapter.build_named_event("response.completed", {

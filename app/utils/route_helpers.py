@@ -79,7 +79,7 @@ async def increment_counters(deps: "AppDependencies", account_id: str, api_key: 
 
 
 async def trigger_probe_safe(account_id: str, health_checker=None) -> None:
-    """Trigger a health probe for an account, swallowing any errors.
+    """Trigger a health probe for an account, logging but not propagating errors.
 
     Args:
         account_id: The account to probe.
@@ -88,5 +88,8 @@ async def trigger_probe_safe(account_id: str, health_checker=None) -> None:
     try:
         if health_checker:
             await health_checker.trigger_probe(account_id)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(
+            "Health probe failed (non-fatal)",
+            extra={"account_id": account_id, "error": str(e)},
+        )
