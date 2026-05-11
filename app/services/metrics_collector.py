@@ -57,11 +57,11 @@ class MetricsCollector:
             self._buffer.clear()
             self._last_flush = time.monotonic()
 
-        for model, account_id, latency_ms, success, api_key in batch:
-            try:
-                await self._store.record(model, account_id, latency_ms, success, api_key)
-            except Exception as e:
-                log.error("Failed to persist metric", extra={"error": str(e)})
+            for model, account_id, latency_ms, success, api_key in batch:
+                try:
+                    await self._store.record(model, account_id, latency_ms, success, api_key)
+                except Exception as e:
+                    log.error("Failed to persist metric", extra={"error": str(e)})
 
     # ─── Query delegates (read-through) ────────────────────────────
 
