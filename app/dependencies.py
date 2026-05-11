@@ -49,17 +49,17 @@ class AppDependencies:
     log_store: LogStore | None = None
     ip_ban_store: IPBanStore = field(default_factory=IPBanStore)
     rate_limiter: "RateLimiter" = field(default=None)  # type: ignore[assignment]  # lazily set during startup
+    admin_emitter: AdminEmitter = field(default_factory=AdminEmitter)
+    session_manager: SessionManager = field(default_factory=SessionManager)
+    health_checker: "HealthChecker | None" = None
+    bootstrap_manager: "BootstrapManager | None" = None
+    quota_probe_service: "QuotaProbeService | None" = None
 
     def __post_init__(self) -> None:
         """Ensure rate_limiter is initialised even when not provided."""
         if self.rate_limiter is None:
             from app.middleware.rate_limit import RateLimiter
             self.rate_limiter = RateLimiter()
-    admin_emitter: AdminEmitter = field(default_factory=AdminEmitter)
-    session_manager: SessionManager = field(default_factory=SessionManager)
-    health_checker: "HealthChecker | None" = None
-    bootstrap_manager: "BootstrapManager | None" = None
-    quota_probe_service: "QuotaProbeService | None" = None
 
 
 def get_deps(request: Request) -> AppDependencies:
