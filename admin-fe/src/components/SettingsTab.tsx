@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, extractErrorMessage } from '@/lib/api';
+import { cardClass, inputClass } from '@/lib/styles';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import Spinner from './Spinner';
-
-const cardClass = 'rounded-2xl bg-white dark:bg-slate-800 shadow-sm ring-1 ring-gray-200 dark:ring-slate-700';
-const inputClass =
-  'block w-full rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500';
 
 interface SettingsData {
   codexCliPath: string;

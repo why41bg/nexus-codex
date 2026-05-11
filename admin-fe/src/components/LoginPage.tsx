@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { inputClass } from '@/lib/styles';
 import { useAuth } from '@/contexts/AuthContext';
@@ -10,7 +10,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const passwordRef = useRef<HTMLInputElement>(null);
 
   const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -44,7 +43,6 @@ export default function LoginPage() {
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">密码</label>
             <input
-              ref={passwordRef}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
