@@ -1,4 +1,4 @@
-"""Tests for MetricsCollector (delegation layer over MetricsStore)."""
+"""Tests for MetricsCollector (write-behind buffer over MetricsStore)."""
 
 from unittest.mock import AsyncMock
 
@@ -20,6 +20,8 @@ class TestMetricsCollector:
         await mc.record("gpt-4", "acc-1", 200, True)
         await mc.record("gpt-4", "acc-2", 300, False)
 
+        # Records are buffered; flush to persist
+        await mc.flush()
         assert mock_store.record.call_count == 3
 
         ts = await mc.get_time_series("1h")
@@ -71,6 +73,7 @@ class TestMetricsCollector:
         }
         mc = MetricsCollector(mock_store)
         await mc.record("gpt-4", "acc-1", 500, False)
+        await mc.flush()
 
         ts = await mc.get_time_series("1h")
         bucket = ts["buckets"][0]
@@ -113,6 +116,21 @@ class TestMetricsCollector:
         mock_store.record = AsyncMock(side_effect=RuntimeError("db error"))
         mc = MetricsCollector(mock_store)
 
-        # Should not raise — exceptions are caught and logged
+        # Should not raise — exceptions are caught and logged during flush
         await mc.record("gpt-4", "acc-1", 100, True)
+        await mc.flush()
         mock_store.record.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_flush_clears_buffer(self):
+        mock_store = AsyncMock()
+        mc = MetricsCollector(mock_store)
+        await mc.record("gpt-4", "acc-1", 100, True)
+        await mc.record("gpt-4", "acc-1", 200, True)
+
+        await mc.flush()
+        assert mock_store.record.call_count == 2
+
+        # Second flush should be a no-op
+        await mc.flush()
+        assert mock_store.record.call_count == 2
