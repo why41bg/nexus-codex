@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.config import settings
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
@@ -50,6 +51,8 @@ def _record_to_dict(record) -> dict:
         "applicantContact": record.applicant_contact,
         "note": record.note,
         "clientIp": record.client_ip,
+        "requestedMaxConcurrency": record.requested_max_concurrency,
+        "approvedMaxConcurrency": record.approved_max_concurrency,
         "status": record.status,
         "createdAt": record.created_at,
         "expiresAt": record.expires_at,
@@ -139,6 +142,9 @@ async def review_contribution(
     if body.action == "approve":
         if record.status != "pending_review":
             return build_openai_error_response(409, "当前状态不可批准")
+        requested = max(1, record.requested_max_concurrency)
+        approved = body.approved_max_concurrency or requested
+        approved = max(1, min(approved, settings.public_contribution_max_concurrency_cap))
         duplicate = next(
             (item for item in await deps.account_store.load_accounts() if item.codex_home == record.codex_home),
             None,
@@ -167,13 +173,14 @@ async def review_contribution(
         account = await deps.account_store.add_account(
             record.codex_home,
             remark=f"shared:{record.applicant_name}",
-            max_concurrency=1,
+            max_concurrency=approved,
         )
         deps.pool.add_entry(account)
         deps.admin_emitter.emit({"type": "pool_changed"})
         await deps.config_store.update_contribution_record(
             record_id,
             status="approved",
+            approved_max_concurrency=approved,
             reviewed_at=datetime.now(timezone.utc).isoformat(),
             reviewed_by="admin",
             reviewer_note=body.reviewer_note.strip(),

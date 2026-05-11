@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from app.config import settings
 from app.models import ContributionInvite, ContributionRecord
 from app.services.account_bootstrap import BootstrapManager, BootstrapSession
 from app.services.account_store import AccountStore
@@ -64,6 +65,7 @@ class PublicContributionService:
         applicant_contact: str,
         note: str,
         client_ip: str,
+        requested_max_concurrency: int,
     ) -> dict:
         if len(self._active_sessions) >= self._global_active_limit:
             raise ValueError("当前共享登录通道繁忙，请稍后再试")
@@ -85,6 +87,10 @@ class PublicContributionService:
             applicant_contact=applicant_contact,
             note=note,
             client_ip=client_ip,
+            requested_max_concurrency=max(
+                1,
+                min(requested_max_concurrency, settings.public_contribution_max_concurrency_cap),
+            ),
             status="waiting_for_login",
             codex_home=session.codex_home,
             login_url=session.login_url,

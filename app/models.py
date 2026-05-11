@@ -110,6 +110,8 @@ class ContributionRecord(BaseModel):
     applicant_contact: str
     note: str = ""
     client_ip: str
+    requested_max_concurrency: int = 1
+    approved_max_concurrency: int | None = None
     status: str = "pending"
     codex_home: str
     login_url: str | None = None
@@ -451,11 +453,13 @@ class PublicContributionStartRequest(CamelModel):
     applicant_name: str
     applicant_contact: str
     note: str = ""
+    requested_max_concurrency: int | None = None
 
 
 class ReviewContributionRequest(CamelModel):
     action: str
     reviewer_note: str = ""
+    approved_max_concurrency: int | None = None
 
 
 class RevealApiKeyRequest(CamelModel):
@@ -733,6 +737,8 @@ class ContributionRecordItem(BaseModel):
     applicantContact: str
     note: str
     clientIp: str
+    requestedMaxConcurrency: int
+    approvedMaxConcurrency: int | None = None
     status: str
     createdAt: str
     expiresAt: str | None = None

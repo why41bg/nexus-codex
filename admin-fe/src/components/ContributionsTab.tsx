@@ -16,6 +16,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [approvedConcurrency, setApprovedConcurrency] = useState<Record<string, string>>({});
 
   const createInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +40,10 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
     const res = await api('POST', `/api/admin/contributions/${recordId}/review`, {
       action,
       reviewerNote: reviewNotes[recordId] || '',
+      approvedMaxConcurrency:
+        action === 'approve'
+          ? Number(approvedConcurrency[recordId] || '0') || undefined
+          : undefined,
     });
     if (res.ok) onRefresh();
   };
@@ -134,14 +139,28 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                 ) : null}
               </div>
               {record.note ? <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">{record.note}</p> : null}
+              <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                建议并发度：{record.requestedMaxConcurrency}
+                {record.approvedMaxConcurrency ? ` · 最终并发度：${record.approvedMaxConcurrency}` : ''}
+              </p>
               {record.status === 'pending_review' ? (
-                <textarea
-                  className={`mt-3 ${inputClass}`}
-                  rows={2}
-                  placeholder="审核备注（可选）"
-                  value={reviewNotes[record.id] || ''}
-                  onChange={(e) => setReviewNotes((prev) => ({ ...prev, [record.id]: e.target.value }))}
-                />
+                <div className="mt-3 space-y-3">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min="1"
+                    placeholder="最终并发度（默认采用建议值）"
+                    value={approvedConcurrency[record.id] ?? String(record.requestedMaxConcurrency)}
+                    onChange={(e) => setApprovedConcurrency((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                  />
+                  <textarea
+                    className={inputClass}
+                    rows={2}
+                    placeholder="审核备注（可选）"
+                    value={reviewNotes[record.id] || ''}
+                    onChange={(e) => setReviewNotes((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                  />
+                </div>
               ) : null}
               {record.accountId ? (
                 <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">

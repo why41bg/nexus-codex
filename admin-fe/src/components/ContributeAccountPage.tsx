@@ -16,6 +16,7 @@ export default function ContributeAccountPage() {
   const [applicantName, setApplicantName] = useState('');
   const [applicantContact, setApplicantContact] = useState('');
   const [note, setNote] = useState('');
+  const [requestedMaxConcurrency, setRequestedMaxConcurrency] = useState('1');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [session, setSession] = useState<PublicContributionSession | null>(null);
@@ -49,6 +50,7 @@ export default function ContributeAccountPage() {
       applicantName: applicantName.trim(),
       applicantContact: applicantContact.trim(),
       note: note.trim(),
+      requestedMaxConcurrency: Number(requestedMaxConcurrency || '1'),
     });
     setLoading(false);
     if (!res.ok) {
@@ -79,6 +81,14 @@ export default function ContributeAccountPage() {
             <input className={inputClass} placeholder="邀请码" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
             <input className={inputClass} placeholder="你的称呼" value={applicantName} onChange={(e) => setApplicantName(e.target.value)} />
             <input className={inputClass} placeholder="联系方式" value={applicantContact} onChange={(e) => setApplicantContact(e.target.value)} />
+            <input
+              className={inputClass}
+              type="number"
+              min="1"
+              placeholder="建议并发度"
+              value={requestedMaxConcurrency}
+              onChange={(e) => setRequestedMaxConcurrency(e.target.value)}
+            />
             <textarea className={inputClass} placeholder="备注（可选）" value={note} onChange={(e) => setNote(e.target.value)} rows={4} />
             {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
             <button type="submit" disabled={loading} className={primaryBtnClass}>

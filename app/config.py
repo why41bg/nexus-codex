@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Account pool
     default_max_concurrency: int = Field(default=1, ge=1)
     acquire_timeout_ms: int = Field(default=30_000, ge=1000)
+    public_contribution_max_concurrency_cap: int = Field(default=5, ge=1)
 
     # Request
     request_timeout_ms: int = 5 * 60 * 1000  # 5 minutes

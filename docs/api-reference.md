@@ -102,6 +102,7 @@ Nexus Codex 是一个兼容 OpenAI API 的 Codex 账号池网关。后端基于 
 | `applicantName` | string | ✅ | 申请人名称 |
 | `applicantContact` | string | ✅ | 联系方式 |
 | `note` | string | ❌ | 备注 |
+| `requestedMaxConcurrency` | integer | ❌ | 建议账号入池并发度，默认 `1`，受系统上限约束 |
 
 **响应示例:**
 ```json
@@ -421,6 +422,7 @@ Responses API 接口，兼容 OpenAI Responses API。
 |------|------|------|------|
 | `action` | string | ✅ | `approve` 或 `reject` |
 | `reviewerNote` | string | ❌ | 审核备注 |
+| `approvedMaxConcurrency` | integer | ❌ | 审核通过时最终采用的并发度，默认使用用户建议值并受系统上限约束 |
 
 **说明:**
 - `approve` 会将待审核贡献账号正式导入账号池

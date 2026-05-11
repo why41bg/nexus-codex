@@ -251,6 +251,8 @@ export interface ContributionRecord {
   applicantContact: string;
   note: string;
   clientIp: string;
+  requestedMaxConcurrency: number;
+  approvedMaxConcurrency?: number | null;
   status: string;
   createdAt: string;
   expiresAt?: string | null;

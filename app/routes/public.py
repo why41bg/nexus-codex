@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
+from app.config import settings
 from app.models import ClaimApiKeyRequest, PublicContributionStartRequest
 from app.services.ip_ban_store import get_client_ip
 from app.utils.route_helpers import build_openai_error_response
@@ -79,10 +80,18 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request, deps: AppDep
     applicant_name = body.applicant_name.strip()
     applicant_contact = body.applicant_contact.strip()
     note = body.note.strip()
+    requested_max_concurrency = body.requested_max_concurrency or 1
     if not applicant_name:
         return build_openai_error_response(400, "申请人名称不能为空")
     if not applicant_contact:
         return build_openai_error_response(400, "联系方式不能为空")
+    if requested_max_concurrency < 1:
+        return build_openai_error_response(400, "建议并发度必须大于等于 1")
+    if requested_max_concurrency > settings.public_contribution_max_concurrency_cap:
+        return build_openai_error_response(
+            400,
+            f"建议并发度不能超过系统上限 {settings.public_contribution_max_concurrency_cap}",
+        )
     if not template.models:
         return build_openai_error_response(409, "申领模板未配置可用模型")
     if template.require_claim_code and not hmac.compare_digest(
@@ -199,6 +208,7 @@ async def start_public_contribution(
             applicant_contact=applicant_contact,
             note=note,
             client_ip=client_ip,
+            requested_max_concurrency=requested_max_concurrency,
         )
     except ValueError as exc:
         return build_openai_error_response(429, str(exc))
