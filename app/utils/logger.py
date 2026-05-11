@@ -20,6 +20,8 @@ from app.config import settings
 
 # ── Shared style constants ───────────────────────────────────────────
 
+_IS_TTY = sys.stdout.isatty()
+
 _COLORS: dict[str, str] = {
     "DEBUG": "\033[36m",
     "INFO": "\033[32m",
@@ -56,9 +58,11 @@ _LEVEL_MAP: dict[str, int] = {
 
 def _fmt_line(levelname: str, message: str) -> str:
     """Format a single log line: ``timestamp BADGE message``."""
-    color = _COLORS.get(levelname, "")
     badge = _BADGES.get(levelname, levelname)
     time_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    if not _IS_TTY:
+        return f"{time_str} {badge} {message}"
+    color = _COLORS.get(levelname, "")
     return (
         f"{_DIM}{time_str}{_RESET} "
         f"{color}{badge}{_RESET} "
@@ -97,7 +101,10 @@ class PrettyFormatter(logging.Formatter):
 
         extra_str = ""
         if hasattr(record, "extra_data") and record.extra_data:
-            parts = [f"\033[36m{k}\033[0m={v}" for k, v in record.extra_data.items()]
+            if _IS_TTY:
+                parts = [f"\033[36m{k}\033[0m={v}" for k, v in record.extra_data.items()]
+            else:
+                parts = [f"{k}={v}" for k, v in record.extra_data.items()]
             extra_str = " " + " ".join(parts)
 
         return _fmt_line(record.levelname, msg) + extra_str
@@ -130,9 +137,6 @@ class NexusAccessFormatter(logging.Formatter):
         except ValueError:
             phrase = ""
 
-        sc = _STATUS_COLORS.get(status // 100, "")
-        status_str = f"{sc}{status} {phrase}{_RESET}"
-
         if status >= 500:
             levelname = "ERROR"
         elif status >= 400:
@@ -140,7 +144,13 @@ class NexusAccessFormatter(logging.Formatter):
         else:
             levelname = record.levelname
 
-        message = f"{method} {full_path} → {status_str}  {_DIM}({client_addr}){_RESET}"
+        if _IS_TTY:
+            sc = _STATUS_COLORS.get(status // 100, "")
+            status_str = f"{sc}{status} {phrase}{_RESET}"
+            message = f"{method} {full_path} → {status_str}  {_DIM}({client_addr}){_RESET}"
+        else:
+            status_str = f"{status} {phrase}"
+            message = f"{method} {full_path} → {status_str}  ({client_addr})"
         return _fmt_line(levelname, message)
 
 
