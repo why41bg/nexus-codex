@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 
 from app.config import settings
+from app.dependencies import get_deps_from_request
 from app.exceptions import RateLimitError
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ class RateLimiter:
     async def check(self, request: Request, api_key: str) -> None:
         """Rate limit check. Raises HTTPException(429) if limit exceeded."""
         # Determine limits for this key via DI
-        deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+        deps: AppDependencies | None = get_deps_from_request(request)
         config_store = deps.config_store if deps else None
         key_config = config_store.find_api_key(api_key) if config_store else None
         limit_max = key_config.rate_limit_max if (key_config and key_config.rate_limit_max) else settings.rate_limit_max
@@ -89,6 +90,6 @@ async def rate_limit_dependency(request: Request, api_key: str) -> None:
     shared consistently through the DI container rather than a module-level
     singleton.
     """
-    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    deps: AppDependencies | None = get_deps_from_request(request)
     limiter = deps.rate_limiter if deps else RateLimiter()
     await limiter.check(request, api_key)

@@ -6,6 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.dependencies import get_deps_from_request
 from app.services.ip_ban_store import get_client_ip
 
 
@@ -21,7 +22,7 @@ class IPBanMiddleware(BaseHTTPMiddleware):
         client_ip = get_client_ip(request)
 
         # Use the DI-managed ip_ban_store from app.state.deps
-        deps = getattr(request.app.state, "deps", None)
+        deps = get_deps_from_request(request)
         ip_ban_store = deps.ip_ban_store if deps else None
 
         if ip_ban_store and ip_ban_store.is_banned(client_ip):

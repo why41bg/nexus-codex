@@ -22,12 +22,11 @@ from app.services.log_store import LogStore
 from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
 from app.services.session_manager import SessionManager
-from app.middleware.rate_limit import RateLimiter
 
-# TYPE_CHECKING import to avoid circular dependency
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from app.middleware.rate_limit import RateLimiter
     from app.services.account_bootstrap import BootstrapManager
     from app.services.health_check import HealthChecker
     from app.services.quota_probe import QuotaProbeService
@@ -49,7 +48,13 @@ class AppDependencies:
     log_collector: LogCollector | None = None
     log_store: LogStore | None = None
     ip_ban_store: IPBanStore = field(default_factory=IPBanStore)
-    rate_limiter: RateLimiter = field(default_factory=RateLimiter)
+    rate_limiter: "RateLimiter" = field(default=None)  # type: ignore[assignment]  # lazily set during startup
+
+    def __post_init__(self) -> None:
+        """Ensure rate_limiter is initialised even when not provided."""
+        if self.rate_limiter is None:
+            from app.middleware.rate_limit import RateLimiter
+            self.rate_limiter = RateLimiter()
     admin_emitter: AdminEmitter = field(default_factory=AdminEmitter)
     session_manager: SessionManager = field(default_factory=SessionManager)
     health_checker: "HealthChecker | None" = None
@@ -66,3 +71,14 @@ def get_deps(request: Request) -> AppDependencies:
             entry = await deps.pool.acquire_async()
     """
     return request.app.state.deps
+
+
+def get_deps_from_request(request: Request) -> AppDependencies | None:
+    """Retrieve the DI container from a raw Request object.
+
+    Unlike ``get_deps`` (which is a FastAPI Depends), this helper is
+    safe to call from middleware and other contexts where FastAPI's
+    dependency injection is not available.  Returns ``None`` if the
+    container has not been initialised yet.
+    """
+    return getattr(request.app.state, "deps", None)
