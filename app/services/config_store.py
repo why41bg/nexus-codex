@@ -18,10 +18,9 @@ from pathlib import Path
 import aiofiles
 
 from app.models import ApiKeyEntry, ApiKeyTemplate, AppConfig, BannedIP, ClaimRateLimitEntry
-from app.config import settings
+from app.config import DATA_DIR, settings
 from app.utils.logger import log
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
 CONFIG_PATH = DATA_DIR / "config.json"
 
 
@@ -88,7 +87,7 @@ class ConfigStore:
 
         # Security warning
         if settings.admin_username == "admin" and settings.verify_password("admin"):
-            log.warn(
+            log.warning(
                 "Admin credentials are default (admin/admin). "
                 "Set ADMIN_USERNAME/ADMIN_PASSWORD env vars for production."
             )
@@ -134,13 +133,18 @@ class ConfigStore:
         return self._config.api_keys
 
     def find_api_key(self, key: str) -> ApiKeyEntry | None:
-        """Find an API key entry by key value."""
+        """Find an API key entry by key value using constant-time comparison.
+
+        Iterates all keys and uses ``_constant_time_equal`` to prevent
+        timing-based side-channel attacks that could reveal valid keys.
+        """
         if self._config is None:
             return None
+        found: ApiKeyEntry | None = None
         for k in self._config.api_keys:
-            if k.key == key:
-                return k
-        return None
+            if _constant_time_equal(k.key, key):
+                found = k
+        return found
 
     def get_models_for_key(self, key: str) -> list[str]:
         """Get models available for a specific API key."""

@@ -3,13 +3,32 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 from typing import TYPE_CHECKING
 
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
+from app.dependencies import get_deps_from_request
+
 if TYPE_CHECKING:
     from app.dependencies import AppDependencies
+
+
+def _constant_time_key_check(api_key: str, allowed_keys: set[str]) -> bool:
+    """Check if api_key is in allowed_keys using constant-time comparison.
+
+    Iterates all keys and uses HMAC-based comparison to prevent
+    timing side-channel attacks that could reveal valid key prefixes.
+    """
+    ha = hmac.new(b"nexus-key-check", api_key.encode(), hashlib.sha256).digest()
+    found = False
+    for k in allowed_keys:
+        hb = hmac.new(b"nexus-key-check", k.encode(), hashlib.sha256).digest()
+        if hmac.compare_digest(ha, hb):
+            found = True
+    return found
 
 
 def _error_response(message: str, error_type: str, code: str, status: int) -> JSONResponse:
@@ -19,14 +38,9 @@ def _error_response(message: str, error_type: str, code: str, status: int) -> JS
     )
 
 
-def _get_deps(request: Request) -> "AppDependencies | None":
-    """Get the AppDependencies from app state."""
-    return getattr(request.app.state, "deps", None)
-
-
 def _get_session_manager(request: Request):
     """Get the SessionManager from DI container."""
-    deps = _get_deps(request)
+    deps = get_deps_from_request(request)
     if deps:
         return deps.session_manager
     return None
@@ -75,7 +89,7 @@ async def admin_auth_dependency(request: Request) -> None:
                 status_code=401,
                 detail={"error": {"message": "Invalid Basic auth encoding.", "type": "authentication_error", "code": "invalid_credentials"}},
             )
-        deps = _get_deps(request)
+        deps = get_deps_from_request(request)
         if not deps or not deps.config_store.verify_admin_auth(username, password):
             raise HTTPException(
                 status_code=401,
@@ -94,7 +108,7 @@ async def api_key_auth_dependency(request: Request) -> str:
     Dependency for API key authentication.
     Returns the validated API key string.
     """
-    deps = _get_deps(request)
+    deps = get_deps_from_request(request)
     if not deps:
         raise HTTPException(
             status_code=500,
@@ -124,7 +138,7 @@ async def api_key_auth_dependency(request: Request) -> str:
         )
 
     api_key = auth_header[7:]
-    if api_key not in allowed_keys:
+    if not _constant_time_key_check(api_key, allowed_keys):
         raise HTTPException(
             status_code=401,
             detail={"error": {"message": "Invalid API key provided.", "type": "invalid_request_error", "code": "invalid_api_key"}},
