@@ -406,6 +406,7 @@ class BatchUnbanRequest(BaseModel):
 class UpdateSettingsRequest(CamelModel):
     """Request to update runtime settings."""
     codex_cli_path: str | None = None
+    node_path: str | None = None
 
 
 # ─── Error ─────────────────────────────────────────────────
@@ -569,6 +570,7 @@ class BatchUnbanResponse(BaseModel):
 class SettingsResponse(BaseModel):
     """Response for get settings."""
     codexCliPath: str
+    nodePath: str = ""
 
 
 class UpdateSettingsResponse(BaseModel):

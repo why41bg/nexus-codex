@@ -69,6 +69,7 @@ class Settings(BaseSettings):
 
     # Codex CLI
     codex_cli_path: str = "codex"  # absolute path to codex binary, e.g. /home/ubuntu/.nvm/versions/node/v20.20.2/bin/codex
+    codex_node_path: str = ""  # absolute path to node binary or directory containing node
 
     # Extended events
     codex_chat_completions_extended_events: bool = False

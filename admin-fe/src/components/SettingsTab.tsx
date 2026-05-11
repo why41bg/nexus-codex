@@ -7,6 +7,7 @@ import Spinner from './Spinner';
 
 interface SettingsData {
   codexCliPath: string;
+  nodePath: string;
 }
 
 export default function SettingsTab() {
@@ -15,7 +16,9 @@ export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [codexCliPath, setCodexCliPath] = useState('');
+  const [nodePath, setNodePath] = useState('');
   const [originalPath, setOriginalPath] = useState('');
+  const [originalNodePath, setOriginalNodePath] = useState('');
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -24,7 +27,9 @@ export default function SettingsTab() {
       if (authGuard(res.status)) return;
       if (res.ok) {
         setCodexCliPath(res.data.codexCliPath || '');
+        setNodePath(res.data.nodePath || '');
         setOriginalPath(res.data.codexCliPath || '');
+        setOriginalNodePath(res.data.nodePath || '');
       } else {
         toast(extractErrorMessage(res.data, '获取设置失败'), 'error');
       }
@@ -40,7 +45,7 @@ export default function SettingsTab() {
   }, [fetchSettings]);
 
   const handleSave = async () => {
-    if (codexCliPath === originalPath) {
+    if (!hasChanges) {
       toast('没有需要保存的修改', 'success');
       return;
     }
@@ -48,11 +53,13 @@ export default function SettingsTab() {
     try {
       const res = await api<{ updated: Record<string, string> }>('PATCH', '/api/admin/settings', {
         codexCliPath: codexCliPath.trim(),
+        nodePath: nodePath.trim(),
       });
       if (authGuard(res.status)) return;
       if (res.ok) {
         toast('设置已保存', 'success');
         setOriginalPath(codexCliPath.trim());
+        setOriginalNodePath(nodePath.trim());
       } else {
         toast(extractErrorMessage(res.data, '保存失败'), 'error');
       }
@@ -63,7 +70,7 @@ export default function SettingsTab() {
     }
   };
 
-  const hasChanges = codexCliPath !== originalPath;
+  const hasChanges = codexCliPath !== originalPath || nodePath !== originalNodePath;
 
   if (loading) {
     return (
@@ -103,6 +110,27 @@ export default function SettingsTab() {
         </div>
       </div>
 
+      {/* Node Path */}
+      <div className="mt-6">
+        <label htmlFor="node-path" className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+          Node.js 路径
+        </label>
+        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+          Node 可执行文件或 bin 目录路径。账号 Bootstrap 时会把该目录加入子进程 PATH，解决服务环境找不到 <code className="rounded bg-gray-100 dark:bg-slate-700 px-1 py-0.5 font-mono text-xs">node</code> 的问题。
+        </p>
+        <div className="mt-2 flex gap-3">
+          <input
+            id="node-path"
+            type="text"
+            className={`${inputClass} flex-1 font-mono`}
+            placeholder="/home/ubuntu/.nvm/versions/node/v20.20.2/bin/node"
+            value={nodePath}
+            onChange={(e) => setNodePath(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && hasChanges) handleSave(); }}
+          />
+        </div>
+      </div>
+
       {/* Save Button */}
       <div className="mt-6 flex items-center gap-3">
         <button
@@ -115,7 +143,10 @@ export default function SettingsTab() {
         </button>
         {hasChanges && (
           <button
-            onClick={() => setCodexCliPath(originalPath)}
+            onClick={() => {
+              setCodexCliPath(originalPath);
+              setNodePath(originalNodePath);
+            }}
             className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-slate-400 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
           >
             取消修改

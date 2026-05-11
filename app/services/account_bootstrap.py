@@ -75,6 +75,21 @@ def session_to_dict(session: BootstrapSession) -> dict:
     }
 
 
+def _build_subprocess_env(codex_home: Path, node_path: str) -> dict[str, str]:
+    """Build env for Codex CLI, optionally prepending a configured Node path."""
+    env = {**os.environ, "CODEX_HOME": str(codex_home)}
+    if not node_path:
+        return env
+
+    node_path_obj = Path(node_path).expanduser()
+    if not node_path_obj.is_absolute():
+        return env
+    node_dir = node_path_obj if node_path_obj.is_dir() else node_path_obj.parent
+    existing_path = env.get("PATH", "")
+    env["PATH"] = f"{node_dir}{os.pathsep}{existing_path}" if existing_path else str(node_dir)
+    return env
+
+
 class BootstrapManager:
     """Encapsulated bootstrap session state — no module-level globals.
 
@@ -172,7 +187,7 @@ class BootstrapManager:
 
         from app.config import settings
 
-        env = {**os.environ, "CODEX_HOME": str(account_dir)}
+        env = _build_subprocess_env(account_dir, settings.codex_node_path)
         proc = await asyncio.create_subprocess_exec(
             settings.codex_cli_path,
             "login",

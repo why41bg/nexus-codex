@@ -188,6 +188,12 @@ def _load_persisted_settings():
         if "codex_cli_path" in data and data["codex_cli_path"]:
             settings.codex_cli_path = data["codex_cli_path"]
             log.info("Loaded persisted setting", extra={"codex_cli_path": data["codex_cli_path"]})
+        if "codex_node_path" in data:
+            settings.codex_node_path = data["codex_node_path"] or ""
+            log.info("Loaded persisted setting", extra={"codex_node_path": settings.codex_node_path})
+        elif "node_path" in data:
+            settings.codex_node_path = data["node_path"] or ""
+            log.info("Loaded legacy persisted setting", extra={"codex_node_path": settings.codex_node_path})
     except (json.JSONDecodeError, OSError) as e:
         log.warning("Failed to load persisted settings", extra={"error": str(e)})
 
