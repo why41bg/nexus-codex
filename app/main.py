@@ -271,20 +271,24 @@ async def access_log_middleware(request: Request, call_next):
     else:
         log.info(f"{request.method} {path} → {status}", extra=log_extra)
 
-    # Structured log collection (reuse extracted context from above)
+    # Structured log collection (reuse extracted context from above).
+    # Fire-and-forget so the SQLite write does not block the response.
     deps: AppDependencies | None = get_deps_from_request(request)
     if deps and deps.log_collector:
         # Only persist error/warn requests (>= 400); 2xx/3xx covered by metrics
         if status >= 400:
-            await deps.log_collector.emit(
-                "request_complete",
-                f"{request.method} {path} → {status}",
-                context={"method": request.method, "path": path, "status": status, "model": _model, "account_id": _account},
-                trace_id=_req_id,
-                api_key_id=_api_key,
-                account_id=_account,
-                client_ip=client,
-                duration_ms=elapsed_ms,
+            create_bg_task(
+                deps.log_collector.emit(
+                    "request_complete",
+                    f"{request.method} {path} → {status}",
+                    context={"method": request.method, "path": path, "status": status, "model": _model, "account_id": _account},
+                    trace_id=_req_id,
+                    api_key_id=_api_key,
+                    account_id=_account,
+                    client_ip=client,
+                    duration_ms=elapsed_ms,
+                ),
+                name="access-log",
             )
 
     return response
