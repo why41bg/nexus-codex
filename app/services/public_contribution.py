@@ -167,6 +167,9 @@ class PublicContributionService:
             return None
         return self._public_session_payload(record)
 
+    def has_active_sessions_for_invite(self, invite_id: str) -> bool:
+        return any(item.invite_id == invite_id for item in self._active_sessions.values())
+
     async def finalize_record(self, record_id: str, *, remove_directory: bool) -> bool:
         record = self._config_store.find_contribution_record(record_id)
         if not record:
