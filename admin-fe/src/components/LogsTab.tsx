@@ -13,6 +13,31 @@ const LEVEL_COLORS: Record<string, string> = {
   critical: 'bg-red-200 text-red-900 dark:bg-red-900/60 dark:text-red-200',
 };
 
+const TIME_RANGES = [
+  { label: '最近 1 小时', value: '1h', ms: 3600_000 },
+  { label: '最近 6 小时', value: '6h', ms: 21600_000 },
+  { label: '最近 24 小时', value: '24h', ms: 86400_000 },
+  { label: '最近 7 天', value: '7d', ms: 604800_000 },
+  { label: '全部', value: '', ms: 0 },
+] as const;
+
+const EVENT_TYPES = [
+  { label: '全部事件', value: '' },
+  { label: '请求完成', value: 'request_complete' },
+  { label: '请求错误', value: 'request_error' },
+  { label: '上游错误', value: 'upstream_error' },
+  { label: '上游超时', value: 'upstream_timeout' },
+  { label: '认证失败', value: 'auth_failure' },
+  { label: '登录失败', value: 'login_failure' },
+  { label: '速率限制', value: 'rate_limit_hit' },
+  { label: '配额超限', value: 'quota_exceeded' },
+  { label: 'IP 封禁', value: 'ip_auto_banned' },
+  { label: '账号池耗尽', value: 'all_accounts_exhausted' },
+  { label: '健康检查失败', value: 'health_check_fail' },
+  { label: 'Token 过期', value: 'token_expired' },
+  { label: '未处理异常', value: 'unhandled_exception' },
+] as const;
+
 function LevelBadge({ level }: { level: string }) {
   return (
     <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${LEVEL_COLORS[level] || LEVEL_COLORS.info}`}>
@@ -31,12 +56,32 @@ function formatTime(timestamp: number): string {
   });
 }
 
+/** Clickable filter link used in the detail modal */
+function FilterLink({ label, value, onClick }: { label: string; value: string; onClick: (v: string) => void }) {
+  return (
+    <button
+      onClick={() => onClick(value)}
+      className="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
+      title={`筛选: ${label} = ${value}`}
+    >
+      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+      </svg>
+      筛选
+    </button>
+  );
+}
+
 interface LogDetailModalProps {
   entry: LogEntry;
   onClose: () => void;
+  onFilterKeyword: (v: string) => void;
+  onFilterAccountId: (v: string) => void;
+  onFilterApiKey: (v: string) => void;
+  onFilterClientIp: (v: string) => void;
 }
 
-function LogDetailModal({ entry, onClose }: LogDetailModalProps) {
+function LogDetailModal({ entry, onClose, onFilterKeyword, onFilterAccountId, onFilterApiKey, onFilterClientIp }: LogDetailModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
@@ -87,25 +132,37 @@ function LogDetailModal({ entry, onClose }: LogDetailModalProps) {
           {entry.trace_id && (
             <div>
               <dt className="text-gray-500 dark:text-slate-400">Trace ID</dt>
-              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">{entry.trace_id}</dd>
+              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">
+                {entry.trace_id}
+                <FilterLink label="Trace ID" value={entry.trace_id} onClick={(v) => { onFilterKeyword(v); onClose(); }} />
+              </dd>
             </div>
           )}
           {entry.account_id && (
             <div>
               <dt className="text-gray-500 dark:text-slate-400">账号 ID</dt>
-              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">{entry.account_id}</dd>
+              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">
+                {entry.account_id}
+                <FilterLink label="账号 ID" value={entry.account_id} onClick={(v) => { onFilterAccountId(v); onClose(); }} />
+              </dd>
             </div>
           )}
           {entry.api_key_id && (
             <div>
               <dt className="text-gray-500 dark:text-slate-400">API Key</dt>
-              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">{entry.api_key_id}</dd>
+              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">
+                {entry.api_key_id}
+                <FilterLink label="API Key" value={entry.api_key_id} onClick={(v) => { onFilterApiKey(v); onClose(); }} />
+              </dd>
             </div>
           )}
           {entry.client_ip && (
             <div>
               <dt className="text-gray-500 dark:text-slate-400">客户端 IP</dt>
-              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">{entry.client_ip}</dd>
+              <dd className="font-mono text-xs text-gray-900 dark:text-slate-100">
+                {entry.client_ip}
+                <FilterLink label="IP" value={entry.client_ip} onClick={(v) => { onFilterClientIp(v); onClose(); }} />
+              </dd>
             </div>
           )}
           {entry.tags.length > 0 && (
@@ -148,11 +205,21 @@ export default function LogsTab() {
   const [keyword, setKeyword] = useState('');
   const [level, setLevel] = useState('');
   const [source, setSource] = useState('');
+  const [event, setEvent] = useState('');
+  const [timeRange, setTimeRange] = useState('24h');
+  const [accountId, setAccountId] = useState('');
+  const [apiKeyId, setApiKeyId] = useState('');
+  const [clientIp, setClientIp] = useState('');
   const [page, setPage] = useState(0);
   const pageSize = 50;
 
   // Trigger counter: incremented to force a re-fetch (on initial mount + manual query + page change)
   const [fetchTrigger, setFetchTrigger] = useState(0);
+
+  const triggerSearch = useCallback(() => {
+    setPage(0);
+    setFetchTrigger((n) => n + 1);
+  }, []);
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
@@ -160,6 +227,17 @@ export default function LogsTab() {
     if (keyword) params.set('keyword', keyword);
     if (level) params.set('level', level);
     if (source) params.set('source', source);
+    if (event) params.set('event', event);
+    if (accountId) params.set('account_id', accountId);
+    if (apiKeyId) params.set('api_key_id', apiKeyId);
+    if (clientIp) params.set('client_ip', clientIp);
+
+    // Time range
+    const rangeEntry = TIME_RANGES.find((r) => r.value === timeRange);
+    if (rangeEntry && rangeEntry.ms > 0) {
+      params.set('since', String(Date.now() - rangeEntry.ms));
+    }
+
     params.set('limit', String(pageSize));
     params.set('offset', String(page * pageSize));
     params.set('order', 'desc');
@@ -180,6 +258,12 @@ export default function LogsTab() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // Active filter chips (for secondary filters like account_id, api_key_id, client_ip)
+  const activeChips: { label: string; clear: () => void }[] = [];
+  if (accountId) activeChips.push({ label: `账号: ${accountId}`, clear: () => { setAccountId(''); triggerSearch(); } });
+  if (apiKeyId) activeChips.push({ label: `API Key: ${apiKeyId}`, clear: () => { setApiKeyId(''); triggerSearch(); } });
+  if (clientIp) activeChips.push({ label: `IP: ${clientIp}`, clear: () => { setClientIp(''); triggerSearch(); } });
+
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">系统日志</h2>
@@ -195,7 +279,7 @@ export default function LogsTab() {
               className={inputClass}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { setPage(0); setFetchTrigger((n) => n + 1); } }}
+              onKeyDown={(e) => { if (e.key === 'Enter') triggerSearch(); }}
             />
           </div>
           <div className="w-32">
@@ -211,7 +295,31 @@ export default function LogsTab() {
               ))}
             </select>
           </div>
-          <div className="w-48">
+          <div className="w-40">
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-slate-400">事件类型</label>
+            <select
+              className={inputClass}
+              value={event}
+              onChange={(e) => setEvent(e.target.value)}
+            >
+              {EVENT_TYPES.map((ev) => (
+                <option key={ev.value} value={ev.value}>{ev.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-36">
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-slate-400">时间范围</label>
+            <select
+              className={inputClass}
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+            >
+              {TIME_RANGES.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-40">
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-slate-400">来源</label>
             <input
               type="text"
@@ -222,12 +330,45 @@ export default function LogsTab() {
             />
           </div>
           <button
-            onClick={() => { setPage(0); setFetchTrigger((n) => n + 1); }}
+            onClick={triggerSearch}
             className={secondaryBtnClass}
           >
             查询
           </button>
         </div>
+
+        {/* Active filter chips */}
+        {activeChips.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {activeChips.map((chip) => (
+              <span
+                key={chip.label}
+                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+              >
+                {chip.label}
+                <button
+                  onClick={chip.clear}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-blue-100 dark:hover:bg-blue-800/50"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+            <button
+              onClick={() => {
+                setAccountId('');
+                setApiKeyId('');
+                setClientIp('');
+                triggerSearch();
+              }}
+              className="text-xs text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
+            >
+              清除全部
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -240,6 +381,7 @@ export default function LogsTab() {
                 <th className="px-3 py-2.5 text-left font-medium text-gray-500 dark:text-slate-400">级别</th>
                 <th className="px-3 py-2.5 text-left font-medium text-gray-500 dark:text-slate-400">来源</th>
                 <th className="px-3 py-2.5 text-left font-medium text-gray-500 dark:text-slate-400">事件</th>
+                <th className="px-3 py-2.5 text-left font-medium text-gray-500 dark:text-slate-400">账号</th>
                 <th className="px-3 py-2.5 text-left font-medium text-gray-500 dark:text-slate-400">消息</th>
                 <th className="px-3 py-2.5 text-left font-medium text-gray-500 dark:text-slate-400">耗时</th>
               </tr>
@@ -247,11 +389,11 @@ export default function LogsTab() {
             <tbody className="divide-y divide-gray-100 dark:divide-slate-700/50">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-400 dark:text-slate-500">加载中...</td>
+                  <td colSpan={7} className="py-8 text-center text-gray-400 dark:text-slate-500">加载中...</td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-400 dark:text-slate-500">暂无日志数据</td>
+                  <td colSpan={7} className="py-8 text-center text-gray-400 dark:text-slate-500">暂无日志数据</td>
                 </tr>
               ) : (
                 items.map((entry) => (
@@ -271,6 +413,9 @@ export default function LogsTab() {
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-600 dark:text-slate-300">
                       {entry.event}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500 dark:text-slate-400" title={entry.account_id || ''}>
+                      {entry.account_id ? (entry.account_id.length > 12 ? entry.account_id.slice(0, 12) + '…' : entry.account_id) : '-'}
                     </td>
                     <td className="max-w-xs truncate px-3 py-2 text-gray-900 dark:text-slate-100">
                       {entry.message}
@@ -313,7 +458,14 @@ export default function LogsTab() {
 
       {/* Detail Modal */}
       {selectedEntry && (
-        <LogDetailModal entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
+        <LogDetailModal
+          entry={selectedEntry}
+          onClose={() => setSelectedEntry(null)}
+          onFilterKeyword={(v) => { setKeyword(v); triggerSearch(); }}
+          onFilterAccountId={(v) => { setAccountId(v); triggerSearch(); }}
+          onFilterApiKey={(v) => { setApiKeyId(v); triggerSearch(); }}
+          onFilterClientIp={(v) => { setClientIp(v); triggerSearch(); }}
+        />
       )}
     </div>
   );
