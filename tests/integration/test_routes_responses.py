@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
 from tests.integration.conftest import parse_sse_named_events, TEST_MODEL
 
@@ -12,18 +11,14 @@ class TestResponsesNonStream:
     """Non-streaming responses endpoint tests."""
 
     def test_simple_response(self, client):
-        with patch(
-            "app.routes.responses.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/responses",
-                json={
-                    "model": TEST_MODEL,
-                    "input": "Hello",
-                    "stream": False,
-                },
-            )
+        response = client.post(
+            "/v1/responses",
+            json={
+                "model": TEST_MODEL,
+                "input": "Hello",
+                "stream": False,
+            },
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -35,37 +30,30 @@ class TestResponsesNonStream:
         assert data["response"]["status"] == "completed"
 
     def test_model_not_allowed(self, client):
-        with patch(
-            "app.routes.responses.is_model_allowed_for_key",
-            return_value=False,
-        ):
-            response = client.post(
-                "/v1/responses",
-                json={
-                    "model": "gpt-99",
-                    "input": "Hello",
-                    "stream": False,
-                },
-            )
+        client.app.state.deps.config_store.is_model_allowed_for_key.return_value = False
+        response = client.post(
+            "/v1/responses",
+            json={
+                "model": "gpt-99",
+                "input": "Hello",
+                "stream": False,
+            },
+        )
 
         assert response.status_code == 404
         data = response.json()
         assert "gpt-99" in data["error"]["message"]
 
     def test_response_with_instructions(self, client):
-        with patch(
-            "app.routes.responses.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/responses",
-                json={
-                    "model": TEST_MODEL,
-                    "input": "Hello",
-                    "instructions": "You are a helpful assistant.",
-                    "stream": False,
-                },
-            )
+        response = client.post(
+            "/v1/responses",
+            json={
+                "model": TEST_MODEL,
+                "input": "Hello",
+                "instructions": "You are a helpful assistant.",
+                "stream": False,
+            },
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -77,18 +65,14 @@ class TestResponsesStream:
     """Streaming responses endpoint tests."""
 
     def test_stream_response(self, client):
-        with patch(
-            "app.routes.responses.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/responses",
-                json={
-                    "model": TEST_MODEL,
-                    "input": "Hello",
-                    "stream": True,
-                },
-            )
+        response = client.post(
+            "/v1/responses",
+            json={
+                "model": TEST_MODEL,
+                "input": "Hello",
+                "stream": True,
+            },
+        )
 
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
@@ -99,18 +83,14 @@ class TestResponsesStream:
         assert len(completed_events) >= 1
 
     def test_stream_response_has_id(self, client):
-        with patch(
-            "app.routes.responses.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/responses",
-                json={
-                    "model": TEST_MODEL,
-                    "input": "Hello",
-                    "stream": True,
-                },
-            )
+        response = client.post(
+            "/v1/responses",
+            json={
+                "model": TEST_MODEL,
+                "input": "Hello",
+                "stream": True,
+            },
+        )
 
         lines = response.text.strip().split("\n\n")
         for block in lines:

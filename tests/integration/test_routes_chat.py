@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from tests.integration.conftest import (
     MockAccountPool,
@@ -21,18 +21,14 @@ class TestChatCompletionsNonStream:
     """Non-streaming chat completions endpoint tests."""
 
     def test_simple_text_completion(self, client):
-        with patch(
-            "app.routes.chat_completions.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": TEST_MODEL,
-                    "messages": [{"role": "user", "content": "Hello"}],
-                    "stream": False,
-                },
-            )
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": False,
+            },
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -44,18 +40,15 @@ class TestChatCompletionsNonStream:
         assert "usage" in data
 
     def test_model_not_allowed(self, client):
-        with patch(
-            "app.routes.chat_completions.is_model_allowed_for_key",
-            return_value=False,
-        ):
-            response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": "gpt-99",
-                    "messages": [{"role": "user", "content": "Hello"}],
-                    "stream": False,
-                },
-            )
+        client.app.state.deps.config_store.is_model_allowed_for_key.return_value = False
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-99",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": False,
+            },
+        )
 
         assert response.status_code == 404
         data = response.json()
@@ -74,28 +67,28 @@ class TestChatCompletionsNonStream:
         )
         mock_entry = MockPoolEntry(chatgpt_client=mock_client)
         mock_pool = MockAccountPool(entry=mock_entry)
+        mock_config_store = MagicMock()
+        mock_config_store.is_model_allowed_for_key = MagicMock(return_value=True)
+        mock_config_store.find_api_key = MagicMock(return_value=None)
         mock_deps = AppDependencies(
             pool=mock_pool,  # type: ignore[arg-type]
             metrics_collector=MetricsCollector(MagicMock()),
             metrics_store=MagicMock(),
+            config_store=mock_config_store,  # type: ignore[arg-type]
         )
 
         app = build_test_app(mock_deps)
         from fastapi.testclient import TestClient
         tc = TestClient(app)
 
-        with patch(
-            "app.routes.chat_completions.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = tc.post(
-                "/v1/chat/completions",
-                json={
-                    "model": TEST_MODEL,
-                    "messages": [{"role": "user", "content": "What's the weather?"}],
-                    "stream": False,
-                },
-            )
+        response = tc.post(
+            "/v1/chat/completions",
+            json={
+                "model": TEST_MODEL,
+                "messages": [{"role": "user", "content": "What's the weather?"}],
+                "stream": False,
+            },
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -108,18 +101,14 @@ class TestChatCompletionsStream:
     """Streaming chat completions endpoint tests."""
 
     def test_stream_text_completion(self, client):
-        with patch(
-            "app.routes.chat_completions.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": TEST_MODEL,
-                    "messages": [{"role": "user", "content": "Hello"}],
-                    "stream": True,
-                },
-            )
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
 
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
@@ -130,35 +119,27 @@ class TestChatCompletionsStream:
         assert chunks[-1]["choices"][0]["finish_reason"] is not None
 
     def test_stream_ends_with_done(self, client):
-        with patch(
-            "app.routes.chat_completions.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": TEST_MODEL,
-                    "messages": [{"role": "user", "content": "Hello"}],
-                    "stream": True,
-                },
-            )
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
 
         assert response.text.strip().endswith("data: [DONE]")
 
     def test_stream_with_usage(self, client):
-        with patch(
-            "app.routes.chat_completions.is_model_allowed_for_key",
-            return_value=True,
-        ):
-            response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": TEST_MODEL,
-                    "messages": [{"role": "user", "content": "Hello"}],
-                    "stream": True,
-                    "stream_options": {"include_usage": True},
-                },
-            )
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": TEST_MODEL,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            },
+        )
 
         chunks = parse_sse_data_lines(response.text)
         usage_chunks = [c for c in chunks if "usage" in c and c.get("usage")]

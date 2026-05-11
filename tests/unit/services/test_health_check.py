@@ -6,20 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def reset_health_check_state():
-    import app.services.health_check as hc
-
-    hc._fail_counts.clear()
-    hc._running = False
-    hc._tasks.clear()
-    hc._pool = None
-    yield
-    hc._fail_counts.clear()
-    hc._running = False
-    hc._tasks.clear()
-    hc._pool = None
+from app.services.health_check import HealthChecker
 
 
 def _make_mock_entry(account_id="acc-1", healthy=True, token_valid=True):
@@ -42,106 +29,101 @@ def _make_mock_pool(entries=None):
     return pool
 
 
+def _make_mock_account_store():
+    store = MagicMock()
+    store.update_account = AsyncMock()
+    return store
+
+
 class TestProbeLocal:
     @pytest.mark.asyncio
     async def test_valid_token_returns_true(self):
-        from app.services.health_check import probe_local
-
+        pool = _make_mock_pool()
+        checker = HealthChecker(pool)
         entry = _make_mock_entry(token_valid=True)
-        assert await probe_local(entry) is True
+        assert await checker._probe_local(entry) is True
 
     @pytest.mark.asyncio
     async def test_invalid_token_returns_false(self):
-        from app.services.health_check import probe_local
-
+        pool = _make_mock_pool()
+        checker = HealthChecker(pool)
         entry = _make_mock_entry(token_valid=False)
-        assert await probe_local(entry) is False
+        assert await checker._probe_local(entry) is False
 
     @pytest.mark.asyncio
     async def test_no_token_manager_returns_false(self):
-        from app.services.health_check import probe_local
-
+        pool = _make_mock_pool()
+        checker = HealthChecker(pool)
         entry = MagicMock()
         entry.token_manager = None
-        assert await probe_local(entry) is False
+        assert await checker._probe_local(entry) is False
 
 
 class TestHandleProbeResult:
     @pytest.mark.asyncio
     async def test_healthy_no_change(self):
-        from app.services.health_check import _handle_probe_result
-
         entry = _make_mock_entry(healthy=True)
         pool = _make_mock_pool([entry])
+        account_store = _make_mock_account_store()
+        checker = HealthChecker(pool, account_store=account_store)
 
-        with patch("app.services.health_check._pool", pool):
-            with patch("app.services.health_check.update_account") as mock_update:
-                await _handle_probe_result("acc-1", True, 3, "local")
-                mock_update.assert_not_called()
+        await checker._handle_probe_result("acc-1", True, 3, "local")
+        account_store.update_account.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unhealthy_below_threshold(self):
-        from app.services.health_check import _handle_probe_result
-
         entry = _make_mock_entry(healthy=True)
         pool = _make_mock_pool([entry])
+        account_store = _make_mock_account_store()
+        checker = HealthChecker(pool, account_store=account_store)
 
-        with patch("app.services.health_check._pool", pool):
-            with patch("app.services.health_check.update_account") as mock_update:
-                await _handle_probe_result("acc-1", False, 3, "local")
-                mock_update.assert_not_called()
+        await checker._handle_probe_result("acc-1", False, 3, "local")
+        account_store.update_account.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unhealthy_threshold_reached(self):
-        from app.services.health_check import _handle_probe_result
-
         entry = _make_mock_entry(healthy=True)
         pool = _make_mock_pool([entry])
+        mock_emitter = MagicMock()
+        account_store = _make_mock_account_store()
+        checker = HealthChecker(pool, admin_emitter=mock_emitter, account_store=account_store)
 
-        with patch("app.services.health_check._pool", pool):
-            with patch("app.services.health_check.update_account") as mock_update:
-                for _ in range(3):
-                    await _handle_probe_result("acc-1", False, 3, "local")
-                mock_update.assert_called_once_with("acc-1", healthy=False)
-                pool.update_entry.assert_called_with("acc-1", healthy=False)
+        for _ in range(3):
+            await checker._handle_probe_result("acc-1", False, 3, "local")
+        account_store.update_account.assert_called_once_with("acc-1", healthy=False)
+        pool.update_entry.assert_called_with("acc-1", healthy=False)
+        mock_emitter.emit.assert_called_with({"type": "health_changed", "account_id": "acc-1", "healthy": False})
 
     @pytest.mark.asyncio
     async def test_recovery_after_unhealthy(self):
-        from app.services.health_check import _handle_probe_result
-
         entry = _make_mock_entry(healthy=False)
         pool = _make_mock_pool([entry])
+        mock_emitter = MagicMock()
+        account_store = _make_mock_account_store()
+        checker = HealthChecker(pool, admin_emitter=mock_emitter, account_store=account_store)
 
-        with patch("app.services.health_check._pool", pool):
-            with patch("app.services.health_check.update_account") as mock_update:
-                await _handle_probe_result("acc-1", True, 3, "local")
-                mock_update.assert_called_once_with("acc-1", healthy=True)
-                pool.update_entry.assert_called_with("acc-1", healthy=True)
+        await checker._handle_probe_result("acc-1", True, 3, "local")
+        account_store.update_account.assert_called_once_with("acc-1", healthy=True)
+        pool.update_entry.assert_called_with("acc-1", healthy=True)
+        mock_emitter.emit.assert_called_with({"type": "health_changed", "account_id": "acc-1", "healthy": True})
 
 
 class TestTriggerProbe:
     @pytest.mark.asyncio
     async def test_triggers_probe_for_existing_account(self):
-        from app.services.health_check import trigger_probe
-
-        entry = _make_mock_entry(healthy=True)
+        entry = _make_mock_entry(healthy=True, token_valid=True)
         pool = _make_mock_pool([entry])
+        checker = HealthChecker(pool)
 
-        with patch("app.services.health_check._pool", pool):
-            with patch("app.services.health_check.probe_local") as mock_probe:
-                mock_probe.return_value = True
-                with patch("app.services.health_check._handle_probe_result") as mock_handle:
-                    await trigger_probe("acc-1")
-                    mock_probe.assert_called_once()
-                    mock_handle.assert_called_once()
+        with patch.object(checker, "_handle_probe_result", new_callable=AsyncMock) as mock_handle:
+            await checker.trigger_probe("acc-1")
+            mock_handle.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_unknown_account_noop(self):
-        from app.services.health_check import trigger_probe
-
         pool = _make_mock_pool([])
+        checker = HealthChecker(pool)
 
-        with patch("app.services.health_check._pool", pool):
-            with patch("app.services.health_check.probe_local") as mock_probe:
-                await trigger_probe("nonexistent")
-                mock_probe.assert_not_called()
+        with patch.object(checker, "_probe_local", new_callable=AsyncMock) as mock_probe:
+            await checker.trigger_probe("nonexistent")
+            mock_probe.assert_not_called()

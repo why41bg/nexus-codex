@@ -6,7 +6,7 @@ import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -75,7 +75,7 @@ class MockAccountPool:
             }
         ]
 
-    async def acquire_async(self, timeout_ms: int | None = None) -> PoolEntry | None:
+    async def acquire_async(self, timeout_ms: int | None = None, session_id: str | None = None) -> PoolEntry | None:
         return self._entry  # type: ignore[return-value]
 
     def acquire(self) -> PoolEntry | None:
@@ -90,13 +90,19 @@ class MockAccountPool:
     def entries(self) -> list:
         return [self._entry]
 
+    def bind_session(self, session_id: str, account_id: str) -> None:
+        pass
+
+    def unbind_session(self, session_id: str) -> None:
+        pass
+
     def add_entry(self, account) -> None:
         pass
 
-    def update_entry(self, account_id: str, **kwargs) -> None:
+    def remove_entry(self, account_id: str) -> None:
         pass
 
-    def remove_entry(self, account_id: str) -> None:
+    def update_entry(self, account_id: str, **kwargs) -> None:
         pass
 
     async def close(self) -> None:
@@ -298,6 +304,9 @@ def build_test_app(mock_deps: AppDependencies) -> FastAPI:
     app.dependency_overrides[api_key_auth_dependency] = override_api_key_auth
     app.dependency_overrides[rate_limit_dependency] = override_rate_limit
 
+    # Set app.state.deps so middleware (auth, ip_ban) can access DI container
+    app.state.deps = mock_deps
+
     return app
 
 
@@ -356,17 +365,28 @@ def mock_pool(mock_pool_entry):
 @pytest.fixture
 def metrics_collector():
     """Create a MetricsCollector with a mock MetricsStore for testing."""
-    mock_store = MagicMock()
+    mock_store = AsyncMock()
     return MetricsCollector(mock_store)
 
 
 @pytest.fixture
-def mock_deps(mock_pool, metrics_collector):
+def mock_config_store():
+    """Create a mock ConfigStore with sensible defaults for testing."""
+    store = MagicMock()
+    store.is_model_allowed_for_key = MagicMock(return_value=True)
+    # find_api_key returns None so rate limiter falls back to default settings
+    store.find_api_key = MagicMock(return_value=None)
+    return store
+
+
+@pytest.fixture
+def mock_deps(mock_pool, metrics_collector, mock_config_store):
     """Create mock AppDependencies."""
     return AppDependencies(
         pool=mock_pool,  # type: ignore[arg-type]
         metrics_collector=metrics_collector,
         metrics_store=MagicMock(),
+        config_store=mock_config_store,  # type: ignore[arg-type]
     )
 
 

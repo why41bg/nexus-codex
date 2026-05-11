@@ -88,56 +88,70 @@ def expired_auth_json():
 class TestTokenManagerInit:
     """Tests for TokenManager initialization."""
 
-    def test_loads_auth_json(self, tmp_path, auth_json_content):
-        """TokenManager should load tokens from auth.json."""
+    @pytest.mark.asyncio
+    async def test_loads_auth_json(self, tmp_path, auth_json_content):
+        """TokenManager should load tokens from auth.json on first get_access_token."""
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
 
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
         assert tm._access_token is not None
         assert tm._refresh_token == "rt-abc123"
         assert tm._account_id == "acc-test-001"
         assert tm._plan_type == "plus"
 
-    def test_missing_auth_json(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_missing_auth_json(self, tmp_path):
         """Missing auth.json should not raise."""
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
         tm = TokenManager(str(codex_home))
+        token = await tm.get_access_token()  # triggers lazy load
+        assert token is None
         assert tm._access_token is None
 
-    def test_corrupt_auth_json(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_corrupt_auth_json(self, tmp_path):
         """Corrupt auth.json should not raise."""
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
         (codex_home / "auth.json").write_text("not json")
         tm = TokenManager(str(codex_home))
+        token = await tm.get_access_token()  # triggers lazy load
+        assert token is None
         assert tm._access_token is None
 
 
 class TestTokenManagerPublicAPI:
     """Tests for public TokenManager methods."""
 
-    def test_get_account_id(self, tmp_path, auth_json_content):
+    @pytest.mark.asyncio
+    async def test_get_account_id(self, tmp_path, auth_json_content):
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
         assert tm.get_account_id() == "acc-test-001"
 
-    def test_get_plan_type(self, tmp_path, auth_json_content):
+    @pytest.mark.asyncio
+    async def test_get_plan_type(self, tmp_path, auth_json_content):
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
         assert tm.get_plan_type() == "plus"
 
-    def test_is_refreshable(self, tmp_path, auth_json_content):
+    @pytest.mark.asyncio
+    async def test_is_refreshable(self, tmp_path, auth_json_content):
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
         assert tm.is_refreshable() is True
 
     def test_is_not_refreshable_without_token(self, tmp_path):
@@ -146,11 +160,13 @@ class TestTokenManagerPublicAPI:
         tm = TokenManager(str(codex_home))
         assert tm.is_refreshable() is False
 
-    def test_get_account_info(self, tmp_path, auth_json_content):
+    @pytest.mark.asyncio
+    async def test_get_account_info(self, tmp_path, auth_json_content):
         codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
         info = tm.get_account_info()
         assert info["plan_type"] == "plus"
         assert info["account_id"] == "acc-test-001"
@@ -183,6 +199,7 @@ class TestTokenManagerPublicAPI:
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
 
         with patch.object(tm, "_do_refresh", new_callable=AsyncMock) as mock_refresh:
             result = await tm.refresh_if_needed()
@@ -195,6 +212,7 @@ class TestTokenManagerPublicAPI:
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(expired_auth_json))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
 
         with patch.object(tm, "_do_refresh", new_callable=AsyncMock) as mock_refresh:
             mock_refresh.return_value = True
@@ -208,6 +226,7 @@ class TestTokenManagerPublicAPI:
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
 
         with patch.object(tm, "_do_refresh", new_callable=AsyncMock) as mock_refresh:
             mock_refresh.return_value = True
@@ -225,6 +244,7 @@ class TestTokenRefresh:
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(expired_auth_json))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
 
         import base64
         header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=").decode()
@@ -261,6 +281,7 @@ class TestTokenRefresh:
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(expired_auth_json))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
 
         mock_response = MagicMock()
         mock_response.status_code = 400
@@ -277,6 +298,7 @@ class TestTokenRefresh:
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(expired_auth_json))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
 
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
             mock_post.side_effect = Exception("Network error")
@@ -290,6 +312,7 @@ class TestTokenRefresh:
         codex_home.mkdir()
         (codex_home / "auth.json").write_text(json.dumps(auth_json_content))
         tm = TokenManager(str(codex_home))
+        await tm.get_access_token()  # triggers lazy load
 
         # Manually set token to be valid so double-check passes
         tm._expires_at = time.time() + 7200
