@@ -22,6 +22,7 @@ from app.utils.route_helpers import increment_counters
 from app.utils.route_orchestrator import (
     build_sse_response,
     execute_non_stream,
+    make_anthropic_error_formatters,
     validate_request,
 )
 
@@ -150,7 +151,7 @@ async def _stream_messages_with_retry(
                 )
 
         if not seen_completed:
-            log.warn(
+            log.warning(
                 "Stream ended without response.completed event; emitting fallback message_stop",
                 extra={"message_id": message_id, "model": body.model},
             )
@@ -161,18 +162,7 @@ async def _stream_messages_with_retry(
             })
             yield AnthropicAdapter.build_sse({"type": "message_stop"})
 
-    def _no_slot_error() -> str:
-        return AnthropicAdapter.build_sse(
-            AnthropicAdapter.format_error(
-                "All account concurrency slots are currently in use.",
-                "server_error",
-            )
-        )
-
-    def _format_error(msg: str) -> str:
-        return AnthropicAdapter.build_sse(
-            AnthropicAdapter.format_error(msg, "server_error")
-        )
+    _no_slot_error, _format_error = make_anthropic_error_formatters()
 
     async for chunk in with_stream_retry(
         deps, _stream, body.model, api_key, req_start,

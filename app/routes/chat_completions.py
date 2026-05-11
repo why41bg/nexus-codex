@@ -32,6 +32,8 @@ from app.utils.route_helpers import increment_counters
 from app.utils.route_orchestrator import (
     build_sse_response,
     execute_non_stream,
+    format_no_slot_openai_error,
+    format_openai_stream_error,
     validate_request,
 )
 
@@ -55,7 +57,7 @@ def _extract_session_id(body: ChatCompletionRequest, api_key: str) -> str | None
     if first_user_msg:
         content = first_user_msg.content
         if isinstance(content, str):
-            content_hash = hashlib.md5(content.encode()).hexdigest()[:12]
+            content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
             return f"{api_key}:{content_hash}"
     return None
 
@@ -167,30 +169,10 @@ async def _stream_completion_with_retry(
 
         yield "data: [DONE]\n\n"
 
-    def _no_slot_error() -> str:
-        error_data = {
-            "error": {
-                "message": "All account concurrency slots are currently in use.",
-                "type": "server_error",
-                "code": "rate_limit_exceeded",
-            }
-        }
-        return f"data: {json.dumps(error_data)}\n\n"
-
-    def _format_error(msg: str) -> str:
-        error_data = {
-            "error": {
-                "message": msg,
-                "type": "server_error",
-                "code": "api_error",
-            }
-        }
-        return f"data: {json.dumps(error_data)}\n\n"
-
     async for chunk in with_stream_retry(
         deps, _stream, body.model, api_key, req_start,
-        format_no_slot_error=_no_slot_error,
-        format_error=_format_error,
+        format_no_slot_error=format_no_slot_openai_error,
+        format_error=format_openai_stream_error,
         append_done=True,
         session_id=_extract_session_id(body, api_key),
     ):

@@ -154,7 +154,7 @@ class QuotaProbeService:
         token_mgr = token_manager or TokenManager(codex_home)
         token = await token_mgr.get_access_token()
         if not token:
-            log.warn("quota-probe: no valid access_token", extra={"codexHome": codex_home})
+            log.warning("quota-probe: no valid access_token", extra={"codexHome": codex_home})
             return None
         account_id = token_mgr.get_account_id()
 
@@ -176,7 +176,7 @@ class QuotaProbeService:
             if resp.status_code != 200:
                 body = resp.text[:200]
                 is_cf_challenge = "_cf_chl_opt" in body or "challenge-platform" in body
-                log.warn(
+                log.warning(
                     "quota-probe: HTTP error",
                     extra={
                         "codexHome": codex_home,
@@ -206,11 +206,11 @@ class QuotaProbeService:
                     },
                 )
             else:
-                log.warn("quota-probe: response missing rate_limits", extra={"codexHome": codex_home})
+                log.warning("quota-probe: response missing rate_limits", extra={"codexHome": codex_home})
 
             return result
         except Exception as e:
-            log.warn(
+            log.warning(
                 "quota-probe: fetch error",
                 extra={
                     "codexHome": codex_home,

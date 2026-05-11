@@ -21,6 +21,7 @@ from app.utils.route_helpers import increment_counters
 from app.utils.route_orchestrator import (
     build_sse_response,
     execute_non_stream,
+    make_responses_error_formatters,
     validate_request,
 )
 
@@ -172,14 +173,7 @@ async def _stream_response_with_retry(
                 },
             })
 
-    def _no_slot_error() -> str:
-        return ChatGPTAdapter.build_response_failed(
-            response_id, body.model,
-            "All account concurrency slots are currently in use."
-        )
-
-    def _format_error(msg: str) -> str:
-        return ChatGPTAdapter.build_response_failed(response_id, body.model, msg)
+    _no_slot_error, _format_error = make_responses_error_formatters(response_id, body.model)
 
     async for chunk in with_stream_retry(
         deps, _stream, body.model, api_key, req_start,

@@ -23,7 +23,7 @@ from typing import TypeVar
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.dependencies import AppDependencies
+from app.dependencies import AppDependencies, get_deps_from_request
 from app.exceptions import BackendError, ModelNotFoundError, RateLimitError, RetryExhaustedError
 from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import PoolEntry
@@ -61,7 +61,7 @@ async def validate_request(
     await rate_limit_dependency(request, api_key)
 
     # Use config_store from DI for model access check
-    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    deps: AppDependencies | None = get_deps_from_request(request)
     if deps and not deps.config_store.is_model_allowed_for_key(api_key, model):
         raise ModelNotFoundError(model)
 
@@ -134,3 +134,81 @@ def build_sse_response(
     if extra_headers:
         headers.update(extra_headers)
     return StreamingResponse(generator, media_type="text/event-stream", headers=headers)
+
+
+# ─── Shared error formatters for streaming routes ─────────────────
+
+def format_openai_stream_error(msg: str, code: str = "api_error") -> str:
+    """Format an error as an OpenAI-compatible SSE data line.
+
+    Used by Chat Completions for stream errors.
+    """
+    import json
+
+    error_data = {
+        "error": {
+            "message": msg,
+            "type": "server_error",
+            "code": code,
+        }
+    }
+    return f"data: {json.dumps(error_data)}\n\n"
+
+
+def format_no_slot_openai_error() -> str:
+    """Format the 'no slots available' error for OpenAI-protocol streaming."""
+    return format_openai_stream_error(
+        "All account concurrency slots are currently in use.",
+        code="rate_limit_exceeded",
+    )
+
+
+# ─── Responses API error formatters ──────────────────────────────
+
+def make_responses_error_formatters(
+    response_id: str,
+    model: str,
+) -> tuple[Callable[[], str], Callable[[str], str]]:
+    """Create no-slot and generic error formatters for the Responses API.
+
+    Returns ``(no_slot_error, format_error)`` callables that embed the
+    *response_id* and *model* in Responses-protocol error events.
+    """
+    from app.services.chatgpt_adapter import ChatGPTAdapter
+
+    def _no_slot_error() -> str:
+        return ChatGPTAdapter.build_response_failed(
+            response_id, model,
+            "All account concurrency slots are currently in use.",
+        )
+
+    def _format_error(msg: str) -> str:
+        return ChatGPTAdapter.build_response_failed(response_id, model, msg)
+
+    return _no_slot_error, _format_error
+
+
+# ─── Anthropic Messages API error formatters ─────────────────────
+
+def make_anthropic_error_formatters() -> tuple[Callable[[], str], Callable[[str], str]]:
+    """Create no-slot and generic error formatters for the Anthropic Messages API.
+
+    Returns ``(no_slot_error, format_error)`` callables that produce
+    Anthropic SSE-formatted error events.
+    """
+    from app.adapters.anthropic_adapter import AnthropicAdapter
+
+    def _no_slot_error() -> str:
+        return AnthropicAdapter.build_sse(
+            AnthropicAdapter.format_error(
+                "All account concurrency slots are currently in use.",
+                "server_error",
+            )
+        )
+
+    def _format_error(msg: str) -> str:
+        return AnthropicAdapter.build_sse(
+            AnthropicAdapter.format_error(msg, "server_error")
+        )
+
+    return _no_slot_error, _format_error
