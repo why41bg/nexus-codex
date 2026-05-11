@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Account, Dashboard, ApiKey, ApiKeyTemplate, BannedIP } from '@/types';
+import type {
+  Account,
+  Dashboard,
+  ApiKey,
+  ApiKeyTemplate,
+  BannedIP,
+  ContributionInvite,
+  ContributionRecord,
+} from '@/types';
 import { api, getAuthToken, API_BASE } from '@/lib/api';
 
 async function fetchDashboardData() {
-  const [dashRes, accRes, modelsRes, keysRes, templatesRes, bannedRes] = await Promise.all([
+  const [dashRes, accRes, modelsRes, keysRes, templatesRes, bannedRes, invitesRes, recordsRes] = await Promise.all([
     api<Dashboard>('GET', '/api/admin/dashboard'),
     api<{ accounts: Account[] }>('GET', '/api/admin/accounts'),
     api<{ models: string[] }>('GET', '/api/admin/models'),
     api<{ keys: ApiKey[] }>('GET', '/api/admin/keys'),
     api<{ templates: ApiKeyTemplate[] }>('GET', '/api/admin/key-templates'),
     api<{ bannedIps: BannedIP[] }>('GET', '/api/admin/banned-ips'),
+    api<{ invites: ContributionInvite[] }>('GET', '/api/admin/contribution-invites'),
+    api<{ records: ContributionRecord[] }>('GET', '/api/admin/contributions'),
   ]);
 
   return {
@@ -20,6 +30,8 @@ async function fetchDashboardData() {
     apiKeys: keysRes.ok ? (keysRes.data.keys || []) : [],
     apiKeyTemplates: templatesRes.ok ? (templatesRes.data.templates || []) : [],
     bannedIps: bannedRes.ok ? (bannedRes.data.bannedIps || []) : [],
+    contributionInvites: invitesRes.ok ? (invitesRes.data.invites || []) : [],
+    contributionRecords: recordsRes.ok ? (recordsRes.data.records || []) : [],
   };
 }
 
@@ -39,6 +51,8 @@ export function useDashboardData() {
     apiKeys: [] as ApiKey[],
     apiKeyTemplates: [] as ApiKeyTemplate[],
     bannedIps: [] as BannedIP[],
+    contributionInvites: [] as ContributionInvite[],
+    contributionRecords: [] as ContributionRecord[],
   };
 
   const dashboardData = data ?? defaultData;

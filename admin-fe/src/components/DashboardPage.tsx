@@ -4,6 +4,7 @@ import Sidebar, { type TabKey } from './Sidebar';
 import DashboardTab from './DashboardTab';
 import AccountsTab from './AccountsTab';
 import ApiKeysTab from './ApiKeysTab';
+import ContributionsTab from './ContributionsTab';
 import BannedIpsTab from './BannedIpsTab';
 import LogsTab from './LogsTab';
 import SettingsTab from './SettingsTab';
@@ -14,6 +15,7 @@ import { useDashboardData } from '@/hooks/useDashboardData';
 function getTabFromPath(pathname: string): TabKey {
   if (pathname.includes('/accounts')) return 'accounts';
   if (pathname.includes('/apikeys')) return 'apikeys';
+  if (pathname.includes('/contributions')) return 'contributions';
   if (pathname.includes('/banned-ips')) return 'banned-ips';
   if (pathname.includes('/logs')) return 'logs';
   if (pathname.includes('/settings')) return 'settings';
@@ -68,6 +70,16 @@ export default function DashboardPage() {
                   templates={data.apiKeyTemplates}
                   models={data.models}
                   loading={loading}
+                  onRefresh={refresh}
+                />
+              }
+            />
+            <Route
+              path="contributions"
+              element={
+                <ContributionsTab
+                  invites={data.contributionInvites}
+                  records={data.contributionRecords}
                   onRefresh={refresh}
                 />
               }

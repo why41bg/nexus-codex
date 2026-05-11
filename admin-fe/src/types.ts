@@ -226,3 +226,49 @@ export interface ApiKeyTemplate {
   createdAt?: string;
   updatedAt?: string | null;
 }
+
+export interface ContributionInvite {
+  id: string;
+  name: string;
+  note: string;
+  enabled: boolean;
+  code?: string | null;
+  codeMasked: string;
+  createdAt: string;
+  expiresAt?: string | null;
+  maxUses?: number | null;
+  usedCount: number;
+  maxActiveSessions: number;
+  perIpLimitMax: number;
+  perIpLimitWindowMs: number;
+}
+
+export interface ContributionRecord {
+  id: string;
+  inviteId: string;
+  inviteName: string;
+  applicantName: string;
+  applicantContact: string;
+  note: string;
+  clientIp: string;
+  status: string;
+  createdAt: string;
+  expiresAt?: string | null;
+  completedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewerNote: string;
+  error?: string | null;
+  accountId?: string | null;
+  accountPlanType?: string | null;
+  duplicateAccountId?: string | null;
+}
+
+export interface PublicContributionSession {
+  contributionId: string;
+  loginUrl: string | null;
+  deviceCode: string | null;
+  status: string;
+  error: string | null;
+  expiresAt: number | null;
+}

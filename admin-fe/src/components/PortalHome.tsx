@@ -175,6 +175,24 @@ export default function PortalHome() {
           }
         />
 
+        <FeatureCard
+          icon={
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+          }
+          title="共享账号"
+          description="使用管理员发放的邀请码，发起共享账号登录并进入待审核入池流程。"
+          action={
+            <Link
+              to="/contribute"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
+            >
+              发起共享
+            </Link>
+          }
+        />
+
         {/* Admin Panel */}
         <FeatureCard
           icon={
