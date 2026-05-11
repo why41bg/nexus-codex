@@ -232,14 +232,14 @@ class ChatGPTClient:
             if resp.status_code == 403:
                 body = await resp.aread()
                 if b"_cf_chl_opt" in body or b"challenge-platform" in body:
-                    log.warn("Cloudflare challenge detected", extra={"account_id": account_id})
+                    log.warning("Cloudflare challenge detected", extra={"account_id": account_id})
                     raise CloudflareChallengeError("Blocked by Cloudflare")
                 log.error("ChatGPT HTTP 403", extra={"account_id": account_id, "body": body.decode(errors='replace')[:200]})
                 raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
 
             if resp.status_code == 429:
                 body = await resp.aread()
-                log.warn("ChatGPT quota exhausted (HTTP 429)", extra={"account_id": account_id})
+                log.warning("ChatGPT quota exhausted (HTTP 429)", extra={"account_id": account_id})
                 raise QuotaExhaustedError(f"HTTP 429: {body.decode(errors='replace')[:200]}")
 
             if resp.status_code != 200:

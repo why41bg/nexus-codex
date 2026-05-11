@@ -124,7 +124,7 @@ async def with_retry(
             return result
         except Exception as e:
             if attempt < MAX_RETRIES and is_retryable(e):
-                log.warn(
+                log.warning(
                     "Retryable error, failing over to next account",
                     extra={
                         "account_id": entry.account_id,
@@ -258,7 +258,7 @@ async def with_stream_retry(
             await deps.metrics_collector.record(model, entry.account_id, latency_ms, False, api_key)
 
             if attempt < MAX_RETRIES and is_retryable(e):
-                log.warn(
+                log.warning(
                     "Stream retryable error, failing over",
                     extra={
                         "account_id": entry.account_id,

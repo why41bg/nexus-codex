@@ -239,8 +239,12 @@ class LoggerAdapter:
     def info(self, msg: str, extra: dict | None = None) -> None:
         self._log_with_extra(logging.INFO, msg, extra)
 
-    def warn(self, msg: str, extra: dict | None = None) -> None:
+    def warning(self, msg: str, extra: dict | None = None) -> None:
         self._log_with_extra(logging.WARNING, msg, extra)
+
+    # Backward-compatible alias — prefer ``warning()`` for consistency
+    # with the Python standard library.
+    warn = warning
 
     def error(self, msg: str, extra: dict | None = None) -> None:
         self._log_with_extra(logging.ERROR, msg, extra)

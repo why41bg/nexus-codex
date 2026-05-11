@@ -100,7 +100,7 @@ class AnthropicAdapter:
             # Only set tool_choice when tools are present.
             params["tool_choice"] = tool_choice or "auto"
         elif tool_choice is not None:
-            log.warn(
+            log.warning(
                 "tool_choice provided without tools, ignoring",
                 extra={"tool_choice": tool_choice},
             )
@@ -200,7 +200,7 @@ class AnthropicAdapter:
                 try:
                     tool_input = json.loads(item.get("arguments", "{}"))
                 except (json.JSONDecodeError, TypeError):
-                    log.warn(
+                    log.warning(
                         "Failed to parse tool call arguments as JSON",
                         extra={"call_id": item.get("call_id", ""), "name": item.get("name", "")},
                     )
@@ -313,7 +313,7 @@ class AnthropicAdapter:
                     # tool_use must be a separate top-level item; flush text first.
                     _flush_pending()
                     if role != "assistant":
-                        log.warn(
+                        log.warning(
                             "tool_use block in non-assistant message",
                             extra={"role": role, "block_type": "tool_use"},
                         )
@@ -327,7 +327,7 @@ class AnthropicAdapter:
                     # tool_result must be a separate top-level item; flush text first.
                     _flush_pending()
                     if role != "user":
-                        log.warn(
+                        log.warning(
                             "tool_result block in non-user message",
                             extra={"role": role, "block_type": "tool_result"},
                         )
