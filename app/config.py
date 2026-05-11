@@ -2,6 +2,9 @@ from __future__ import annotations
 
 """Application configuration via environment variables."""
 
+import os
+from pathlib import Path
+
 import bcrypt
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -108,3 +111,13 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# ─── Data directory ─────────────────────────────────────────────────
+# Centralised definition of the data directory.  All stores should
+# import ``DATA_DIR`` from here rather than computing their own path
+# relative to ``__file__``.  Supports the ``DATA_DIR`` environment
+# variable for deployment flexibility.
+
+DATA_DIR: Path = Path(os.environ.get("DATA_DIR", "")) if os.environ.get("DATA_DIR") else (
+    Path(__file__).parent.parent / "data"
+)

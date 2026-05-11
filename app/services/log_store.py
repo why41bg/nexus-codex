@@ -16,9 +16,9 @@ import threading
 import time
 from pathlib import Path
 
+from app.config import DATA_DIR
 from app.utils.logger import log
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
 DB_PATH = DATA_DIR / "logs.db"
 DEFAULT_RETENTION_DAYS = 30
 CURRENT_SCHEMA_VER = 1
@@ -93,7 +93,16 @@ def _cleanup_old(conn: sqlite3.Connection, retention_days: int) -> int:
 
 
 class LogStore:
-    """SQLite-backed structured log storage."""
+    """SQLite-backed structured log storage.
+
+    .. warning::
+        This store uses an in-process ``threading.Lock`` for serialisation.
+        It is **not safe** for multi-worker deployments (e.g.
+        ``uvicorn --workers N`` with N > 1) because each worker opens its
+        own connection and the lock is per-process.  Run Uvicorn with a
+        single worker, or switch to WAL mode with advisory file locking if
+        multiple workers are required.
+    """
 
     def __init__(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> None:
         self._retention_days = retention_days
@@ -252,24 +261,15 @@ class LogStore:
             conditions.append(f"t.tag IN ({placeholders})")
             params.extend(tags_any)
         elif tags_all:
-            # All tags must be present
-            for i, t in enumerate(tags_all):
-                alias = f"t{i}"
-                tag_join += f" INNER JOIN log_tags {alias} ON {alias}.log_id = l.id AND {alias}.tag = ?"
-                params.insert(0, t)  # will be prepended before other params
-            # Re-order: tag params go first in the join
-            # Actually, let's restructure to avoid confusion
-            pass
-
-        # For tags_all, rebuild properly
-        if tags_all and not tag and not tags_any:
-            tag_join = ""
-            tag_params = []
+            # All tags must be present — use multiple INNER JOINs so each
+            # required tag adds a join constraint.  Tag params are prepended
+            # before the regular WHERE-clause params because the JOIN clauses
+            # appear before WHERE in the generated SQL.
+            tag_params: list = []
             for i, t in enumerate(tags_all):
                 alias = f"t{i}"
                 tag_join += f" INNER JOIN log_tags {alias} ON {alias}.log_id = l.id AND {alias}.tag = ?"
                 tag_params.append(t)
-            # tag_params go before regular params in the query
             params = tag_params + params
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"

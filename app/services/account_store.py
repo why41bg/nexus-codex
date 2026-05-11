@@ -16,10 +16,10 @@ from pathlib import Path
 
 import aiofiles
 
+from app.config import DATA_DIR
 from app.models import Account
 from app.utils.logger import log
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
 DATA_PATH = DATA_DIR / "accounts.json"
 
 
@@ -56,7 +56,7 @@ class AccountStore:
                 raw = await f.read()
             parsed = json.loads(raw)
             if not isinstance(parsed, list):
-                log.warn("accounts.json contains non-array data, resetting to empty")
+                log.warning("accounts.json contains non-array data, resetting to empty")
                 return []
             self._accounts_cache = [Account(**item) for item in parsed]
             return [a.model_copy() for a in self._accounts_cache]

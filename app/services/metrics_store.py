@@ -14,9 +14,9 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+from app.config import DATA_DIR
 from app.utils.logger import log
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
 DB_PATH = DATA_DIR / "metrics.db"
 DEFAULT_RETENTION_DAYS = 30
 
@@ -25,6 +25,7 @@ def _ensure_db(db_path: str | None = None, *, check_same_thread: bool = True) ->
     """Ensure the metrics database and table exist, return a connection."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path or str(DB_PATH), check_same_thread=check_same_thread)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +72,14 @@ class MetricsStore:
     Records individual request metrics and provides time-series
     and breakdown queries. Data is retained for retention_days
     (default 30 days).
+
+    .. warning::
+        This store uses an in-process ``threading.Lock`` for serialisation.
+        It is **not safe** for multi-worker deployments (e.g.
+        ``uvicorn --workers N`` with N > 1) because each worker opens its
+        own connection and the lock is per-process.  Run Uvicorn with a
+        single worker, or switch to WAL mode with advisory file locking if
+        multiple workers are required.
     """
 
     def __init__(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> None:
