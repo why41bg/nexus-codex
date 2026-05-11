@@ -59,16 +59,29 @@ class TokenManager:
     # Shared httpx client for token refresh — reused across all instances
     # to allow TCP connection pooling to auth.openai.com.
     _shared_http_client: httpx.AsyncClient | None = None
+    _shared_http_client_lock: asyncio.Lock = asyncio.Lock()
 
     @classmethod
-    def _get_http_client(cls) -> httpx.AsyncClient:
-        """Return (and lazily create) a shared httpx.AsyncClient."""
-        if cls._shared_http_client is None or cls._shared_http_client.is_closed:
-            cls._shared_http_client = httpx.AsyncClient(
-                headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
-                timeout=30,
-            )
-        return cls._shared_http_client
+    async def _get_http_client(cls) -> httpx.AsyncClient:
+        """Return (and lazily create) a shared httpx.AsyncClient with lock protection."""
+        if cls._shared_http_client is not None and not cls._shared_http_client.is_closed:
+            return cls._shared_http_client
+        async with cls._shared_http_client_lock:
+            # Double-check after acquiring lock
+            if cls._shared_http_client is None or cls._shared_http_client.is_closed:
+                cls._shared_http_client = httpx.AsyncClient(
+                    headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
+                    timeout=30,
+                )
+            return cls._shared_http_client
+
+    @classmethod
+    async def close_shared_client(cls) -> None:
+        """Close the shared httpx client gracefully. Call during app shutdown."""
+        async with cls._shared_http_client_lock:
+            if cls._shared_http_client and not cls._shared_http_client.is_closed:
+                await cls._shared_http_client.aclose()
+            cls._shared_http_client = None
 
     def __init__(self, codex_home: str):
         self._codex_home = codex_home
@@ -172,7 +185,7 @@ class TokenManager:
                 return True
 
             try:
-                client = self._get_http_client()
+                client = await self._get_http_client()
                 resp = await client.post(
                     TOKEN_REFRESH_URL,
                     json={

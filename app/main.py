@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.anthropic_adapter import AnthropicAdapter
-from app.config import settings
+from app.config import DATA_DIR, settings
 from app.dependencies import AppDependencies, get_deps_from_request
 from app.exceptions import NexusError
 from app.middleware.ip_ban import IPBanMiddleware
@@ -157,10 +157,15 @@ async def _shutdown(app: FastAPI, bg_tasks: dict) -> None:
     if deps:
         # Flush buffered usage counters before closing
         await deps.account_store.flush_usage_counters()
+        await deps.config_store.flush_usage()
         await deps.pool.close()
         deps.metrics_store.close()
         if deps.log_store:
             deps.log_store.close()
+
+    # Close the shared httpx client used by TokenManager
+    from app.services.token_manager import TokenManager
+    await TokenManager.close_shared_client()
 
     log.info("Nexus Codex shut down gracefully")
 
@@ -175,7 +180,7 @@ async def lifespan(app: FastAPI):
 
 def _load_persisted_settings():
     """Load runtime settings from data/settings.json if it exists."""
-    settings_file = Path("data/settings.json")
+    settings_file = DATA_DIR / "settings.json"
     if not settings_file.exists():
         return
     try:
@@ -410,12 +415,23 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health")
 async def health_check(request: Request):
-    """Public health check endpoint."""
+    """Public health check endpoint.
+
+    Returns only aggregate pool stats to avoid leaking sensitive account
+    details (IDs, token info, etc.) on an unauthenticated endpoint.
+    """
     deps: AppDependencies = request.app.state.deps
+    pool_status = deps.pool.get_status()
+    total = len(pool_status)
+    healthy = sum(1 for e in pool_status if e.get("healthy"))
     return JSONResponse(
         content={
             "status": "ok",
-            "pool": deps.pool.get_status(),
+            "pool": {
+                "total": total,
+                "healthy": healthy,
+                "unhealthy": total - healthy,
+            },
         }
     )
 
@@ -463,4 +479,18 @@ async def catch_all(request: Request, path_name: str):
                 "code": "not_found",
             }
         },
+    )
+
+
+# ─── CLI entry point ────────────────────────────────────────
+def run() -> None:
+    """Entry point for the ``nexus-codex`` console script (pyproject.toml)."""
+    import uvicorn
+    from app.config import settings
+
+    uvicorn.run(
+        "app.main:app",
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level,
     )
