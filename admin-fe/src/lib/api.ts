@@ -53,7 +53,8 @@ export async function api<T = unknown>(
     try {
       data = (await res.json()) as T;
     } catch {
-      data = null as T;
+      // Response body is not valid JSON (e.g. 204 No Content) — use null-safe default
+      data = null as unknown as T;
     }
     return { ok: res.ok, status: res.status, data };
   } catch (err) {

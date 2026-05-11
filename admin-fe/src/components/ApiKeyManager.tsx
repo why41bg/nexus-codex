@@ -58,7 +58,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         password,
       });
       if (authGuard(res.status)) return;
-      if (res.ok) {
+      if (res.ok && res.data?.key) {
         await copyToClipboard(res.data.key);
         toast('完整 Key 已复制到剪贴板', 'success');
         setRevealTarget(null);
@@ -82,7 +82,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         models: [],
       });
       if (authGuard(res.status)) return;
-      if (res.ok) {
+      if (res.ok && res.data?.key) {
         setLastCreatedKey(res.data.key);
         setNewKeyName('');
         toast('API Key 已生成', 'success');
@@ -119,13 +119,17 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
 
   const toggleKeyEnabled = async (k: ApiKey) => {
     const newEnabled = !(k.enabled ?? true);
-    const res = await api('PATCH', `/api/admin/keys/${encodeURIComponent(k.keyPrefix)}`, { enabled: newEnabled });
-    if (authGuard(res.status)) return;
-    if (res.ok) {
-      toast(newEnabled ? '已启用' : '已禁用', 'success');
-      onRefresh();
-    } else {
-      toast(extractErrorMessage(res.data, '操作失败'), 'error');
+    try {
+      const res = await api('PATCH', `/api/admin/keys/${encodeURIComponent(k.keyPrefix)}`, { enabled: newEnabled });
+      if (authGuard(res.status)) return;
+      if (res.ok) {
+        toast(newEnabled ? '已启用' : '已禁用', 'success');
+        onRefresh();
+      } else {
+        toast(extractErrorMessage(res.data, '操作失败'), 'error');
+      }
+    } catch {
+      toast('请求失败', 'error');
     }
   };
 
@@ -138,8 +142,8 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         action,
       });
       if (authGuard(res.status)) return;
-      if (res.ok) {
-        toast(`操作完成：成功 ${res.data.succeeded}，失败 ${res.data.failed}`, 'success');
+      if (res.ok && res.data) {
+        toast(`操作完成：成功 ${res.data.succeeded ?? 0}，失败 ${res.data.failed ?? 0}`, 'success');
         setSelectedKeys(new Set());
         onRefresh();
       } else {

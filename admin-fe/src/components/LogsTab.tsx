@@ -223,32 +223,39 @@ export default function LogsTab() {
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (keyword) params.set('keyword', keyword);
-    if (level) params.set('level', level);
-    if (source) params.set('source', source);
-    if (event) params.set('event', event);
-    if (accountId) params.set('account_id', accountId);
-    if (apiKeyId) params.set('api_key_id', apiKeyId);
-    if (clientIp) params.set('client_ip', clientIp);
+    try {
+      const params = new URLSearchParams();
+      if (keyword) params.set('keyword', keyword);
+      if (level) params.set('level', level);
+      if (source) params.set('source', source);
+      if (event) params.set('event', event);
+      if (accountId) params.set('account_id', accountId);
+      if (apiKeyId) params.set('api_key_id', apiKeyId);
+      if (clientIp) params.set('client_ip', clientIp);
 
-    // Time range
-    const rangeEntry = TIME_RANGES.find((r) => r.value === timeRange);
-    if (rangeEntry && rangeEntry.ms > 0) {
-      params.set('since', String(Date.now() - rangeEntry.ms));
+      // Time range
+      const rangeEntry = TIME_RANGES.find((r) => r.value === timeRange);
+      if (rangeEntry && rangeEntry.ms > 0) {
+        params.set('since', String(Date.now() - rangeEntry.ms));
+      }
+
+      params.set('limit', String(pageSize));
+      params.set('offset', String(page * pageSize));
+      params.set('order', 'desc');
+
+      const res = await api<LogQueryResult>('GET', `/api/admin/logs?${params.toString()}`);
+      if (authGuardRef.current(res.status)) return;
+      if (res.ok && res.data) {
+        setItems(res.data.items || []);
+        setTotal(res.data.total || 0);
+      }
+    } catch {
+      // Network error — clear results so the user sees something changed
+      setItems([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
     }
-
-    params.set('limit', String(pageSize));
-    params.set('offset', String(page * pageSize));
-    params.set('order', 'desc');
-
-    const res = await api<LogQueryResult>('GET', `/api/admin/logs?${params.toString()}`);
-    if (authGuardRef.current(res.status)) return;
-    if (res.ok && res.data) {
-      setItems(res.data.items || []);
-      setTotal(res.data.total || 0);
-    }
-    setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchTrigger, page]);
 

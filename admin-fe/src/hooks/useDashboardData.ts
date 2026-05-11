@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Account, Dashboard, ApiKey, ApiKeyTemplate, BannedIP } from '@/types';
 import { api, getAuthToken, API_BASE } from '@/lib/api';
@@ -44,7 +44,13 @@ export function useDashboardData() {
   const dashboardData = data ?? defaultData;
 
   // SSE connection for real-time invalidation
+  const [connected, setConnected] = useState(false);
   const connectedRef = useRef(false);
+
+  const updateConnected = useCallback((value: boolean) => {
+    connectedRef.current = value;
+    setConnected(value);
+  }, []);
 
   useEffect(() => {
     const MAX_RETRIES = 10;
@@ -65,7 +71,7 @@ export function useDashboardData() {
       es = new EventSource(url);
 
       es.onopen = () => {
-        connectedRef.current = true;
+        updateConnected(true);
         retryDelay = 1000;
         retryCount = 0;
       };
@@ -90,7 +96,7 @@ export function useDashboardData() {
       };
 
       es.onerror = () => {
-        connectedRef.current = false;
+        updateConnected(false);
         es?.close();
         es = null;
         if (!destroyed && retryCount < MAX_RETRIES) {
@@ -110,15 +116,15 @@ export function useDashboardData() {
       if (retryTimer) clearTimeout(retryTimer);
       if (debounceTimer) clearTimeout(debounceTimer);
       es?.close();
-      connectedRef.current = false;
+      updateConnected(false);
     };
-  }, [queryClient]);
+  }, [queryClient, updateConnected]);
 
   return {
     data: dashboardData,
     loading: isLoading || isFetching,
     refreshing: isFetching && !isLoading,
-    connected: connectedRef.current,
+    connected,
     refresh: async () => { await refetch(); },
   };
 }
