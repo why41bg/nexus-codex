@@ -22,6 +22,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.utils.bg_task import create_bg_task
 from app.utils.logger import log
 
 CODEX_POOL_DIR = Path.home() / ".codex-pool"
@@ -108,7 +109,7 @@ class BootstrapManager:
                 else:
                     session.status = "failed"
                     session.error = "Login process completed but auth.json was not created"
-                    log.warn(
+                    log.warning(
                         "Bootstrap login completed without auth.json",
                         extra={"sessionId": session.session_id, "codexHome": session.codex_home},
                     )
@@ -117,7 +118,7 @@ class BootstrapManager:
                 stderr_text = stderr_data.decode(errors="replace").strip()
                 session.status = "failed"
                 session.error = stderr_text or f"Process exited with code {returncode}"
-                log.warn(
+                log.warning(
                     "Bootstrap login failed",
                     extra={
                         "sessionId": session.session_id,
@@ -146,7 +147,7 @@ class BootstrapManager:
                     pass
             session.status = "timeout"
             session.error = "Login timed out after 5 minutes"
-            log.warn(
+            log.warning(
                 "Bootstrap login timed out",
                 extra={"sessionId": session.session_id, "codexHome": session.codex_home},
             )
@@ -182,9 +183,9 @@ class BootstrapManager:
         )
         session.process = proc
 
-        # Start monitor and timeout killer concurrently
-        asyncio.create_task(self._monitor_process(session))
-        asyncio.create_task(self._timeout_killer(session))
+        # Start monitor and timeout killer concurrently (use create_bg_task for error tracking)
+        create_bg_task(self._monitor_process(session), name=f"bootstrap-monitor-{session_id}")
+        create_bg_task(self._timeout_killer(session), name=f"bootstrap-timeout-{session_id}")
 
         self._sessions[session_id] = session
 

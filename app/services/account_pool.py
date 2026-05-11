@@ -169,7 +169,7 @@ class AccountPool:
 
         timeout_s = (timeout_ms or settings.acquire_timeout_ms) / 1000.0
         future: asyncio.Future[PoolEntry | None] = (
-            asyncio.get_event_loop().create_future()
+            asyncio.get_running_loop().create_future()
         )
         await self._wait_queue.put(future)
 

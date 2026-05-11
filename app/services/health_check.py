@@ -9,7 +9,8 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from app.config import settings
-from app.services.account_pool import AccountPool
+from app.services.account_pool import AccountPool, PoolEntry
+from app.utils.bg_task import create_bg_task
 from app.utils.logger import log
 
 if TYPE_CHECKING:
@@ -45,9 +46,8 @@ class HealthChecker:
     def start(self) -> None:
         """Start health check background tasks."""
         self._running = True
-        loop = asyncio.get_event_loop()
-        self._tasks.append(loop.create_task(self._local_check_loop()))
-        self._tasks.append(loop.create_task(self._remote_check_loop()))
+        self._tasks.append(create_bg_task(self._local_check_loop(), name="health-local"))
+        self._tasks.append(create_bg_task(self._remote_check_loop(), name="health-remote"))
         log.info("Health check started")
 
     def stop(self) -> None:
@@ -67,7 +67,7 @@ class HealthChecker:
 
     # ─── Internal ───────────────────────────────────────────
 
-    async def _probe_local(self, entry) -> bool:
+    async def _probe_local(self, entry: PoolEntry) -> bool:
         """Check token validity using TokenManager.
 
         Returns True if token is valid (not expired beyond buffer).
@@ -122,7 +122,7 @@ class HealthChecker:
                     await self._account_store.update_account(account_id, healthy=False)
                 if self._admin_emitter:
                     self._admin_emitter.emit({"type": "health_changed", "account_id": account_id, "healthy": False})
-                log.warn("Account marked unhealthy", extra={"account_id": account_id, "source": source, "fail_count": count})
+                log.warning("Account marked unhealthy", extra={"account_id": account_id, "source": source, "fail_count": count})
 
     async def _local_check_loop(self) -> None:
         """High-frequency local token check with auto-refresh."""
@@ -134,7 +134,7 @@ class HealthChecker:
                         entry.account_id, healthy, settings.health_fail_threshold, "local"
                     )
                 except Exception as e:
-                    log.warn("Local probe error", extra={"account_id": entry.account_id, "error": str(e)})
+                    log.warning("Local probe error", extra={"account_id": entry.account_id, "error": str(e)})
             await asyncio.sleep(settings.health_local_interval_ms / 1000.0)
 
     async def _remote_check_loop(self) -> None:
@@ -155,7 +155,7 @@ class HealthChecker:
                         entry.account_id, True, settings.health_fail_threshold, "remote"
                     )
                 except Exception as e:
-                    log.warn("Remote probe error", extra={"account_id": entry.account_id, "error": str(e)})
+                    log.warning("Remote probe error", extra={"account_id": entry.account_id, "error": str(e)})
                     await self._handle_probe_result(
                         entry.account_id, False, settings.health_fail_threshold, "remote"
                     )
