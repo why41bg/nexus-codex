@@ -148,9 +148,11 @@ async def start_bootstrap(remark: str, max_concurrency: int | None) -> Bootstrap
         status="waiting_for_login",
     )
 
+    from app.config import settings
+
     env = {**os.environ, "CODEX_HOME": str(account_dir)}
     proc = await asyncio.create_subprocess_exec(
-        "codex",
+        settings.codex_cli_path,
         "login",
         "--device-auth",
         env=env,

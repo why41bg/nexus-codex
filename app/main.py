@@ -36,6 +36,9 @@ async def lifespan(app: FastAPI):
     # Load persistent config
     await load_config()
 
+    # Load persisted runtime settings (data/settings.json)
+    _load_persisted_settings()
+
     # Initialize IP ban list from persisted config
     init_banned_ips(get_banned_ips_from_config())
 
@@ -101,6 +104,23 @@ async def lifespan(app: FastAPI):
         if app.state.deps.log_store:
             app.state.deps.log_store.close()
     log.info("Nexus Codex shut down gracefully")
+
+
+def _load_persisted_settings():
+    """Load runtime settings from data/settings.json if it exists."""
+    import json
+    from pathlib import Path
+
+    settings_file = Path("data/settings.json")
+    if not settings_file.exists():
+        return
+    try:
+        data = json.loads(settings_file.read_text())
+        if "codex_cli_path" in data and data["codex_cli_path"]:
+            settings.codex_cli_path = data["codex_cli_path"]
+            log.info("Loaded persisted setting", extra={"codex_cli_path": data["codex_cli_path"]})
+    except (json.JSONDecodeError, OSError) as e:
+        log.warn("Failed to load persisted settings", extra={"error": str(e)})
 
 
 async def _session_cleanup_loop():

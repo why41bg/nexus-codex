@@ -400,6 +400,14 @@ class BatchUnbanRequest(BaseModel):
     ips: list[str]
 
 
+# ─── Settings ─────────────────────────────────────────────
+
+
+class UpdateSettingsRequest(CamelModel):
+    """Request to update runtime settings."""
+    codex_cli_path: str | None = None
+
+
 # ─── Error ─────────────────────────────────────────────────
 
 

@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     log_store_level: str = "warn"  # min level to collect: debug/info/warn/error
     log_store_max_context_size: int = 8192
 
+    # Codex CLI
+    codex_cli_path: str = "codex"  # absolute path to codex binary, e.g. /home/ubuntu/.nvm/versions/node/v20.20.2/bin/codex
+
     # Extended events
     codex_chat_completions_extended_events: bool = False
     codex_stream_extended_events: bool = True

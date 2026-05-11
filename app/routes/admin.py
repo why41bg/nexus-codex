@@ -28,6 +28,7 @@ from app.models import (
     UpdateAccountRequest,
     UpdateApiKeyRequest,
     UpdateApiKeyTemplateRequest,
+    UpdateSettingsRequest,
 )
 from app.services.account_bootstrap import (
     cancel_bootstrap,
@@ -972,3 +973,58 @@ async def logs_trace(
         )
     items = deps.log_store.get_trace(trace_id)
     return JSONResponse(content={"items": items, "trace_id": trace_id})
+
+
+# ─── Settings ────────────────────────────────────────────────
+
+
+@router.get("/settings", dependencies=[Depends(admin_auth_dependency)])
+async def get_settings():
+    """Get current runtime settings."""
+    from app.config import settings
+
+    return JSONResponse(content={
+        "codexCliPath": settings.codex_cli_path,
+    })
+
+
+@router.patch("/settings", dependencies=[Depends(admin_auth_dependency)])
+async def update_settings(body: UpdateSettingsRequest):
+    """Update runtime settings (persisted to data/settings.json)."""
+    import os
+    from pathlib import Path
+
+    from app.config import settings
+
+    updated: dict[str, Any] = {}
+
+    if body.codex_cli_path is not None:
+        # Validate path if it looks like an absolute path
+        if body.codex_cli_path.startswith("/") and not os.path.isfile(body.codex_cli_path):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": {
+                        "message": f"File not found: {body.codex_cli_path}",
+                        "type": "invalid_request",
+                        "code": "invalid_path",
+                    }
+                },
+            )
+        settings.codex_cli_path = body.codex_cli_path
+        updated["codexCliPath"] = body.codex_cli_path
+
+    # Persist to data/settings.json
+    settings_file = Path("data/settings.json")
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if settings_file.exists():
+        try:
+            existing = json.loads(settings_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    if body.codex_cli_path is not None:
+        existing["codex_cli_path"] = body.codex_cli_path
+    settings_file.write_text(json.dumps(existing, indent=2))
+
+    return JSONResponse(content={"updated": updated})
