@@ -5,24 +5,24 @@ from __future__ import annotations
 import json
 import time
 import uuid
-import asyncio
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
-from app.exceptions import ModelNotFoundError, RateLimitError, RetryExhaustedError, BackendError
 from app.models import ResponsesRequest
 from app.middleware.auth import api_key_auth_dependency
-from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import PoolEntry
-from app.services.config_store import is_model_allowed_for_key
 from app.services.chatgpt_adapter import ChatGPTAdapter
-from app.utils.logger import log
-from app.utils.retry import with_retry, with_stream_retry
 from app.utils.bg_task import create_bg_task
-from app.utils.route_helpers import increment_counters, mask_api_key, set_request_context
+from app.utils.retry import with_stream_retry
+from app.utils.route_helpers import increment_counters
+from app.utils.route_orchestrator import (
+    build_sse_response,
+    execute_non_stream,
+    validate_request,
+)
 
 router = APIRouter()
 
@@ -39,62 +39,31 @@ async def responses(
     deps: AppDependencies = Depends(get_deps),
 ):
     """Handle Responses API requests with ChatGPT Plus backend streaming."""
-    await rate_limit_dependency(request, api_key)
-
-    if not is_model_allowed_for_key(api_key, body.model):
-        raise ModelNotFoundError(body.model)
-
-    req_start = time.time()
     response_id = _generate_response_id()
-    api_key_masked = mask_api_key(api_key)
 
-    # Store business context for access-log middleware
-    set_request_context(request, api_key=api_key, model=body.model, request_id=response_id)
-
-    log.info("Responses API request", extra={
-        "model": body.model, "stream": body.stream,
-        "api_key": api_key_masked, "request_id": response_id,
-    })
+    req_start, api_key_masked = await validate_request(
+        request, api_key, body.model, response_id,
+        log_prefix="Responses API", stream=body.stream,
+    )
 
     if body.stream:
-        return StreamingResponse(
+        return build_sse_response(
             _stream_response_with_retry(deps, body, response_id, req_start, api_key),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
+            extra_headers={
                 "openai-model": body.model,
                 "x-request-id": response_id,
             },
         )
-    else:
-        try:
-            result = await with_retry(
-                deps,
-                lambda entry: _do_non_stream(deps, entry, body, response_id, req_start, api_key),
-                model=body.model,
-                session_id=body.previous_response_id,
-            )
-            return result
-        except RetryExhaustedError as e:
-            log.error("Responses API exhausted retries", extra={
-                "error": str(e), "model": body.model,
-                "api_key": api_key_masked, "request_id": response_id,
-            })
-            raise RateLimitError(str(e))
-        except RuntimeError as e:
-            log.error("Responses API backend error", extra={
-                "error": str(e), "model": body.model,
-                "api_key": api_key_masked, "request_id": response_id,
-            })
-            raise BackendError(str(e))
-        except Exception as e:
-            log.error("Responses API error", extra={
-                "error": str(e), "model": body.model,
-                "api_key": api_key_masked, "request_id": response_id,
-            })
-            raise
+
+    return await execute_non_stream(
+        deps,
+        lambda entry: _do_non_stream(deps, entry, body, response_id, req_start, api_key),
+        model=body.model,
+        api_key_masked=api_key_masked,
+        request_id=response_id,
+        log_prefix="Responses API",
+        session_id=body.previous_response_id,
+    )
 
 
 async def _do_non_stream(
@@ -106,7 +75,7 @@ async def _do_non_stream(
     api_key: str,
 ) -> JSONResponse:
     """Non-streaming Responses API via pass-through to ChatGPT backend."""
-    create_bg_task(increment_counters(entry.account_id, api_key), name="increment-counters")
+    create_bg_task(increment_counters(deps, entry.account_id, api_key), name="increment-counters")
 
     client = entry.chatgpt_client
     if not client:

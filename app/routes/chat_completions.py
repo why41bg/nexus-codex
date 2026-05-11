@@ -16,24 +16,24 @@ import hashlib
 import json
 import time
 import uuid
-import asyncio
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
-from app.exceptions import ModelNotFoundError, RateLimitError, RetryExhaustedError, BackendError
 from app.models import ChatCompletionRequest
 from app.middleware.auth import api_key_auth_dependency
-from app.middleware.rate_limit import rate_limit_dependency
 from app.services.account_pool import PoolEntry
-from app.services.config_store import is_model_allowed_for_key
 from app.services.chatgpt_adapter import ChatGPTAdapter
-from app.utils.logger import log
-from app.utils.retry import with_retry, with_stream_retry
 from app.utils.bg_task import create_bg_task
-from app.utils.route_helpers import increment_counters, mask_api_key, set_request_context
+from app.utils.retry import with_stream_retry
+from app.utils.route_helpers import increment_counters
+from app.utils.route_orchestrator import (
+    build_sse_response,
+    execute_non_stream,
+    validate_request,
+)
 
 router = APIRouter()
 
@@ -68,60 +68,27 @@ async def chat_completions(
     deps: AppDependencies = Depends(get_deps),
 ):
     """Handle chat completion requests with ChatGPT Plus backend streaming."""
-    await rate_limit_dependency(request, api_key)
-
-    if not is_model_allowed_for_key(api_key, body.model):
-        raise ModelNotFoundError(body.model)
-
-    req_start = time.time()
     completion_id = _generate_completion_id()
-    api_key_masked = mask_api_key(api_key)
 
-    # Store business context for access-log middleware
-    set_request_context(request, api_key=api_key, model=body.model, request_id=completion_id)
-
-    log.info("Chat completion request", extra={
-        "model": body.model, "stream": body.stream,
-        "api_key": api_key_masked, "request_id": completion_id,
-    })
+    req_start, api_key_masked = await validate_request(
+        request, api_key, body.model, completion_id,
+        log_prefix="Chat completion", stream=body.stream,
+    )
 
     if body.stream:
-        return StreamingResponse(
-            _stream_completion_with_retry(deps, body, completion_id, req_start, api_key),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
+        return build_sse_response(
+            _stream_completion_with_retry(deps, body, completion_id, req_start, api_key)
         )
-    else:
-        try:
-            result = await with_retry(
-                deps,
-                lambda entry: _do_non_stream(deps, entry, body, completion_id, req_start, api_key),
-                model=body.model,
-                session_id=_extract_session_id(body, api_key),
-            )
-            return result
-        except RetryExhaustedError as e:
-            log.error("Chat completion exhausted retries", extra={
-                "error": str(e), "model": body.model,
-                "api_key": api_key_masked, "request_id": completion_id,
-            })
-            raise RateLimitError(str(e))
-        except RuntimeError as e:
-            log.error("Chat completion backend error", extra={
-                "error": str(e), "model": body.model,
-                "api_key": api_key_masked, "request_id": completion_id,
-            })
-            raise BackendError(str(e))
-        except Exception as e:
-            log.error("Chat completion error", extra={
-                "error": str(e), "model": body.model,
-                "api_key": api_key_masked, "request_id": completion_id,
-            })
-            raise
+
+    return await execute_non_stream(
+        deps,
+        lambda entry: _do_non_stream(deps, entry, body, completion_id, req_start, api_key),
+        model=body.model,
+        api_key_masked=api_key_masked,
+        request_id=completion_id,
+        log_prefix="Chat completion",
+        session_id=_extract_session_id(body, api_key),
+    )
 
 
 async def _do_non_stream(
@@ -133,7 +100,7 @@ async def _do_non_stream(
     api_key: str,
 ) -> JSONResponse:
     """Non-streaming completion via ChatGPTClient.responses()."""
-    create_bg_task(increment_counters(entry.account_id, api_key), name="increment-counters")
+    create_bg_task(increment_counters(deps, entry.account_id, api_key), name="increment-counters")
 
     client = entry.chatgpt_client
     if not client:

@@ -10,14 +10,6 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.models import ClaimApiKeyRequest
-from app.services.account_store import load_accounts
-from app.services.config_store import (
-    add_api_key,
-    find_api_key_template,
-    get_api_key_templates,
-    increment_claim_code_usage,
-    record_claim_attempt,
-)
 from app.services.ip_ban_store import get_client_ip
 
 router = APIRouter()
@@ -26,7 +18,7 @@ router = APIRouter()
 @router.get("/system-status")
 async def public_system_status(deps: AppDependencies = Depends(get_deps)):
     """Public system availability status for portal users."""
-    accounts = await load_accounts()
+    accounts = await deps.account_store.load_accounts()
     status = deps.pool.get_status()
     total = len(accounts)
     healthy = sum(1 for e in status if e["healthy"])
@@ -73,20 +65,20 @@ def _template_to_public_dict(template) -> dict:
 
 
 @router.get("/key-templates")
-async def list_public_key_templates():
+async def list_public_key_templates(deps: AppDependencies = Depends(get_deps)):
     """List enabled API key claim templates available to portal users."""
     templates = [
         _template_to_public_dict(template)
-        for template in get_api_key_templates()
+        for template in deps.config_store.get_api_key_templates()
         if template.enabled
     ]
     return JSONResponse(content={"templates": templates})
 
 
 @router.post("/keys/claim")
-async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
+async def claim_api_key(body: ClaimApiKeyRequest, request: Request, deps: AppDependencies = Depends(get_deps)):
     """Claim a new API key from an enabled self-service template."""
-    template = find_api_key_template(body.template_id)
+    template = deps.config_store.find_api_key_template(body.template_id)
     if not template or not template.enabled:
         return JSONResponse(status_code=404, content={"error": {"message": "申领模板不存在或未启用"}})
 
@@ -115,7 +107,7 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
 
     # IP rate limit — last check before actually creating the key
     client_ip = get_client_ip(request)
-    allowed, retry_after_ms = await record_claim_attempt(
+    allowed, retry_after_ms = await deps.config_store.record_claim_attempt(
         client_ip,
         template.id,
         limit_max=template.claim_ip_limit_max,
@@ -135,7 +127,7 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
         )
 
     key = f"sk-{secrets.token_hex(16)}"
-    entry = await add_api_key(
+    entry = await deps.config_store.add_api_key(
         key=key,
         name=applicant_name,
         models=list(template.models),
@@ -151,7 +143,7 @@ async def claim_api_key(body: ClaimApiKeyRequest, request: Request):
     )
 
     if template.require_claim_code and template.claim_code_max_usage is not None:
-        await increment_claim_code_usage(template.id)
+        await deps.config_store.increment_claim_code_usage(template.id)
     return JSONResponse(
         content={
             "key": entry.key,
