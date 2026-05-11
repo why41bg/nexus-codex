@@ -162,23 +162,29 @@ async def access_log_middleware(request: Request, call_next):
     if request.url.query:
         path = f"{path}?{request.url.query}"
 
-    if status >= 500:
-        log.error(
-            f"{request.method} {path} → {status}",
-            extra={"client": client, "elapsed_ms": elapsed_ms},
-        )
-    elif status >= 400:
-        log.warn(
-            f"{request.method} {path} → {status}",
-            extra={"client": client, "elapsed_ms": elapsed_ms},
-        )
-    else:
-        log.info(
-            f"{request.method} {path} → {status}",
-            extra={"client": client, "elapsed_ms": elapsed_ms},
-        )
+    # Build common extra dict for stdout logging
+    log_extra: dict = {"client": client, "elapsed_ms": elapsed_ms}
+    _model = getattr(request.state, "model", None)
+    _api_key = getattr(request.state, "api_key_masked", None)
+    _account = getattr(request.state, "account_id", None)
+    _req_id = getattr(request.state, "request_id", None)
+    if _model:
+        log_extra["model"] = _model
+    if _api_key:
+        log_extra["api_key"] = _api_key
+    if _account:
+        log_extra["account_id"] = _account
+    if _req_id:
+        log_extra["request_id"] = _req_id
 
-    # Structured log collection
+    if status >= 500:
+        log.error(f"{request.method} {path} → {status}", extra=log_extra)
+    elif status >= 400:
+        log.warn(f"{request.method} {path} → {status}", extra=log_extra)
+    else:
+        log.info(f"{request.method} {path} → {status}", extra=log_extra)
+
+    # Structured log collection (reuse extracted context from above)
     deps: AppDependencies | None = getattr(request.app.state, "deps", None)
     if deps and deps.log_collector:
         deps.log_collector.on_request_complete(
@@ -187,6 +193,10 @@ async def access_log_middleware(request: Request, call_next):
             status=status,
             latency_ms=elapsed_ms,
             client_ip=client,
+            model=_model,
+            trace_id=_req_id,
+            api_key_id=_api_key,
+            account_id=_account,
         )
 
     return response

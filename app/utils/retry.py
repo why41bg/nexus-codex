@@ -19,6 +19,7 @@ from app.services.account_pool import AccountPool, PoolEntry
 from app.services.chatgpt_client import CloudflareChallengeError, TokenExpiredError, QuotaExhaustedError
 from app.services.health_check import trigger_probe
 from app.utils.logger import log
+from app.utils.route_helpers import mask_api_key
 
 
 MAX_RETRIES = 3
@@ -116,6 +117,7 @@ async def with_retry(
                     "Retryable error, failing over to next account",
                     extra={
                         "account_id": entry.account_id,
+                        "model": model_name,
                         "attempt": attempt + 1,
                         "max_retries": MAX_RETRIES,
                         "error": str(e),
@@ -189,6 +191,7 @@ async def with_stream_retry(
 
     collector = deps.log_collector
     last_error: Exception | None = None
+    api_key_masked = mask_api_key(api_key) if api_key else "unknown"
 
     for attempt in range(MAX_RETRIES + 1):
         entry = await deps.pool.acquire_async(session_id=session_id)
@@ -231,6 +234,8 @@ async def with_stream_retry(
                     "Stream retryable error, failing over",
                     extra={
                         "account_id": entry.account_id,
+                        "model": model,
+                        "api_key": api_key_masked,
                         "attempt": attempt + 1,
                         "error": str(e),
                     },
@@ -251,7 +256,10 @@ async def with_stream_retry(
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
 
-            log.error("Stream error", extra={"error": str(e)})
+            log.error("Stream error", extra={
+                "error": str(e), "account_id": entry.account_id,
+                "model": model, "api_key": api_key_masked,
+            })
             if collector:
                 collector.on_upstream_error(
                     account_id=entry.account_id,

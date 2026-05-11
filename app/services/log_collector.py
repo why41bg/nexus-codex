@@ -37,8 +37,14 @@ class LogCollector:
         model: str | None = None,
         trace_id: str | None = None,
         api_key_id: str | None = None,
+        account_id: str | None = None,
     ) -> None:
-        level = "error" if status >= 500 else "warn" if status >= 400 else "info"
+        # Only store error/warn requests (>= 400) in LogStore.
+        # Successful (2xx/3xx) requests are covered by the metrics system
+        # and stdout logs; storing them would create excessive noise.
+        if status < 400:
+            return
+        level = "error" if status >= 500 else "warn"
         if not self._should_record(level):
             return
         self._store.write(
@@ -46,10 +52,14 @@ class LogCollector:
             source="middleware.access",
             event="request_complete",
             message=f"{method} {path} → {status}",
-            context={"method": method, "path": path, "status": status, "model": model},
+            context={
+                "method": method, "path": path, "status": status,
+                "model": model, "account_id": account_id,
+            },
             tags=["category:request"],
             trace_id=trace_id,
             api_key_id=api_key_id,
+            account_id=account_id,
             client_ip=client_ip,
             duration_ms=latency_ms,
         )

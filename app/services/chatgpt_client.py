@@ -180,7 +180,11 @@ class ChatGPTClient:
         #
         # These are accepted in the API model but silently dropped here.
 
-        log.debug("ChatGPT responses request", extra={"model": model, "payload": json.dumps(payload, ensure_ascii=False)[:500]})
+        account_id = self._token_manager.get_account_id() or "unknown"
+        log.debug("ChatGPT responses request", extra={
+            "model": model, "account_id": account_id,
+            "payload": json.dumps(payload, ensure_ascii=False)[:500],
+        })
 
         if stream:
             async for chunk in self._stream_sse(headers, payload):
@@ -215,20 +219,30 @@ class ChatGPTClient:
                 json=payload,
                 timeout=DEFAULT_TIMEOUT,
             ) as resp:
-                log.debug("ChatGPT response status", extra={"status": resp.status_code})
+                account_id = self._token_manager.get_account_id() or "unknown"
+                log.debug("ChatGPT response status", extra={
+                    "status": resp.status_code, "account_id": account_id,
+                })
 
                 if resp.status_code == 403:
                     body = await resp.aread()
                     if b"_cf_chl_opt" in body or b"challenge-platform" in body:
+                        log.warn("Cloudflare challenge detected", extra={"account_id": account_id})
                         raise CloudflareChallengeError("Blocked by Cloudflare")
+                    log.error("ChatGPT HTTP 403", extra={"account_id": account_id, "body": body.decode(errors='replace')[:200]})
                     raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
 
                 if resp.status_code == 429:
                     body = await resp.aread()
+                    log.warn("ChatGPT quota exhausted (HTTP 429)", extra={"account_id": account_id})
                     raise QuotaExhaustedError(f"HTTP 429: {body.decode(errors='replace')[:200]}")
 
                 if resp.status_code != 200:
                     body = await resp.aread()
+                    log.error("ChatGPT upstream error", extra={
+                        "account_id": account_id, "status": resp.status_code,
+                        "body": body.decode(errors='replace')[:200],
+                    })
                     raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
 
                 async for line in resp.aiter_lines():

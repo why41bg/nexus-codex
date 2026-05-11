@@ -21,7 +21,7 @@ from app.services.account_pool import PoolEntry
 from app.services.config_store import is_model_allowed_for_key
 from app.utils.logger import log
 from app.utils.retry import with_retry, with_stream_retry
-from app.utils.route_helpers import increment_counters
+from app.utils.route_helpers import increment_counters, mask_api_key, set_request_context
 
 router = APIRouter()
 
@@ -48,6 +48,15 @@ async def messages(
 
     req_start = time.time()
     message_id = _generate_message_id()
+    api_key_masked = mask_api_key(api_key)
+
+    # Store business context for access-log middleware
+    set_request_context(request, api_key=api_key, model=body.model, request_id=message_id)
+
+    log.info("Messages API request", extra={
+        "model": body.model, "stream": body.stream,
+        "api_key": api_key_masked, "request_id": message_id,
+    })
 
     if body.stream:
         return StreamingResponse(
@@ -69,13 +78,22 @@ async def messages(
             )
             return result
         except RetryExhaustedError as e:
-            log.error("Messages API exhausted retries", extra={"error": str(e)})
+            log.error("Messages API exhausted retries", extra={
+                "error": str(e), "model": body.model,
+                "api_key": api_key_masked, "request_id": message_id,
+            })
             raise RateLimitError(str(e))
         except RuntimeError as e:
-            log.error("Messages API backend error", extra={"error": str(e)})
+            log.error("Messages API backend error", extra={
+                "error": str(e), "model": body.model,
+                "api_key": api_key_masked, "request_id": message_id,
+            })
             raise BackendError(str(e))
         except Exception as e:
-            log.error("Messages API error", extra={"error": str(e)})
+            log.error("Messages API error", extra={
+                "error": str(e), "model": body.model,
+                "api_key": api_key_masked, "request_id": message_id,
+            })
             raise
 
 
