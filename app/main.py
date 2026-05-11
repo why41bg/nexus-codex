@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.anthropic_adapter import AnthropicAdapter
 from app.config import settings
-from app.dependencies import AppDependencies
+from app.dependencies import AppDependencies, get_deps_from_request
 from app.exceptions import NexusError
 from app.middleware.ip_ban import IPBanMiddleware
 from app.routes.admin import router as admin_router
@@ -37,13 +37,15 @@ from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
 from app.services.quota_probe import QuotaProbeService
 from app.services.session_manager import SessionManager
+from app.utils.bg_task import create_bg_task
 from app.utils.logger import log
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifecycle manager."""
-    # ─── Startup ──────────────────────────────────────────
+async def _startup(app: FastAPI) -> dict:
+    """Initialise all services and wire up the DI container.
+
+    Returns a dict of background tasks that must be cancelled on shutdown.
+    """
     log.info("Starting Nexus Codex (Python)")
 
     # Initialize config store and load persistent config
@@ -104,11 +106,15 @@ async def lifespan(app: FastAPI):
     # Start health check background tasks
     health_checker.start()
 
-    # Start session cleanup timer
-    cleanup_task = asyncio.create_task(_session_cleanup_loop(session_manager))
+    # Start session cleanup timer (use create_bg_task for error tracking)
+    cleanup_task = create_bg_task(
+        _session_cleanup_loop(session_manager), name="session-cleanup"
+    )
 
     # Start log cleanup timer
-    log_cleanup_task = asyncio.create_task(_log_cleanup_loop(log_store))
+    log_cleanup_task = create_bg_task(
+        _log_cleanup_loop(log_store), name="log-cleanup"
+    )
 
     # Record startup event
     if log_collector:
@@ -125,23 +131,46 @@ async def lifespan(app: FastAPI):
         },
     )
 
-    yield
+    return {"cleanup_task": cleanup_task, "log_cleanup_task": log_cleanup_task}
 
-    # ─── Shutdown ─────────────────────────────────────────
+
+async def _shutdown(app: FastAPI, bg_tasks: dict) -> None:
+    """Gracefully stop all services and await background tasks."""
     log.info("Shutting down Nexus Codex")
-    if log_collector:
-        await log_collector.emit("service_stopped", "Nexus Codex shutting down")
-    health_checker.stop()
-    cleanup_task.cancel()
-    log_cleanup_task.cancel()
-    # Flush buffered usage counters before closing
-    await account_store.flush_usage_counters()
-    await pool.close()
-    if hasattr(app.state, 'deps'):
-        app.state.deps.metrics_store.close()
-        if app.state.deps.log_store:
-            app.state.deps.log_store.close()
+
+    deps: AppDependencies | None = getattr(app.state, "deps", None)
+    if deps and deps.log_collector:
+        await deps.log_collector.emit("service_stopped", "Nexus Codex shutting down")
+
+    if deps:
+        deps.health_checker.stop()
+
+    # Cancel and await background tasks to ensure CancelledError is handled
+    cleanup_task = bg_tasks.get("cleanup_task")
+    log_cleanup_task = bg_tasks.get("log_cleanup_task")
+    tasks_to_cancel = [t for t in (cleanup_task, log_cleanup_task) if t is not None]
+    for t in tasks_to_cancel:
+        t.cancel()
+    if tasks_to_cancel:
+        await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+
+    if deps:
+        # Flush buffered usage counters before closing
+        await deps.account_store.flush_usage_counters()
+        await deps.pool.close()
+        deps.metrics_store.close()
+        if deps.log_store:
+            deps.log_store.close()
+
     log.info("Nexus Codex shut down gracefully")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle manager."""
+    bg_tasks = await _startup(app)
+    yield
+    await _shutdown(app, bg_tasks)
 
 
 def _load_persisted_settings():
@@ -155,7 +184,7 @@ def _load_persisted_settings():
             settings.codex_cli_path = data["codex_cli_path"]
             log.info("Loaded persisted setting", extra={"codex_cli_path": data["codex_cli_path"]})
     except (json.JSONDecodeError, OSError) as e:
-        log.warn("Failed to load persisted settings", extra={"error": str(e)})
+        log.warning("Failed to load persisted settings", extra={"error": str(e)})
 
 
 async def _session_cleanup_loop(session_manager: SessionManager):
@@ -233,12 +262,12 @@ async def access_log_middleware(request: Request, call_next):
     if status >= 500:
         log.error(f"{request.method} {path} → {status}", extra=log_extra)
     elif status >= 400:
-        log.warn(f"{request.method} {path} → {status}", extra=log_extra)
+        log.warning(f"{request.method} {path} → {status}", extra=log_extra)
     else:
         log.info(f"{request.method} {path} → {status}", extra=log_extra)
 
     # Structured log collection (reuse extracted context from above)
-    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    deps: AppDependencies | None = get_deps_from_request(request)
     if deps and deps.log_collector:
         # Only persist error/warn requests (>= 400); 2xx/3xx covered by metrics
         if status >= 400:
@@ -275,7 +304,7 @@ def _is_anthropic_request(request: Request) -> bool:
 @app.exception_handler(NexusError)
 async def nexus_exception_handler(request: Request, exc: NexusError):
     """Handle NexusError with protocol-appropriate error response."""
-    log.warn(
+    log.warning(
         "Application error",
         extra={
             "error": exc.message,
@@ -347,7 +376,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
     # Structured log collection
-    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    deps: AppDependencies | None = get_deps_from_request(request)
     if deps and deps.log_collector:
         await deps.log_collector.emit(
             "unhandled_exception",
@@ -411,7 +440,7 @@ async def catch_all(request: Request, path_name: str):
     reason = f"{request.method} /{path_name}"
 
     # Record the suspicious hit (may trigger auto-ban)
-    deps: AppDependencies | None = getattr(request.app.state, "deps", None)
+    deps: AppDependencies | None = get_deps_from_request(request)
     was_banned = deps.ip_ban_store.record_suspicious_hit(client_ip, reason) if deps else False
     if was_banned:
         # Persist the updated ban list
