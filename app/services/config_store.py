@@ -64,7 +64,7 @@ async def load_config() -> AppConfig:
                 k.monthly_reset_at = _get_next_month_reset()
 
     # Security warning
-    if settings.admin_username == "admin" and settings.admin_password == "admin":
+    if settings.admin_username == "admin" and settings.verify_password("admin"):
         log.warn(
             "Admin credentials are default (admin/admin). "
             "Set ADMIN_USERNAME/ADMIN_PASSWORD env vars for production."
@@ -150,21 +150,22 @@ def _constant_time_equal(a: str, b: str) -> bool:
 
 
 def verify_admin_auth(username: str, password: str) -> bool:
-    """Verify admin credentials using constant-time comparison.
+    """Verify admin credentials using constant-time comparison + bcrypt.
 
-    Credentials are always read from environment variables (ADMIN_USERNAME / ADMIN_PASSWORD).
+    Username is compared in constant-time to prevent timing attacks.
+    Password is verified against the bcrypt hash stored in settings.
     """
     user_match = _constant_time_equal(username, settings.admin_username)
-    pass_match = _constant_time_equal(password, settings.admin_password)
+    pass_match = settings.verify_password(password)
     return user_match and pass_match
 
 
 def verify_admin_password(password: str) -> bool:
     """Verify admin password only (for sensitive operations like key reveal).
 
-    Password is always read from the ADMIN_PASSWORD environment variable.
+    Password is verified against the bcrypt hash stored in settings.
     """
-    return _constant_time_equal(password, settings.admin_password)
+    return settings.verify_password(password)
 
 
 # ─── API Key CRUD ───────────────────────────────────────────
@@ -215,13 +216,18 @@ async def add_api_key(
 
 
 async def update_api_key(key: str, **updates: object) -> ApiKeyEntry | None:
-    """Update an existing API key."""
+    """Update an existing API key.
+
+    Callers should pass only the fields they want to change (via
+    ``model_dump(exclude_unset=True)``).  ``None`` values are applied
+    as-is so that optional fields can be explicitly cleared.
+    """
     if _config is None:
         return None
     for entry in _config.api_keys:
         if entry.key == key:
             for k, v in updates.items():
-                if v is not None and hasattr(entry, k):
+                if hasattr(entry, k):
                     setattr(entry, k, v)
             _invalidate_api_key_cache()
             await _save_config()
