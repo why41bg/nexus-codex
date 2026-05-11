@@ -7,12 +7,12 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
-from app.models import LoginRequest
+from app.models import LoginRequest, OkResponse, TokenResponse
 
 router = APIRouter()
 
 
-@router.post("/login")
+@router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, request: Request, deps: AppDependencies = Depends(get_deps)):
     """Admin login endpoint."""
     client_ip = request.client.host if request.client else "-"
@@ -39,7 +39,7 @@ async def login(body: LoginRequest, request: Request, deps: AppDependencies = De
     return JSONResponse(content={"token": token})
 
 
-@router.post("/logout", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/logout", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def logout(request: Request, deps: AppDependencies = Depends(get_deps)):
     """Admin logout endpoint."""
     auth_header = request.headers.get("Authorization", "")

@@ -11,12 +11,12 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.middleware.auth import admin_auth_dependency
-from app.models import UpdateSettingsRequest
+from app.models import SettingsResponse, UpdateSettingsRequest, UpdateSettingsResponse
 
 router = APIRouter()
 
 
-@router.get("/settings", dependencies=[Depends(admin_auth_dependency)])
+@router.get("/settings", dependencies=[Depends(admin_auth_dependency)], response_model=SettingsResponse)
 async def get_settings():
     """Get current runtime settings."""
     from app.config import settings
@@ -26,7 +26,7 @@ async def get_settings():
     })
 
 
-@router.patch("/settings", dependencies=[Depends(admin_auth_dependency)])
+@router.patch("/settings", dependencies=[Depends(admin_auth_dependency)], response_model=UpdateSettingsResponse)
 async def update_settings(body: UpdateSettingsRequest):
     """Update runtime settings (persisted to data/settings.json)."""
     import os

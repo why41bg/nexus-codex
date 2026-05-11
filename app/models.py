@@ -419,3 +419,191 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+
+# ─── Admin Response Models ──────────────────────────────────
+
+
+class OkResponse(BaseModel):
+    """Generic success response."""
+    ok: bool = True
+
+
+class TokenResponse(BaseModel):
+    """Login response with session token."""
+    token: str
+
+
+class AccountRuntime(BaseModel):
+    """Runtime info for an account."""
+    healthy: bool
+    activeCount: int
+    maxConcurrency: int
+
+
+class AccountListItem(BaseModel):
+    """Account item in list response."""
+    id: str
+    codexHome: str
+    remark: str
+    enabled: bool
+    usageCount: int
+    lastUsedAt: str | None = None
+    runtime: AccountRuntime | None = None
+
+
+class AccountListResponse(BaseModel):
+    """Response for list accounts."""
+    accounts: list[AccountListItem]
+
+
+# ─── Dashboard ────────────────────────────────────────────
+
+
+class DashboardResponse(BaseModel):
+    """Dashboard summary response."""
+    total: int
+    totalSlots: int
+    activeSlots: int
+    availableSlots: int
+    unhealthy: int
+    disabled: int
+    totalUsage: int
+    recentRequests1h: int
+    recentErrors1h: int
+    avgLatency1h: int | None = None
+
+
+# ─── API Key Responses ────────────────────────────────────
+
+
+class ApiKeyListItem(BaseModel):
+    """Masked API key item."""
+    keyMasked: str
+    keyPrefix: str
+    name: str
+    enabled: bool
+    models: list[str]
+    effectiveModels: list[str]
+    createdAt: str
+    expiresAt: str | None = None
+    source: str = "admin"
+    templateId: str | None = None
+    templateName: str | None = None
+    applicantName: str | None = None
+    applicantContact: str | None = None
+    applicantNote: str | None = None
+    rateLimitMax: int | None = None
+    rateLimitWindowMs: int | None = None
+    monthlyQuota: int | None = None
+    monthlyUsage: int = 0
+    ipWhitelist: list[str] = Field(default_factory=list)
+
+
+class ApiKeyListResponse(BaseModel):
+    """Response for list API keys."""
+    keys: list[ApiKeyListItem]
+
+
+class RevealKeyResponse(BaseModel):
+    """Response for revealing full API key."""
+    key: str
+
+
+class CreateKeyResponse(BaseModel):
+    """Response for creating an API key."""
+    key: str
+
+
+class BatchKeyActionResponse(BaseModel):
+    """Response for batch key actions."""
+    succeeded: int
+    failed: int
+
+
+# ─── Models Responses ─────────────────────────────────────
+
+
+class ModelsAdminResponse(BaseModel):
+    """Response for admin models list."""
+    models: list[str]
+
+
+class OkModelsResponse(BaseModel):
+    """Response for model add/delete with updated list."""
+    ok: bool = True
+    models: list[str]
+
+
+# ─── Banned IP Responses ──────────────────────────────────
+
+
+class BannedIpItem(BaseModel):
+    """Banned IP list item."""
+    ip: str
+    reason: str
+    bannedAt: str
+    hitCount: int
+
+
+class BannedIpListResponse(BaseModel):
+    """Response for list banned IPs."""
+    bannedIps: list[BannedIpItem]
+
+
+class OkIpResponse(BaseModel):
+    """Response for ban/unban IP."""
+    ok: bool = True
+    ip: str | None = None
+
+
+class BatchUnbanResponse(BaseModel):
+    """Response for batch unban."""
+    ok: bool = True
+    removedCount: int
+
+
+# ─── Settings Responses ───────────────────────────────────
+
+
+class SettingsResponse(BaseModel):
+    """Response for get settings."""
+    codexCliPath: str
+
+
+class UpdateSettingsResponse(BaseModel):
+    """Response for update settings."""
+    updated: dict
+
+
+# ─── Key Template Responses ───────────────────────────────
+
+
+class KeyTemplateItem(BaseModel):
+    """Key template item for admin responses."""
+    id: str
+    name: str
+    description: str = ""
+    enabled: bool = True
+    models: list[str] = Field(default_factory=list)
+    requireClaimCode: bool = True
+    claimCode: str = ""
+    claimCodeMaxUsage: int | None = None
+    claimCodeUsedCount: int = 0
+    rateLimitMax: int | None = None
+    rateLimitWindowMs: int | None = None
+    monthlyQuota: int | None = None
+    claimIpLimitMax: int = 1
+    claimIpLimitWindowMs: int = Field(default=24 * 60 * 60 * 1000)
+    createdAt: str
+    updatedAt: str | None = None
+
+
+class KeyTemplateListResponse(BaseModel):
+    """Response for list key templates."""
+    templates: list[KeyTemplateItem]
+
+
+class KeyTemplateResponse(BaseModel):
+    """Response for single key template."""
+    template: KeyTemplateItem

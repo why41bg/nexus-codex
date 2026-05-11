@@ -7,18 +7,18 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
-from app.models import AddModelRequest
+from app.models import AddModelRequest, ModelsAdminResponse, OkModelsResponse
 
 router = APIRouter()
 
 
-@router.get("/models", dependencies=[Depends(admin_auth_dependency)])
+@router.get("/models", dependencies=[Depends(admin_auth_dependency)], response_model=ModelsAdminResponse)
 async def list_default_models(deps: AppDependencies = Depends(get_deps)):
     """List default models."""
     return JSONResponse(content={"models": deps.config_store.get_default_models()})
 
 
-@router.post("/models", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/models", dependencies=[Depends(admin_auth_dependency)], response_model=OkModelsResponse)
 async def add_model(body: AddModelRequest, deps: AppDependencies = Depends(get_deps)):
     """Add a default model."""
     model_id = body.model.strip()
@@ -30,7 +30,7 @@ async def add_model(body: AddModelRequest, deps: AppDependencies = Depends(get_d
     return JSONResponse(content={"ok": True, "models": deps.config_store.get_default_models()})
 
 
-@router.delete("/models/{model_id}", dependencies=[Depends(admin_auth_dependency)])
+@router.delete("/models/{model_id}", dependencies=[Depends(admin_auth_dependency)], response_model=OkModelsResponse)
 async def delete_model(model_id: str, deps: AppDependencies = Depends(get_deps)):
     """Remove a default model."""
     removed = await deps.config_store.remove_default_model(model_id)

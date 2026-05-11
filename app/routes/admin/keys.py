@@ -11,8 +11,13 @@ from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
 from app.models import (
     AddApiKeyRequest,
+    ApiKeyListResponse,
     BatchKeyActionRequest,
+    BatchKeyActionResponse,
+    CreateKeyResponse,
+    OkResponse,
     RevealApiKeyRequest,
+    RevealKeyResponse,
     UpdateApiKeyRequest,
 )
 from app.routes.admin._helpers import resolve_key
@@ -20,7 +25,7 @@ from app.routes.admin._helpers import resolve_key
 router = APIRouter()
 
 
-@router.get("/keys", dependencies=[Depends(admin_auth_dependency)])
+@router.get("/keys", dependencies=[Depends(admin_auth_dependency)], response_model=ApiKeyListResponse)
 async def list_api_keys(deps: AppDependencies = Depends(get_deps)):
     """List all API keys (no full key returned for security)."""
     keys = deps.config_store.get_api_keys()
@@ -53,7 +58,7 @@ async def list_api_keys(deps: AppDependencies = Depends(get_deps)):
     return JSONResponse(content={"keys": result})
 
 
-@router.post("/keys/reveal", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/keys/reveal", dependencies=[Depends(admin_auth_dependency)], response_model=RevealKeyResponse)
 async def reveal_api_key(body: RevealApiKeyRequest, deps: AppDependencies = Depends(get_deps)):
     """Reveal full API key after admin password verification."""
     if not deps.config_store.verify_admin_password(body.password):
@@ -67,7 +72,7 @@ async def reveal_api_key(body: RevealApiKeyRequest, deps: AppDependencies = Depe
     return JSONResponse(content={"key": full_key})
 
 
-@router.post("/keys", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/keys", dependencies=[Depends(admin_auth_dependency)], response_model=CreateKeyResponse)
 async def create_api_key(body: AddApiKeyRequest, deps: AppDependencies = Depends(get_deps)):
     """Add a new API key."""
     key = body.key or f"sk-{secrets.token_hex(16)}"
@@ -84,7 +89,7 @@ async def create_api_key(body: AddApiKeyRequest, deps: AppDependencies = Depends
     return JSONResponse(content={"key": entry.key})
 
 
-@router.patch("/keys/{key_prefix}", dependencies=[Depends(admin_auth_dependency)])
+@router.patch("/keys/{key_prefix}", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def update_api_key_route(key_prefix: str, body: UpdateApiKeyRequest, deps: AppDependencies = Depends(get_deps)):
     """Update an API key by prefix or full key."""
     full_key = resolve_key(deps.config_store, key_prefix)
@@ -97,7 +102,7 @@ async def update_api_key_route(key_prefix: str, body: UpdateApiKeyRequest, deps:
     return JSONResponse(content={"ok": True})
 
 
-@router.delete("/keys/{key_prefix}", dependencies=[Depends(admin_auth_dependency)])
+@router.delete("/keys/{key_prefix}", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def delete_api_key(key_prefix: str, deps: AppDependencies = Depends(get_deps)):
     """Delete an API key by prefix or full key."""
     full_key = resolve_key(deps.config_store, key_prefix)
@@ -109,7 +114,7 @@ async def delete_api_key(key_prefix: str, deps: AppDependencies = Depends(get_de
     return JSONResponse(content={"ok": True})
 
 
-@router.post("/keys/batch", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/keys/batch", dependencies=[Depends(admin_auth_dependency)], response_model=BatchKeyActionResponse)
 async def batch_key_action(body: BatchKeyActionRequest, deps: AppDependencies = Depends(get_deps)):
     """Perform batch action on multiple API keys."""
     if body.action not in ("delete", "enable", "disable"):

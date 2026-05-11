@@ -7,12 +7,19 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
-from app.models import AddBannedIpRequest, BatchUnbanRequest
+from app.models import (
+    AddBannedIpRequest,
+    BannedIpListResponse,
+    BatchUnbanRequest,
+    BatchUnbanResponse,
+    OkIpResponse,
+    OkResponse,
+)
 
 router = APIRouter()
 
 
-@router.get("/banned-ips", dependencies=[Depends(admin_auth_dependency)])
+@router.get("/banned-ips", dependencies=[Depends(admin_auth_dependency)], response_model=BannedIpListResponse)
 async def list_banned_ips(deps: AppDependencies = Depends(get_deps)):
     """List all banned IPs."""
     banned = deps.ip_ban_store.get_banned_ips()
@@ -28,7 +35,7 @@ async def list_banned_ips(deps: AppDependencies = Depends(get_deps)):
     return JSONResponse(content={"bannedIps": result})
 
 
-@router.post("/banned-ips", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/banned-ips", dependencies=[Depends(admin_auth_dependency)], response_model=OkIpResponse)
 async def add_banned_ip(body: AddBannedIpRequest, deps: AppDependencies = Depends(get_deps)):
     """Manually ban an IP address."""
     ip = body.ip.strip()
@@ -53,7 +60,7 @@ async def add_banned_ip(body: AddBannedIpRequest, deps: AppDependencies = Depend
     return JSONResponse(content={"ok": True, "ip": entry.ip})
 
 
-@router.delete("/banned-ips/{ip}", dependencies=[Depends(admin_auth_dependency)])
+@router.delete("/banned-ips/{ip}", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def remove_banned_ip(ip: str, deps: AppDependencies = Depends(get_deps)):
     """Unban an IP address."""
     removed = deps.ip_ban_store.unban_ip(ip)
@@ -69,7 +76,7 @@ async def remove_banned_ip(ip: str, deps: AppDependencies = Depends(get_deps)):
     return JSONResponse(content={"ok": True})
 
 
-@router.post("/banned-ips/batch-unban", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/banned-ips/batch-unban", dependencies=[Depends(admin_auth_dependency)], response_model=BatchUnbanResponse)
 async def batch_unban_ips(body: BatchUnbanRequest, deps: AppDependencies = Depends(get_deps)):
     """Unban multiple IP addresses at once."""
     if not body.ips:

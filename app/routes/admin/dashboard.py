@@ -7,11 +7,12 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
+from app.models import DashboardResponse
 
 router = APIRouter()
 
 
-@router.get("/dashboard", dependencies=[Depends(admin_auth_dependency)])
+@router.get("/dashboard", dependencies=[Depends(admin_auth_dependency)], response_model=DashboardResponse)
 async def get_dashboard(deps: AppDependencies = Depends(get_deps)):
     """Dashboard summary data."""
     accounts = await deps.account_store.load_accounts()

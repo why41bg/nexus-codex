@@ -12,9 +12,11 @@ from app.dependencies import AppDependencies, get_deps
 from app.exceptions import AccountNotFoundError
 from app.middleware.auth import admin_auth_dependency
 from app.models import (
+    AccountListResponse,
     AddAccountRequest,
     BootstrapAccountRequest,
     BulkImportRequest,
+    OkResponse,
     UpdateAccountRequest,
 )
 from app.services.account_bootstrap import session_to_dict
@@ -26,7 +28,7 @@ router = APIRouter()
 # ─── Account CRUD ────────────────────────────────────────────
 
 
-@router.get("/accounts", dependencies=[Depends(admin_auth_dependency)])
+@router.get("/accounts", dependencies=[Depends(admin_auth_dependency)], response_model=AccountListResponse)
 async def list_accounts(deps: AppDependencies = Depends(get_deps)):
     """List all accounts."""
     accounts = await deps.account_store.load_accounts()
@@ -137,7 +139,7 @@ async def cancel_bootstrap_account(session_id: str, deps: AppDependencies = Depe
     return JSONResponse(content={"ok": True})
 
 
-@router.patch("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)])
+@router.patch("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def update_account_route(account_id: str, body: UpdateAccountRequest, deps: AppDependencies = Depends(get_deps)):
     """Update an account."""
     updates = body.model_dump(exclude_unset=True)
@@ -155,7 +157,7 @@ async def update_account_route(account_id: str, body: UpdateAccountRequest, deps
     return JSONResponse(content={"ok": True})
 
 
-@router.delete("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)])
+@router.delete("/accounts/{account_id}", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def delete_account(account_id: str, deps: AppDependencies = Depends(get_deps)):
     """Delete an account."""
     removed = await deps.account_store.remove_account(account_id)

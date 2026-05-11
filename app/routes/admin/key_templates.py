@@ -7,7 +7,13 @@ from fastapi.responses import JSONResponse
 
 from app.dependencies import AppDependencies, get_deps
 from app.middleware.auth import admin_auth_dependency
-from app.models import AddApiKeyTemplateRequest, UpdateApiKeyTemplateRequest
+from app.models import (
+    AddApiKeyTemplateRequest,
+    KeyTemplateListResponse,
+    KeyTemplateResponse,
+    OkResponse,
+    UpdateApiKeyTemplateRequest,
+)
 from app.routes.admin._helpers import template_to_admin_dict
 
 router = APIRouter()
@@ -32,14 +38,14 @@ def _validate_template_payload(data: dict) -> str | None:
     return None
 
 
-@router.get("/key-templates", dependencies=[Depends(admin_auth_dependency)])
+@router.get("/key-templates", dependencies=[Depends(admin_auth_dependency)], response_model=KeyTemplateListResponse)
 async def list_api_key_templates(deps: AppDependencies = Depends(get_deps)):
     """List API key self-service claim templates."""
     templates = [template_to_admin_dict(t) for t in deps.config_store.get_api_key_templates()]
     return JSONResponse(content={"templates": templates})
 
 
-@router.post("/key-templates", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/key-templates", dependencies=[Depends(admin_auth_dependency)], response_model=KeyTemplateResponse)
 async def create_api_key_template(body: AddApiKeyTemplateRequest, deps: AppDependencies = Depends(get_deps)):
     """Create an API key self-service claim template."""
     data = body.model_dump()
@@ -54,7 +60,7 @@ async def create_api_key_template(body: AddApiKeyTemplateRequest, deps: AppDepen
     return JSONResponse(content={"template": template_to_admin_dict(template)})
 
 
-@router.patch("/key-templates/{template_id}", dependencies=[Depends(admin_auth_dependency)])
+@router.patch("/key-templates/{template_id}", dependencies=[Depends(admin_auth_dependency)], response_model=KeyTemplateResponse)
 async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemplateRequest, deps: AppDependencies = Depends(get_deps)):
     """Update an API key self-service claim template."""
     existing = next((t for t in deps.config_store.get_api_key_templates() if t.id == template_id), None)
@@ -92,7 +98,7 @@ async def update_api_key_template_route(template_id: str, body: UpdateApiKeyTemp
     return JSONResponse(content={"template": template_to_admin_dict(template)})
 
 
-@router.delete("/key-templates/{template_id}", dependencies=[Depends(admin_auth_dependency)])
+@router.delete("/key-templates/{template_id}", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def delete_api_key_template(template_id: str, deps: AppDependencies = Depends(get_deps)):
     """Delete an API key self-service claim template."""
     removed = await deps.config_store.remove_api_key_template(template_id)
@@ -101,7 +107,7 @@ async def delete_api_key_template(template_id: str, deps: AppDependencies = Depe
     return JSONResponse(content={"ok": True})
 
 
-@router.post("/key-templates/{template_id}/reset-usage", dependencies=[Depends(admin_auth_dependency)])
+@router.post("/key-templates/{template_id}/reset-usage", dependencies=[Depends(admin_auth_dependency)], response_model=OkResponse)
 async def reset_template_claim_usage(template_id: str, deps: AppDependencies = Depends(get_deps)):
     """Reset the claim code used count for a template."""
     ok = await deps.config_store.reset_claim_code_usage(template_id)
