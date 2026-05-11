@@ -203,6 +203,19 @@ export interface SystemStatus {
   availableSlots: number;
 }
 
+export interface PoolQuotaSnapshot {
+  status: 'ok' | 'partial' | 'stale' | 'unavailable';
+  snapshotAt: number | null;
+  staleAt: number | null;
+  window5hRemainingPercent: number | null;
+  window1wRemainingPercent: number | null;
+  healthyAccountCount: number;
+  eligibleAccountCount: number;
+  sampledAccountCount: number;
+  eligibleWeight: number;
+  sampledWeight: number;
+}
+
 /** API Key 自助申领模板 */
 export interface ApiKeyTemplate {
   id: string;

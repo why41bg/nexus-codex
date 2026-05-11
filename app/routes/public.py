@@ -44,6 +44,25 @@ async def public_system_status(deps: AppDependencies = Depends(get_deps)):
     })
 
 
+@router.get("/pool-quota")
+async def public_pool_quota(deps: AppDependencies = Depends(get_deps)):
+    """Public read-only pool quota snapshot."""
+    if not deps.pool_quota_snapshot_service:
+        return JSONResponse(content={
+            "status": "unavailable",
+            "snapshotAt": None,
+            "staleAt": None,
+            "window5hRemainingPercent": None,
+            "window1wRemainingPercent": None,
+            "healthyAccountCount": 0,
+            "eligibleAccountCount": 0,
+            "sampledAccountCount": 0,
+            "eligibleWeight": 0,
+            "sampledWeight": 0,
+        })
+    return JSONResponse(content=deps.pool_quota_snapshot_service.get_snapshot())
+
+
 def _template_to_public_dict(template) -> dict:
     return {
         "id": template.id,

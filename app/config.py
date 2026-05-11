@@ -51,6 +51,8 @@ class Settings(BaseSettings):
 
     # Quota probe
     quota_cache_ttl_ms: int = 10 * 60 * 1000
+    pool_quota_refresh_interval_ms: int = 10 * 60 * 1000
+    pool_quota_stale_after_ms: int = 30 * 60 * 1000
 
     # IP Ban
     ban_threshold: int = 5  # number of 404 hits before auto-ban

@@ -35,6 +35,7 @@ from app.services.log_collector import LogCollector
 from app.services.log_store import LogStore
 from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
+from app.services.pool_quota_snapshot import PoolQuotaSnapshotService
 from app.services.quota_probe import QuotaProbeService
 from app.services.session_manager import SessionManager
 from app.utils.bg_task import create_bg_task
@@ -85,6 +86,11 @@ async def _startup(app: FastAPI) -> dict:
     # Initialize bootstrap manager and quota probe service
     bootstrap_manager = BootstrapManager()
     quota_probe_service = QuotaProbeService()
+    pool_quota_snapshot_service = PoolQuotaSnapshotService(
+        account_store=account_store,
+        account_pool=pool,
+        quota_probe_service=quota_probe_service,
+    )
 
     # Create dependency injection container
     app.state.deps = AppDependencies(
@@ -101,6 +107,7 @@ async def _startup(app: FastAPI) -> dict:
         health_checker=health_checker,
         bootstrap_manager=bootstrap_manager,
         quota_probe_service=quota_probe_service,
+        pool_quota_snapshot_service=pool_quota_snapshot_service,
     )
 
     # Start health check background tasks
@@ -114,6 +121,9 @@ async def _startup(app: FastAPI) -> dict:
     # Start log cleanup timer
     log_cleanup_task = create_bg_task(
         _log_cleanup_loop(log_store), name="log-cleanup"
+    )
+    pool_quota_task = create_bg_task(
+        _pool_quota_refresh_loop(pool_quota_snapshot_service), name="pool-quota-refresh"
     )
 
     # Record startup event
@@ -131,7 +141,11 @@ async def _startup(app: FastAPI) -> dict:
         },
     )
 
-    return {"cleanup_task": cleanup_task, "log_cleanup_task": log_cleanup_task}
+    return {
+        "cleanup_task": cleanup_task,
+        "log_cleanup_task": log_cleanup_task,
+        "pool_quota_task": pool_quota_task,
+    }
 
 
 async def _shutdown(app: FastAPI, bg_tasks: dict) -> None:
@@ -148,7 +162,8 @@ async def _shutdown(app: FastAPI, bg_tasks: dict) -> None:
     # Cancel and await background tasks to ensure CancelledError is handled
     cleanup_task = bg_tasks.get("cleanup_task")
     log_cleanup_task = bg_tasks.get("log_cleanup_task")
-    tasks_to_cancel = [t for t in (cleanup_task, log_cleanup_task) if t is not None]
+    pool_quota_task = bg_tasks.get("pool_quota_task")
+    tasks_to_cancel = [t for t in (cleanup_task, log_cleanup_task, pool_quota_task) if t is not None]
     for t in tasks_to_cancel:
         t.cancel()
     if tasks_to_cancel:
@@ -217,6 +232,26 @@ async def _log_cleanup_loop(log_store: LogStore | None):
                 log.info("Log cleanup completed", extra={"deleted": deleted})
         except Exception as e:
             log.error("Log cleanup failed", extra={"error": str(e)})
+
+
+async def _pool_quota_refresh_loop(pool_quota_snapshot_service: PoolQuotaSnapshotService):
+    """Periodically refresh the public pool quota snapshot."""
+    await pool_quota_snapshot_service.refresh_if_empty()
+    interval_sec = max(60, settings.pool_quota_refresh_interval_ms // 1000)
+    while True:
+        await asyncio.sleep(interval_sec)
+        try:
+            snapshot = await pool_quota_snapshot_service.refresh_snapshot_singleflight()
+            log.info(
+                "Pool quota snapshot refreshed",
+                extra={
+                    "status": snapshot.get("status"),
+                    "sampledAccountCount": snapshot.get("sampledAccountCount"),
+                    "eligibleAccountCount": snapshot.get("eligibleAccountCount"),
+                },
+            )
+        except Exception as e:
+            log.warning("Pool quota snapshot refresh failed", extra={"error": str(e)})
 
 
 # ─── Create FastAPI app ──────────────────────────────────────

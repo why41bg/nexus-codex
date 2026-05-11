@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from app.middleware.rate_limit import RateLimiter
     from app.services.account_bootstrap import BootstrapManager
     from app.services.health_check import HealthChecker
+    from app.services.pool_quota_snapshot import PoolQuotaSnapshotService
     from app.services.quota_probe import QuotaProbeService
 
 
@@ -54,6 +55,7 @@ class AppDependencies:
     health_checker: "HealthChecker | None" = None
     bootstrap_manager: "BootstrapManager | None" = None
     quota_probe_service: "QuotaProbeService | None" = None
+    pool_quota_snapshot_service: "PoolQuotaSnapshotService | None" = None
 
     def __post_init__(self) -> None:
         """Ensure rate_limiter is initialised even when not provided."""
