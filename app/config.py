@@ -3,6 +3,7 @@ from __future__ import annotations
 """Application configuration via environment variables."""
 
 import bcrypt
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -15,7 +16,7 @@ class Settings(BaseSettings):
 
     # Admin auth (plaintext from env; hashed immediately on load)
     admin_username: str = "admin"
-    _admin_password_plaintext: str = "admin"
+    admin_password_plaintext: str = Field(default="admin", validation_alias="ADMIN_PASSWORD")
     # bcrypt hash of the password — computed once at startup, never stored as plaintext after init
     admin_password_hash: bytes = b""
 
@@ -75,12 +76,11 @@ class Settings(BaseSettings):
     def __init__(self, **data: object) -> None:
         super().__init__(**data)
         # Hash the plaintext password immediately so it never lingers in memory as plaintext.
-        # Use a field alias so Pydantic populates _admin_password_plaintext from ADMIN_PASSWORD env var.
         self.admin_password_hash = bcrypt.hashpw(
-            self._admin_password_plaintext.encode("utf-8"), bcrypt.gensalt(rounds=12)
+            self.admin_password_plaintext.encode("utf-8"), bcrypt.gensalt(rounds=12)
         )
         # Scrub plaintext from the instance
-        self._admin_password_plaintext = ""
+        self.admin_password_plaintext = ""
 
     # ─── Backward-compatible property (read-only) ──────────────
 
@@ -102,9 +102,9 @@ class Settings(BaseSettings):
             return False
 
 
-# Allow Pydantic to populate _admin_password_plaintext from the ADMIN_PASSWORD env var.
-Settings.model_fields["admin_password"].alias = "_admin_password_plaintext"
-Settings.model_fields["_admin_password_plaintext"] = Settings.model_fields.pop("admin_password")
+# NOTE: The field `admin_password_plaintext` is automatically populated from
+# the ADMIN_PASSWORD_PLAINTEXT env var by pydantic-settings convention.
+# To support the shorter ADMIN_PASSWORD env var, we use validation_alias in the field definition.
 
 
 settings = Settings()
