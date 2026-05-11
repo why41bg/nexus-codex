@@ -9,7 +9,6 @@ import ModelManager from './ModelManager';
 interface Props {
   dashboard: Dashboard;
   models: string[];
-  onModelsChange: (models: string[]) => void;
 }
 
 function PerKeyMetrics() {
@@ -82,7 +81,7 @@ function PerKeyMetrics() {
   );
 }
 
-export default function DashboardTab({ dashboard, models, onModelsChange }: Props) {
+export default function DashboardTab({ dashboard, models }: Props) {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [percentiles, setPercentiles] = useState<PercentileResponse | null>(null);
 
@@ -108,7 +107,7 @@ export default function DashboardTab({ dashboard, models, onModelsChange }: Prop
 
       <PerKeyMetrics />
 
-      <ModelManager models={models} onModelsChange={onModelsChange} />
+      <ModelManager models={models} />
     </div>
   );
 }

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from collections import OrderedDict
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,7 +44,6 @@ class AccountPool:
         self._wait_queue: asyncio.Queue[asyncio.Future[PoolEntry | None]] = (
             asyncio.Queue()
         )
-        self._event_handlers: list[Callable[[dict[str, Any]], None]] = []
         # Session affinity: session_id -> account_id (LRU ordered dict)
         self._session_bindings: OrderedDict[str, str] = OrderedDict()
         # Track which sessions are bound to each account
@@ -112,15 +109,6 @@ class AccountPool:
                 self._account_sessions[account_id].discard(session_id)
             del self._session_bindings[session_id]
 
-    def touch_session(self, session_id: str) -> None:
-        """Move session to end of OrderedDict for LRU tracking."""
-        if session_id in self._session_bindings:
-            self._session_bindings.move_to_end(session_id)
-
-    def get_session_account(self, session_id: str) -> str | None:
-        """Get the account bound to a session, or None if not bound."""
-        return self._session_bindings.get(session_id)
-
     def acquire(self, session_id: str | None = None) -> PoolEntry | None:
         """
         Synchronously acquire an available healthy account.
@@ -140,7 +128,6 @@ class AccountPool:
                 if (bound_entry and bound_entry.healthy and 
                     bound_entry.active_count < bound_entry.max_concurrency):
                     bound_entry.active_count += 1
-                    self._emit_event({"type": "pool_changed"})
                     return bound_entry
 
         # Fall back to least-loaded selection
@@ -155,7 +142,6 @@ class AccountPool:
         self._counter += 1
 
         entry.active_count += 1
-        self._emit_event({"type": "pool_changed"})
         return entry
 
     async def acquire_async(self, timeout_ms: int | None = None, session_id: str | None = None) -> PoolEntry | None:
@@ -181,7 +167,6 @@ class AccountPool:
         entry = self._find_entry(account_id)
         if entry:
             entry.active_count = max(0, entry.active_count - 1)
-        self._emit_event({"type": "pool_changed"})
         self._drain_queue()
 
     def _drain_queue(self) -> None:
@@ -271,18 +256,6 @@ class AccountPool:
             if e.account_id == account_id:
                 return e
         return None
-
-    def on_event(self, handler: Callable[[dict[str, Any]], None]) -> None:
-        """Register an event handler."""
-        self._event_handlers.append(handler)
-
-    def _emit_event(self, event: dict[str, Any]) -> None:
-        """Emit an event to all registered handlers."""
-        for handler in self._event_handlers:
-            try:
-                handler(event)
-            except Exception as e:
-                log.warning("Event handler error", extra={"error": str(e)})
 
     async def close(self) -> None:
         """Clean up resources — close all ChatGPT HTTP clients."""

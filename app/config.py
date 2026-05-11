@@ -88,18 +88,6 @@ class Settings(BaseSettings):
         self.admin_password_plaintext = ""
         return self
 
-    # ─── Backward-compatible property (read-only) ──────────────
-
-    @property
-    def admin_password(self) -> str:
-        """Legacy accessor — returns a marker string.
-
-        **Deprecated**: New code should use ``verify_password()`` instead.
-        This property exists only to prevent breakage of any code that reads
-        ``settings.admin_password`` for comparison purposes.
-        """
-        return "<hashed>"
-
     def verify_password(self, plaintext: str) -> bool:
         """Verify a plaintext password against the stored bcrypt hash."""
         try:

@@ -69,11 +69,6 @@ EVENTS: dict[str, EventDef] = {e.name: e for e in [
 ]}
 
 
-def get_all_event_names() -> list[str]:
-    """Return all registered event names (useful for admin API / frontend enums)."""
-    return list(EVENTS.keys())
-
-
 # ─── LogCollector ─────────────────────────────────────────────────
 
 

@@ -66,24 +66,6 @@ class ChatGPTClient:
 
     # ── Public API ──────────────────────────────────────
 
-    async def get_models(self) -> list[dict]:
-        """Get available models from the ChatGPT backend."""
-        token = await self._token_manager.get_access_token()
-        if not token:
-            raise TokenExpiredError("No valid access token")
-
-        headers = self._build_headers(token)
-        headers["Accept"] = "application/json"
-
-        resp = await self._http.get(
-            "https://chatgpt.com/backend-api/models",
-            headers=headers,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("models", data) if isinstance(data, dict) else data
-
     async def get_account_info(self) -> dict:
         """Get account information from /backend-api/me."""
         token = await self._token_manager.get_access_token()
@@ -95,23 +77,6 @@ class ChatGPTClient:
 
         resp = await self._http.get(
             "https://chatgpt.com/backend-api/me",
-            headers=headers,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-    async def get_usage(self) -> dict:
-        """Get Codex usage/quota from /backend-api/codex/usage."""
-        token = await self._token_manager.get_access_token()
-        if not token:
-            raise TokenExpiredError("No valid access token")
-
-        headers = self._build_headers(token)
-        headers["Accept"] = "application/json"
-
-        resp = await self._http.get(
-            f"{self._base_url}/usage",
             headers=headers,
             timeout=30,
         )

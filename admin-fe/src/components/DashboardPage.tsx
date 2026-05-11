@@ -54,7 +54,7 @@ export default function DashboardPage() {
           <Routes>
             <Route
               index
-              element={<DashboardTab dashboard={data.dashboard} models={data.models} onModelsChange={() => {}} />}
+              element={<DashboardTab dashboard={data.dashboard} models={data.models} />}
             />
             <Route
               path="accounts"

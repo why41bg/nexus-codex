@@ -141,15 +141,6 @@ export interface LogQueryResult {
   offset: number;
 }
 
-/** 错误汇总条目 */
-export interface ErrorSummaryItem {
-  event: string;
-  source: string;
-  count: number;
-  last_seen: number;
-  sample_message: string;
-}
-
 /** 被拉黑的 IP */
 export interface BannedIP {
   ip: string;

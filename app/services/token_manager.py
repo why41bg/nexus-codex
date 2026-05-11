@@ -110,14 +110,6 @@ class TokenManager:
             return await self._do_refresh()
         return True
 
-    async def force_refresh(self) -> bool:
-        """Force a token refresh regardless of expiry."""
-        return await self._do_refresh()
-
-    def is_refreshable(self) -> bool:
-        """Whether a refresh_token is available for refreshing."""
-        return bool(self._refresh_token)
-
     def get_account_id(self) -> str | None:
         """Return the account_id from auth.json."""
         return self._account_id

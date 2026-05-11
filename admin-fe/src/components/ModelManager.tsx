@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, primaryBtnClass, cardClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
@@ -8,12 +9,12 @@ import Spinner from './Spinner';
 
 interface Props {
   models: string[];
-  onModelsChange: (models: string[]) => void;
 }
 
-export default function ModelManager({ models, onModelsChange }: Props) {
+export default function ModelManager({ models }: Props) {
   const { toast } = useToast();
   const authGuard = useAuthGuard();
+  const queryClient = useQueryClient();
   const [newModel, setNewModel] = useState('');
   const [adding, setAdding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export default function ModelManager({ models, onModelsChange }: Props) {
       const res = await api<{ models: string[] }>('POST', '/api/admin/models', { model: newModel.trim() });
       if (authGuard(res.status)) return;
       if (res.ok) {
-        onModelsChange(res.data.models || []);
+        queryClient.invalidateQueries({ queryKey: ['dashboardData'] });
         toast(`已添加模型 ${newModel.trim()}`, 'success');
         setNewModel('');
       } else {
@@ -46,7 +47,7 @@ export default function ModelManager({ models, onModelsChange }: Props) {
       const res = await api<{ models: string[] }>('DELETE', `/api/admin/models/${encodeURIComponent(deleteTarget)}`);
       if (authGuard(res.status)) return;
       if (res.ok) {
-        onModelsChange(res.data.models || []);
+        queryClient.invalidateQueries({ queryKey: ['dashboardData'] });
         toast(`已移除模型 ${deleteTarget}`, 'success');
         setDeleteTarget(null);
       } else {

@@ -10,7 +10,6 @@ Provides ``create_bg_task()`` as a drop-in replacement for
 from __future__ import annotations
 
 import asyncio
-import logging
 import weakref
 from typing import Awaitable, Coroutine
 
@@ -62,20 +61,3 @@ def create_bg_task(
     task = asyncio.create_task(_wrapped(), name=name)
     _active_tasks.add(task)
     return task
-
-
-def get_active_task_count() -> int:
-    """Return the number of currently tracked background tasks."""
-    # WeakSet auto-discards done/garbage-collected tasks
-    return sum(1 for t in _active_tasks if not t.done())
-
-
-def cancel_all_background_tasks() -> None:
-    """Cancel all tracked background tasks (e.g. on shutdown)."""
-    cancelled = 0
-    for task in list(_active_tasks):
-        if not task.done():
-            task.cancel()
-            cancelled += 1
-    if cancelled:
-        log.info(f"Cancelled {cancelled} background tasks")

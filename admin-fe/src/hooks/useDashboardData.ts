@@ -123,7 +123,6 @@ export function useDashboardData() {
   return {
     data: dashboardData,
     loading: isLoading || isFetching,
-    refreshing: isFetching && !isLoading,
     connected,
     refresh: async () => { await refetch(); },
   };
