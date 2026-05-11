@@ -59,13 +59,18 @@ class TokenManager:
     # Shared httpx client for token refresh — reused across all instances
     # to allow TCP connection pooling to auth.openai.com.
     _shared_http_client: httpx.AsyncClient | None = None
-    _shared_http_client_lock: asyncio.Lock = asyncio.Lock()
+    _shared_http_client_lock: asyncio.Lock | None = None
 
     @classmethod
     async def _get_http_client(cls) -> httpx.AsyncClient:
         """Return (and lazily create) a shared httpx.AsyncClient with lock protection."""
         if cls._shared_http_client is not None and not cls._shared_http_client.is_closed:
             return cls._shared_http_client
+        # Lazily create the lock inside the running event loop to avoid
+        # binding to a different loop when the module is imported at
+        # startup time.
+        if cls._shared_http_client_lock is None:
+            cls._shared_http_client_lock = asyncio.Lock()
         async with cls._shared_http_client_lock:
             # Double-check after acquiring lock
             if cls._shared_http_client is None or cls._shared_http_client.is_closed:
@@ -78,6 +83,8 @@ class TokenManager:
     @classmethod
     async def close_shared_client(cls) -> None:
         """Close the shared httpx client gracefully. Call during app shutdown."""
+        if cls._shared_http_client_lock is None:
+            cls._shared_http_client_lock = asyncio.Lock()
         async with cls._shared_http_client_lock:
             if cls._shared_http_client and not cls._shared_http_client.is_closed:
                 await cls._shared_http_client.aclose()
