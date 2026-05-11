@@ -8,11 +8,38 @@ from __future__ import annotations
 
 import asyncio
 
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.services.account_store import increment_usage_count
 from app.services.config_store import increment_key_monthly_usage
 from app.utils.logger import log
+
+
+def mask_api_key(api_key: str) -> str:
+    """Mask an API key for safe logging, e.g. 'sk-abc...xyz'."""
+    if len(api_key) <= 8:
+        return api_key[:3] + "..."
+    return api_key[:6] + "..." + api_key[-3:]
+
+
+def set_request_context(
+    request: Request,
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    request_id: str | None = None,
+    account_id: str | None = None,
+) -> None:
+    """Store business context on request.state for access-log middleware."""
+    if api_key is not None:
+        request.state.api_key_masked = mask_api_key(api_key)
+    if model is not None:
+        request.state.model = model
+    if request_id is not None:
+        request.state.request_id = request_id
+    if account_id is not None:
+        request.state.account_id = account_id
 
 
 def error_response(message: str, code: str, status: int = 500) -> JSONResponse:

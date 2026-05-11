@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     # Log store (structured event collection)
     log_store_enabled: bool = True
     log_store_retention_days: int = 30
-    log_store_level: str = "info"  # min level to collect: debug/info/warn/error
+    log_store_level: str = "warn"  # min level to collect: debug/info/warn/error
     log_store_max_context_size: int = 8192
 
     # Extended events
