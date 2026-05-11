@@ -19,7 +19,7 @@ class IPBanMiddleware(BaseHTTPMiddleware):
             # Log the blocked request
             deps = getattr(request.app.state, "deps", None)
             if deps and deps.log_collector:
-                deps.log_collector.emit(
+                await deps.log_collector.emit(
                     "ip_blocked",
                     f"Blocked request from banned IP: {client_ip}",
                     context={"path": request.url.path, "method": request.method},

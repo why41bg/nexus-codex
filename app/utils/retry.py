@@ -90,7 +90,7 @@ async def with_retry(
         entry = await deps.pool.acquire_async(acquire_timeout_ms, session_id)
         if not entry:
             if collector:
-                collector.emit(
+                await collector.emit(
                     "all_accounts_exhausted",
                     f"No available accounts for {model_name}",
                     context={"model": model_name, "pool_size": len(deps.pool.entries())},
@@ -101,7 +101,7 @@ async def with_retry(
             )
 
         if collector:
-            collector.emit(
+            await collector.emit(
                 "account_acquired",
                 f"Acquired account {entry.account_id} for {model_name}",
                 context={"model": model_name},
@@ -115,7 +115,7 @@ async def with_retry(
             if session_id:
                 deps.pool.bind_session(session_id, entry.account_id)
             if collector:
-                collector.emit(
+                await collector.emit(
                     "account_released",
                     f"Released account {entry.account_id} for {model_name}",
                     context={"model": model_name},
@@ -135,7 +135,7 @@ async def with_retry(
                     },
                 )
                 if collector:
-                    collector.emit(
+                    await collector.emit(
                         "upstream_error",
                         f"Upstream error 0 for {model_name}: {e}",
                         context={"model": model_name, "upstream_status": 0, "error": str(e), "retry_count": attempt + 1},
@@ -151,7 +151,7 @@ async def with_retry(
             else:
                 deps.pool.release(entry.account_id)
                 if collector:
-                    collector.emit(
+                    await collector.emit(
                         "upstream_error",
                         f"Upstream error 0 for {model_name}: {e}",
                         context={"model": model_name, "upstream_status": 0, "error": str(e)},
@@ -160,7 +160,7 @@ async def with_retry(
                 raise
 
     if collector:
-        collector.emit(
+        await collector.emit(
             "all_accounts_exhausted",
             f"No available accounts for {model_name}",
             context={"model": model_name, "pool_size": len(deps.pool.entries())},
@@ -201,6 +201,7 @@ async def with_stream_retry(
         append_done: If True, append ``"data: [DONE]\\n\\n"`` after every
             error event (Chat Completions SSE convention).
     """
+    from app.utils.bg_task import create_bg_task
     from app.utils.route_helpers import increment_counters, trigger_probe_safe
 
     collector = deps.log_collector
@@ -211,7 +212,7 @@ async def with_stream_retry(
         entry = await deps.pool.acquire_async(session_id=session_id)
         if not entry:
             if collector:
-                collector.emit(
+                await collector.emit(
                     "all_accounts_exhausted",
                     f"No available accounts for {model}",
                     context={"model": model, "pool_size": len(deps.pool.entries())},
@@ -222,24 +223,24 @@ async def with_stream_retry(
             return
 
         if collector:
-            collector.emit(
+            await collector.emit(
                 "account_acquired",
                 f"Acquired account {entry.account_id} for {model}",
                 context={"model": model},
                 account_id=entry.account_id,
             )
 
-        asyncio.create_task(increment_counters(entry.account_id, api_key))
+        create_bg_task(increment_counters(entry.account_id, api_key), name="increment-counters")
 
         try:
             async for chunk in stream_fn(entry):
                 yield chunk
 
             latency_ms = int((time.time() - req_start) * 1000)
-            deps.metrics_collector.record(model, entry.account_id, latency_ms, True, api_key)
+            await deps.metrics_collector.record(model, entry.account_id, latency_ms, True, api_key)
             deps.pool.release(entry.account_id)
             if collector:
-                collector.emit(
+                await collector.emit(
                     "account_released",
                     f"Released account {entry.account_id} for {model}",
                     context={"model": model},
@@ -254,7 +255,7 @@ async def with_stream_retry(
         except Exception as e:
             deps.pool.release(entry.account_id)
             latency_ms = int((time.time() - req_start) * 1000)
-            deps.metrics_collector.record(model, entry.account_id, latency_ms, False, api_key)
+            await deps.metrics_collector.record(model, entry.account_id, latency_ms, False, api_key)
 
             if attempt < MAX_RETRIES and is_retryable(e):
                 log.warn(
@@ -268,7 +269,7 @@ async def with_stream_retry(
                     },
                 )
                 if collector:
-                    collector.emit(
+                    await collector.emit(
                         "upstream_error",
                         f"Upstream error 0 for {model}: {e}",
                         context={"model": model, "upstream_status": 0, "error": str(e), "retry_count": attempt + 1},
@@ -277,7 +278,7 @@ async def with_stream_retry(
                 # Unbind session if this is a quota exhaustion error
                 if session_id and isinstance(e, QuotaExhaustedError):
                     deps.pool.unbind_session(session_id)
-                asyncio.create_task(trigger_probe_safe(entry.account_id))
+                create_bg_task(trigger_probe_safe(entry.account_id), name="trigger-probe", message=f"retry attempt {attempt + 1}")
                 last_error = e
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
@@ -287,7 +288,7 @@ async def with_stream_retry(
                 "model": model, "api_key": api_key_masked,
             })
             if collector:
-                collector.emit(
+                await collector.emit(
                     "upstream_error",
                     f"Upstream error 0 for {model}: {e}",
                     context={"model": model, "upstream_status": 0, "error": str(e)},
@@ -296,11 +297,11 @@ async def with_stream_retry(
             yield format_error(str(e))
             if append_done:
                 yield "data: [DONE]\n\n"
-            asyncio.create_task(trigger_probe_safe(entry.account_id))
+            create_bg_task(trigger_probe_safe(entry.account_id), name="trigger-probe", message="stream error final")
             return
 
     if collector:
-        collector.emit(
+        await collector.emit(
             "all_accounts_exhausted",
             f"No available accounts for {model}",
             context={"model": model, "pool_size": len(deps.pool.entries())},

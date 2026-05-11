@@ -21,6 +21,7 @@ from app.services.config_store import is_model_allowed_for_key
 from app.services.chatgpt_adapter import ChatGPTAdapter
 from app.utils.logger import log
 from app.utils.retry import with_retry, with_stream_retry
+from app.utils.bg_task import create_bg_task
 from app.utils.route_helpers import increment_counters, mask_api_key, set_request_context
 
 router = APIRouter()
@@ -105,7 +106,7 @@ async def _do_non_stream(
     api_key: str,
 ) -> JSONResponse:
     """Non-streaming Responses API via pass-through to ChatGPT backend."""
-    asyncio.create_task(increment_counters(entry.account_id, api_key))
+    create_bg_task(increment_counters(entry.account_id, api_key), name="increment-counters")
 
     client = entry.chatgpt_client
     if not client:
@@ -142,7 +143,7 @@ async def _do_non_stream(
         }
 
     latency_ms = int((time.time() - req_start) * 1000)
-    deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True, api_key)
+    await deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True, api_key)
     return JSONResponse(content=result)
 
 
