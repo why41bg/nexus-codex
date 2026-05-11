@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import time
 from pathlib import Path
 
@@ -54,6 +55,20 @@ class TokenManager:
     is within TOKEN_REFRESH_BUFFER_SEC of expiry, and persists refreshed tokens
     back to auth.json.
     """
+
+    # Shared httpx client for token refresh — reused across all instances
+    # to allow TCP connection pooling to auth.openai.com.
+    _shared_http_client: httpx.AsyncClient | None = None
+
+    @classmethod
+    def _get_http_client(cls) -> httpx.AsyncClient:
+        """Return (and lazily create) a shared httpx.AsyncClient."""
+        if cls._shared_http_client is None or cls._shared_http_client.is_closed:
+            cls._shared_http_client = httpx.AsyncClient(
+                headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
+                timeout=30,
+            )
+        return cls._shared_http_client
 
     def __init__(self, codex_home: str):
         self._codex_home = codex_home
@@ -121,7 +136,7 @@ class TokenManager:
             auth_path = Path(self._codex_home) / "auth.json"
             exists = await asyncio.to_thread(auth_path.exists)
             if not exists:
-                log.warn("auth.json not found", extra={"codexHome": self._codex_home})
+                log.warning("auth.json not found", extra={"codexHome": self._codex_home})
                 return
             async with aiofiles.open(auth_path, mode="r", encoding="utf-8") as f:
                 raw = await f.read()
@@ -148,7 +163,7 @@ class TokenManager:
     async def _do_refresh(self) -> bool:
         """Execute token refresh via OAuth2 refresh_token grant."""
         if not self._refresh_token:
-            log.warn("No refresh_token available", extra={"codexHome": self._codex_home})
+            log.warning("No refresh_token available", extra={"codexHome": self._codex_home})
             return False
 
         async with self._refresh_lock:
@@ -157,20 +172,15 @@ class TokenManager:
                 return True
 
             try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.post(
-                        TOKEN_REFRESH_URL,
-                        json={
-                            "grant_type": "refresh_token",
-                            "refresh_token": self._refresh_token,
-                            "client_id": TOKEN_CLIENT_ID,
-                        },
-                        headers={
-                            "Content-Type": "application/json",
-                            "User-Agent": USER_AGENT,
-                        },
-                        timeout=30,
-                    )
+                client = self._get_http_client()
+                resp = await client.post(
+                    TOKEN_REFRESH_URL,
+                    json={
+                        "grant_type": "refresh_token",
+                        "refresh_token": self._refresh_token,
+                        "client_id": TOKEN_CLIENT_ID,
+                    },
+                )
 
                 if resp.status_code != 200:
                     log.error(
@@ -198,7 +208,11 @@ class TokenManager:
                 return False
 
     async def _save_auth_json(self, refresh_data: dict) -> None:
-        """Persist refreshed tokens back to auth.json."""
+        """Persist refreshed tokens back to auth.json using atomic write.
+
+        Writes to a temporary file first, then atomically replaces the
+        original to prevent corruption if the process crashes mid-write.
+        """
         try:
             auth_path = Path(self._codex_home) / "auth.json"
             exists = await asyncio.to_thread(auth_path.exists)
@@ -215,7 +229,10 @@ class TokenManager:
                 tokens["id_token"] = refresh_data["id_token"]
             auth["tokens"] = tokens
             auth["last_refresh"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            async with aiofiles.open(auth_path, mode="w", encoding="utf-8") as f:
+            # Atomic write: write to .tmp then replace
+            tmp_path = auth_path.with_suffix(".tmp")
+            async with aiofiles.open(tmp_path, mode="w", encoding="utf-8") as f:
                 await f.write(json.dumps(auth, indent=2))
+            await asyncio.to_thread(os.replace, str(tmp_path), str(auth_path))
         except Exception as e:
             log.error("Failed to save auth.json", extra={"codexHome": self._codex_home, "error": str(e)})
