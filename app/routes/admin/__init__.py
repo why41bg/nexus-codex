@@ -20,6 +20,7 @@ from fastapi import APIRouter
 
 from app.routes.admin.auth import router as auth_router
 from app.routes.admin.dashboard import router as dashboard_router
+from app.routes.admin.contributions import router as contributions_router
 from app.routes.admin.stream import router as stream_router
 from app.routes.admin.accounts import router as accounts_router
 from app.routes.admin.keys import router as keys_router
@@ -34,6 +35,7 @@ router = APIRouter()
 
 router.include_router(auth_router)
 router.include_router(dashboard_router)
+router.include_router(contributions_router)
 router.include_router(stream_router)
 router.include_router(accounts_router)
 router.include_router(keys_router)

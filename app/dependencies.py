@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from app.services.account_bootstrap import BootstrapManager
     from app.services.health_check import HealthChecker
     from app.services.pool_quota_snapshot import PoolQuotaSnapshotService
+    from app.services.public_contribution import PublicContributionService
     from app.services.quota_probe import QuotaProbeService
 
 
@@ -54,6 +55,7 @@ class AppDependencies:
     session_manager: SessionManager = field(default_factory=SessionManager)
     health_checker: "HealthChecker | None" = None
     bootstrap_manager: "BootstrapManager | None" = None
+    public_contribution_service: "PublicContributionService | None" = None
     quota_probe_service: "QuotaProbeService | None" = None
     pool_quota_snapshot_service: "PoolQuotaSnapshotService | None" = None
 

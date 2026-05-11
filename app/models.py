@@ -80,6 +80,52 @@ class ClaimRateLimitEntry(BaseModel):
     timestamps_ms: list[int] = Field(default_factory=list)
 
 
+class ContributionInvite(BaseModel):
+    id: str
+    code: str
+    name: str
+    enabled: bool = True
+    note: str = ""
+    created_at: str
+    expires_at: str | None = None
+    max_uses: int | None = None
+    used_count: int = 0
+    max_active_sessions: int = 1
+    per_ip_limit_max: int = 3
+    per_ip_limit_window_ms: int = 24 * 60 * 60 * 1000
+
+
+class ContributionRateLimitEntry(BaseModel):
+    ip: str
+    invite_id: str
+    timestamps_ms: list[int] = Field(default_factory=list)
+
+
+class ContributionRecord(BaseModel):
+    id: str
+    bootstrap_session_id: str
+    invite_id: str
+    invite_name: str
+    applicant_name: str
+    applicant_contact: str
+    note: str = ""
+    client_ip: str
+    status: str = "pending"
+    codex_home: str
+    login_url: str | None = None
+    device_code: str | None = None
+    error: str | None = None
+    created_at: str
+    expires_at: str | None = None
+    completed_at: str | None = None
+    reviewed_at: str | None = None
+    reviewed_by: str | None = None
+    reviewer_note: str = ""
+    account_id: str | None = None
+    account_plan_type: str | None = None
+    duplicate_account_id: str | None = None
+
+
 class BannedIP(BaseModel):
     ip: str
     reason: str = ""
@@ -100,6 +146,9 @@ class AppConfig(BaseModel):
     api_keys: list[ApiKeyEntry] = Field(default_factory=list)
     api_key_templates: list[ApiKeyTemplate] = Field(default_factory=list)
     claim_rate_limits: list[ClaimRateLimitEntry] = Field(default_factory=list)
+    contribution_invites: list[ContributionInvite] = Field(default_factory=list)
+    contribution_rate_limits: list[ContributionRateLimitEntry] = Field(default_factory=list)
+    contribution_records: list[ContributionRecord] = Field(default_factory=list)
     banned_ips: list[BannedIP] = Field(default_factory=list)
 
 
@@ -373,6 +422,42 @@ class ClaimApiKeyRequest(CamelModel):
     claim_code: str = ""
 
 
+class AddContributionInviteRequest(CamelModel):
+    name: str
+    note: str = ""
+    code: str | None = None
+    enabled: bool = True
+    expires_at: str | None = None
+    max_uses: int | None = None
+    max_active_sessions: int = 1
+    per_ip_limit_max: int = 3
+    per_ip_limit_window_ms: int = 24 * 60 * 60 * 1000
+
+
+class UpdateContributionInviteRequest(CamelModel):
+    name: str | None = None
+    note: str | None = None
+    code: str | None = None
+    enabled: bool | None = None
+    expires_at: str | None = None
+    max_uses: int | None = None
+    max_active_sessions: int | None = None
+    per_ip_limit_max: int | None = None
+    per_ip_limit_window_ms: int | None = None
+
+
+class PublicContributionStartRequest(CamelModel):
+    invite_code: str
+    applicant_name: str
+    applicant_contact: str
+    note: str = ""
+
+
+class ReviewContributionRequest(CamelModel):
+    action: str
+    reviewer_note: str = ""
+
+
 class RevealApiKeyRequest(CamelModel):
     key_prefix: str
     password: str
@@ -609,3 +694,57 @@ class KeyTemplateListResponse(BaseModel):
 class KeyTemplateResponse(BaseModel):
     """Response for single key template."""
     template: KeyTemplateItem
+
+
+class ContributionInviteItem(BaseModel):
+    id: str
+    name: str
+    note: str = ""
+    enabled: bool = True
+    code: str | None = None
+    codeMasked: str
+    createdAt: str
+    expiresAt: str | None = None
+    maxUses: int | None = None
+    usedCount: int = 0
+    maxActiveSessions: int = 1
+    perIpLimitMax: int = 3
+    perIpLimitWindowMs: int = 24 * 60 * 60 * 1000
+
+
+class ContributionInviteListResponse(BaseModel):
+    invites: list[ContributionInviteItem]
+
+
+class PublicContributionSessionResponse(BaseModel):
+    contributionId: str
+    loginUrl: str | None = None
+    deviceCode: str | None = None
+    status: str
+    error: str | None = None
+    expiresAt: int | None = None
+
+
+class ContributionRecordItem(BaseModel):
+    id: str
+    inviteId: str
+    inviteName: str
+    applicantName: str
+    applicantContact: str
+    note: str
+    clientIp: str
+    status: str
+    createdAt: str
+    expiresAt: str | None = None
+    completedAt: str | None = None
+    reviewedAt: str | None = None
+    reviewedBy: str | None = None
+    reviewerNote: str = ""
+    error: str | None = None
+    accountId: str | None = None
+    accountPlanType: str | None = None
+    duplicateAccountId: str | None = None
+
+
+class ContributionRecordListResponse(BaseModel):
+    records: list[ContributionRecordItem]

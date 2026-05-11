@@ -36,6 +36,7 @@ from app.services.log_store import LogStore
 from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
 from app.services.pool_quota_snapshot import PoolQuotaSnapshotService
+from app.services.public_contribution import PublicContributionService
 from app.services.quota_probe import QuotaProbeService
 from app.services.session_manager import SessionManager
 from app.utils.bg_task import create_bg_task
@@ -85,6 +86,11 @@ async def _startup(app: FastAPI) -> dict:
 
     # Initialize bootstrap manager and quota probe service
     bootstrap_manager = BootstrapManager()
+    public_contribution_service = PublicContributionService(
+        bootstrap_manager=bootstrap_manager,
+        config_store=config_store,
+        account_store=account_store,
+    )
     quota_probe_service = QuotaProbeService()
     pool_quota_snapshot_service = PoolQuotaSnapshotService(
         account_store=account_store,
@@ -106,6 +112,7 @@ async def _startup(app: FastAPI) -> dict:
         session_manager=session_manager,
         health_checker=health_checker,
         bootstrap_manager=bootstrap_manager,
+        public_contribution_service=public_contribution_service,
         quota_probe_service=quota_probe_service,
         pool_quota_snapshot_service=pool_quota_snapshot_service,
     )
