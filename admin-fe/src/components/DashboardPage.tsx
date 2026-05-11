@@ -6,6 +6,7 @@ import AccountsTab from './AccountsTab';
 import ApiKeysTab from './ApiKeysTab';
 import BannedIpsTab from './BannedIpsTab';
 import LogsTab from './LogsTab';
+import SettingsTab from './SettingsTab';
 import TopBar from './TopBar';
 import MobileNavbar from './MobileNavbar';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -15,6 +16,7 @@ function getTabFromPath(pathname: string): TabKey {
   if (pathname.includes('/apikeys')) return 'apikeys';
   if (pathname.includes('/banned-ips')) return 'banned-ips';
   if (pathname.includes('/logs')) return 'logs';
+  if (pathname.includes('/settings')) return 'settings';
   return 'dashboard';
 }
 
@@ -77,6 +79,10 @@ export default function DashboardPage() {
             <Route
               path="logs"
               element={<LogsTab />}
+            />
+            <Route
+              path="settings"
+              element={<SettingsTab />}
             />
           </Routes>
         </div>
