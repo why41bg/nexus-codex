@@ -13,10 +13,12 @@ from dataclasses import dataclass
 from fastapi import Request
 
 from app.services.account_pool import AccountPool
+from app.services.ip_ban_store import IPBanStore
 from app.services.log_collector import LogCollector
 from app.services.log_store import LogStore
 from app.services.metrics_collector import MetricsCollector
 from app.services.metrics_store import MetricsStore
+from app.middleware.rate_limit import RateLimiter
 
 
 @dataclass
@@ -32,6 +34,8 @@ class AppDependencies:
     metrics_store: MetricsStore
     log_collector: LogCollector | None = None
     log_store: LogStore | None = None
+    ip_ban_store: IPBanStore = IPBanStore()
+    rate_limiter: RateLimiter = RateLimiter()
 
 
 def get_deps(request: Request) -> AppDependencies:
