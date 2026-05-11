@@ -81,14 +81,22 @@ export default function ContributeAccountPage() {
             <input className={inputClass} placeholder="邀请码" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
             <input className={inputClass} placeholder="你的称呼" value={applicantName} onChange={(e) => setApplicantName(e.target.value)} />
             <input className={inputClass} placeholder="联系方式" value={applicantContact} onChange={(e) => setApplicantContact(e.target.value)} />
-            <input
-              className={inputClass}
-              type="number"
-              min="1"
-              placeholder="建议并发度"
-              value={requestedMaxConcurrency}
-              onChange={(e) => setRequestedMaxConcurrency(e.target.value)}
-            />
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                建议并发度
+              </label>
+              <input
+                className={inputClass}
+                type="number"
+                min="1"
+                placeholder="例如 1 或 2"
+                value={requestedMaxConcurrency}
+                onChange={(e) => setRequestedMaxConcurrency(e.target.value)}
+              />
+              <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                用来说明这个共享账号希望分配多少个并发槽位，也就是允许多少个请求同时占用该账号。管理员会结合账号质量和池内负载最终确认。
+              </p>
+            </div>
             <textarea className={inputClass} placeholder="备注（可选）" value={note} onChange={(e) => setNote(e.target.value)} rows={4} />
             {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
             <button type="submit" disabled={loading} className={primaryBtnClass}>

@@ -28,6 +28,28 @@ export default function SupportPage() {
       {/* Content */}
       <section className="mx-auto w-full max-w-2xl px-6 pb-20">
         <div className="rounded-2xl bg-white dark:bg-slate-800 p-8 shadow-sm ring-1 ring-gray-200 dark:ring-slate-700">
+          <div className="mb-8 rounded-xl border border-brand-100 bg-brand-50/70 px-5 py-4 dark:border-brand-900/40 dark:bg-brand-950/20">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">
+                  共享账号入口
+                </h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-slate-300">
+                  如果你已经拿到管理员发放的邀请码，可以直接发起共享账号登录，完成后会进入审核入池流程。
+                </p>
+              </div>
+              <Link
+                to="/contribute"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
+              >
+                发起共享登录
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                </svg>
+              </Link>
+            </div>
+          </div>
+
           {/* 什么是账号池 */}
           <div className="mb-8">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-slate-100">

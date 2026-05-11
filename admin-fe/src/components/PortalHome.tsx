@@ -139,7 +139,7 @@ export default function PortalHome() {
             </svg>
           }
           title="入池支持"
-          description="了解账号池的入池方式和申请流程，加入共享账号资源。"
+          description="了解账号池的入池方式和申请流程，也可以从这里发起共享账号登录并进入审核入池流程。"
           action={
             <Link
               to="/support"
@@ -171,24 +171,6 @@ export default function PortalHome() {
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
               </svg>
-            </Link>
-          }
-        />
-
-        <FeatureCard
-          icon={
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-            </svg>
-          }
-          title="共享账号"
-          description="使用管理员发放的邀请码，发起共享账号登录并进入待审核入池流程。"
-          action={
-            <Link
-              to="/contribute"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
-            >
-              发起共享
             </Link>
           }
         />
