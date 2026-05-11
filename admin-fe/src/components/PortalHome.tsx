@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { API_BASE } from '@/lib/api';
-import type { PoolQuotaSnapshot, SystemStatus } from '@/types';
+import type { PoolQuotaSnapshot } from '@/types';
 import ThemeToggle from './ThemeToggle';
 
 const GUIDE_URL = 'https://why41bg.github.io/nexus-codex/';
@@ -22,35 +22,6 @@ function FeatureCard({ icon, title, description, action }: CardProps) {
       <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{title}</h3>
       <p className="mt-2 flex-1 text-sm leading-relaxed text-gray-500 dark:text-slate-400">{description}</p>
       <div className="mt-6">{action}</div>
-    </div>
-  );
-}
-
-function SystemStatusBanner() {
-  const [status, setStatus] = useState<SystemStatus | null>(null);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/public/system-status`)
-      .then((r) => r.json())
-      .then((d) => setStatus(d))
-      .catch(() => setStatus(null));
-  }, []);
-
-  if (!status) return null;
-
-  const config = {
-    green: { bg: 'bg-green-50 dark:bg-green-900/20', text: 'text-green-700 dark:text-green-300', dot: 'bg-green-500', label: '系统正常' },
-    yellow: { bg: 'bg-yellow-50 dark:bg-yellow-900/20', text: 'text-yellow-700 dark:text-yellow-300', dot: 'bg-yellow-500', label: '部分受限' },
-    red: { bg: 'bg-red-50 dark:bg-red-900/20', text: 'text-red-700 dark:text-red-300', dot: 'bg-red-500', label: '服务不可用' },
-  }[status.level];
-
-  return (
-    <div className={`mx-auto mt-6 flex max-w-lg items-center gap-3 rounded-xl px-5 py-3 ${config.bg}`}>
-      <span className={`inline-block h-2.5 w-2.5 rounded-full ${config.dot} animate-pulse`} />
-      <span className={`text-sm font-medium ${config.text}`}>{config.label}</span>
-      <span className={`ml-auto text-xs ${config.text} opacity-75`}>
-        {status.healthyAccounts}/{status.totalAccounts} 账号健康 · {status.availableSlots}/{status.totalSlots} 可用槽位
-      </span>
     </div>
   );
 }
@@ -91,7 +62,7 @@ function PoolQuotaBanner() {
   return (
     <div className={`mx-auto mt-4 flex w-full max-w-3xl flex-col gap-3 rounded-xl px-5 py-4 ${statusConfig.bg}`}>
       <div className="flex items-center gap-3">
-        <span className={`text-sm font-semibold ${statusConfig.text}`}>共享账号池剩余容量</span>
+        <span className={`text-sm font-semibold ${statusConfig.text}`}>号池剩余容量</span>
         <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${statusConfig.text} bg-white/60 dark:bg-slate-900/30`}>
           {statusConfig.label}
         </span>
@@ -113,9 +84,6 @@ function PoolQuotaBanner() {
           </div>
         </div>
       </div>
-      <div className={`text-xs ${statusConfig.text} opacity-80`}>
-        采样账号 {snapshot.sampledAccountCount}/{snapshot.eligibleAccountCount}，采样权重 {snapshot.sampledWeight}/{snapshot.eligibleWeight}
-      </div>
     </div>
   );
 }
@@ -136,7 +104,6 @@ export default function PortalHome() {
         <p className="mt-4 max-w-lg text-lg text-gray-500 dark:text-slate-400">
           OpenAI API 兼容的多账号池网关，统一管理、负载均衡、健康探测。
         </p>
-        <SystemStatusBanner />
         <PoolQuotaBanner />
       </header>
 

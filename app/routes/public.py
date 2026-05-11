@@ -16,34 +16,6 @@ from app.utils.route_helpers import build_openai_error_response
 router = APIRouter()
 
 
-@router.get("/system-status")
-async def public_system_status(deps: AppDependencies = Depends(get_deps)):
-    """Public system availability status for portal users."""
-    accounts = await deps.account_store.load_accounts()
-    status = deps.pool.get_status()
-    total = len(accounts)
-    healthy = sum(1 for e in status if e["healthy"])
-    total_slots = sum(e["max_concurrency"] for e in status)
-    active_slots = sum(e["active_count"] for e in status)
-    available_slots = total_slots - active_slots
-
-    # Determine overall health: green / yellow / red
-    if total == 0 or healthy == 0:
-        level = "red"
-    elif healthy < total * 0.5 or available_slots == 0:
-        level = "yellow"
-    else:
-        level = "green"
-
-    return JSONResponse(content={
-        "level": level,
-        "totalAccounts": total,
-        "healthyAccounts": healthy,
-        "totalSlots": total_slots,
-        "availableSlots": available_slots,
-    })
-
-
 @router.get("/pool-quota")
 async def public_pool_quota(deps: AppDependencies = Depends(get_deps)):
     """Public read-only pool quota snapshot."""

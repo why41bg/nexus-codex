@@ -194,15 +194,6 @@ export interface PerKeyStats {
   lastUsed: number;
 }
 
-/** 系统可用性状态 */
-export interface SystemStatus {
-  level: 'green' | 'yellow' | 'red';
-  totalAccounts: number;
-  healthyAccounts: number;
-  totalSlots: number;
-  availableSlots: number;
-}
-
 export interface PoolQuotaSnapshot {
   status: 'ok' | 'partial' | 'stale' | 'unavailable';
   snapshotAt: number | null;
