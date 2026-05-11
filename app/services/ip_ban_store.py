@@ -109,46 +109,6 @@ class IPBanStore:
         return True
 
 
-# ─── Module-level singleton for backward compat (deprecated) ──────
-# The singleton is only used during startup init; all runtime code paths
-# should use the instance from AppDependencies.ip_ban_store.
-
-_default_store = IPBanStore()
-
-
-def _get_default() -> IPBanStore:
-    """Return the default module-level store (for backward compat during migration)."""
-    global _default_store
-    return _default_store
-
-
-# Thin wrappers that delegate to the default store.
-# These are kept so that non-migrated call sites still work during the transition.
-# New code should use deps.ip_ban_store instead.
-
-def init_banned_ips(banned_ips: list[BannedIP]) -> None:
-    _get_default().init_banned_ips(banned_ips)
-
-
-def is_banned(ip: str) -> bool:
-    return _get_default().is_banned(ip)
-
-
-def get_banned_ips() -> list[BannedIP]:
-    return _get_default().get_banned_ips()
-
-
-def record_suspicious_hit(ip: str, reason: str) -> bool:
-    return _get_default().record_suspicious_hit(ip, reason)
-
-
-def ban_ip(ip: str, reason: str = "Manually banned") -> BannedIP | None:
-    return _get_default().ban_ip(ip, reason)
-
-
-def unban_ip(ip: str) -> bool:
-    return _get_default().unban_ip(ip)
-
 
 def get_client_ip(request) -> str:
     """Extract real client IP from request, respecting proxy headers."""

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import threading
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -75,7 +76,7 @@ class MetricsStore:
     def __init__(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> None:
         self._retention_days = retention_days
         self._conn = _ensure_db(str(DB_PATH), check_same_thread=False)
-        self._write_lock = asyncio.Lock()
+        self._db_lock = threading.Lock()
         _cleanup_old(self._conn, retention_days)
         log.info(
             "MetricsStore initialized",
@@ -88,17 +89,22 @@ class MetricsStore:
         """Record a single request metric."""
         now_ms = int(time.time() * 1000)
         try:
-            async with self._write_lock:
-                self._conn.execute(
-                    "INSERT INTO metrics (timestamp_ms, model, account_id, latency_ms, success, api_key) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (now_ms, model, account_id, latency_ms, 1 if success else 0, api_key),
-                )
-                self._conn.commit()
+            await asyncio.to_thread(
+                self._execute_and_commit,
+                "INSERT INTO metrics (timestamp_ms, model, account_id, latency_ms, success, api_key) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (now_ms, model, account_id, latency_ms, 1 if success else 0, api_key),
+            )
         except Exception as e:
             log.error("Failed to persist metric", extra={"error": str(e)})
 
-    def get_time_series(self, range_str: str) -> dict:
+    def _execute_and_commit(self, sql: str, params: tuple) -> None:
+        """Execute a SQL statement and commit (runs in thread)."""
+        with self._db_lock:
+            self._conn.execute(sql, params)
+            self._conn.commit()
+
+    async def get_time_series(self, range_str: str) -> dict:
         """Get time series data aggregated by minute buckets."""
         range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000}.get(
             range_str, 86400_000
@@ -107,20 +113,24 @@ class MetricsStore:
         since_ms = now_ms - range_ms
 
         bucket_ms = 60_000  # 1 minute buckets
-        rows = self._conn.execute(
-            """
-            SELECT
-                (timestamp_ms / ?) * ? AS bucket_ts,
-                COUNT(*) AS request_count,
-                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS error_count,
-                AVG(latency_ms) AS avg_latency
-            FROM metrics
-            WHERE timestamp_ms >= ? AND timestamp_ms <= ?
-            GROUP BY bucket_ts
-            ORDER BY bucket_ts
-            """,
-            (bucket_ms, bucket_ms, since_ms, now_ms),
-        ).fetchall()
+        def _query():
+            with self._db_lock:
+                return self._conn.execute(
+                    """
+                    SELECT
+                        (timestamp_ms / ?) * ? AS bucket_ts,
+                        COUNT(*) AS request_count,
+                        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS error_count,
+                        AVG(latency_ms) AS avg_latency
+                    FROM metrics
+                    WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+                    GROUP BY bucket_ts
+                    ORDER BY bucket_ts
+                    """,
+                    (bucket_ms, bucket_ms, since_ms, now_ms),
+                ).fetchall()
+
+        rows = await asyncio.to_thread(_query)
 
         buckets = [
             {
@@ -134,47 +144,49 @@ class MetricsStore:
 
         return {"buckets": buckets, "range": range_str}
 
-    def get_breakdown(self) -> dict:
+    async def get_breakdown(self) -> dict:
         """Get 24h aggregated breakdown by model and account."""
         now_ms = int(time.time() * 1000)
         since_ms = now_ms - 86400_000
 
-        # By model
-        model_rows = self._conn.execute(
-            """
-            SELECT model, COUNT(*) AS cnt
-            FROM metrics
-            WHERE timestamp_ms >= ? AND timestamp_ms <= ?
-            GROUP BY model
-            ORDER BY cnt DESC
-            """,
-            (since_ms, now_ms),
-        ).fetchall()
+        def _query():
+            with self._db_lock:
+                model_rows = self._conn.execute(
+                    """
+                    SELECT model, COUNT(*) AS cnt
+                    FROM metrics
+                    WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+                    GROUP BY model
+                    ORDER BY cnt DESC
+                    """,
+                    (since_ms, now_ms),
+                ).fetchall()
 
-        # By account
-        account_rows = self._conn.execute(
-            """
-            SELECT account_id, COUNT(*) AS cnt
-            FROM metrics
-            WHERE timestamp_ms >= ? AND timestamp_ms <= ?
-            GROUP BY account_id
-            ORDER BY cnt DESC
-            """,
-            (since_ms, now_ms),
-        ).fetchall()
+                account_rows = self._conn.execute(
+                    """
+                    SELECT account_id, COUNT(*) AS cnt
+                    FROM metrics
+                    WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+                    GROUP BY account_id
+                    ORDER BY cnt DESC
+                    """,
+                    (since_ms, now_ms),
+                ).fetchall()
 
-        # Totals
-        totals_row = self._conn.execute(
-            """
-            SELECT
-                COUNT(*) AS total_requests,
-                COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS total_errors,
-                COALESCE(AVG(latency_ms), 0) AS avg_latency
-            FROM metrics
-            WHERE timestamp_ms >= ? AND timestamp_ms <= ?
-            """,
-            (since_ms, now_ms),
-        ).fetchone()
+                totals_row = self._conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total_requests,
+                        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS total_errors,
+                        COALESCE(AVG(latency_ms), 0) AS avg_latency
+                    FROM metrics
+                    WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+                    """,
+                    (since_ms, now_ms),
+                ).fetchone()
+                return model_rows, account_rows, totals_row
+
+        model_rows, account_rows, totals_row = await asyncio.to_thread(_query)
 
         total_requests = totals_row[0] or 0
         total_errors = totals_row[1] or 0
@@ -210,7 +222,7 @@ class MetricsStore:
             "since": since_ms,
         }
 
-    def get_percentiles(self, range_str: str) -> dict:
+    async def get_percentiles(self, range_str: str) -> dict:
         """Get P50/P95/P99 latency percentiles for a given range."""
         range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000, "7d": 604800_000, "30d": 2592000_000}.get(
             range_str, 86400_000
@@ -218,10 +230,14 @@ class MetricsStore:
         now_ms = int(time.time() * 1000)
         since_ms = now_ms - range_ms
 
-        rows = self._conn.execute(
-            "SELECT latency_ms FROM metrics WHERE timestamp_ms >= ? AND timestamp_ms <= ? ORDER BY latency_ms",
-            (since_ms, now_ms),
-        ).fetchall()
+        def _query():
+            with self._db_lock:
+                return self._conn.execute(
+                    "SELECT latency_ms FROM metrics WHERE timestamp_ms >= ? AND timestamp_ms <= ? ORDER BY latency_ms",
+                    (since_ms, now_ms),
+                ).fetchall()
+
+        rows = await asyncio.to_thread(_query)
 
         latencies = [row[0] for row in rows]
         if not latencies:
@@ -241,7 +257,7 @@ class MetricsStore:
             "sampleCount": n,
         }
 
-    def get_summary(self, range_str: str) -> dict:
+    async def get_summary(self, range_str: str) -> dict:
         """Get KPI summary with period-over-period comparison."""
         range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000, "7d": 604800_000, "30d": 2592000_000}.get(
             range_str, 86400_000
@@ -249,17 +265,18 @@ class MetricsStore:
         now_ms = int(time.time() * 1000)
 
         def _query_period(since: int, until: int) -> dict:
-            row = self._conn.execute(
-                """
-                SELECT
-                    COUNT(*) AS requests,
-                    COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS errors,
-                    COALESCE(AVG(latency_ms), 0) AS avg_latency
-                FROM metrics
-                WHERE timestamp_ms >= ? AND timestamp_ms <= ?
-                """,
-                (since, until),
-            ).fetchone()
+            with self._db_lock:
+                row = self._conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS requests,
+                        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS errors,
+                        COALESCE(AVG(latency_ms), 0) AS avg_latency
+                    FROM metrics
+                    WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+                    """,
+                    (since, until),
+                ).fetchone()
 
             requests = row[0] or 0
             errors = row[1] or 0
@@ -275,8 +292,12 @@ class MetricsStore:
                 "errorRate": error_rate,
             }
 
-        current = _query_period(now_ms - range_ms, now_ms)
-        previous = _query_period(now_ms - 2 * range_ms, now_ms - range_ms)
+        def _query_both():
+            cur = _query_period(now_ms - range_ms, now_ms)
+            prev = _query_period(now_ms - 2 * range_ms, now_ms - range_ms)
+            return cur, prev
+
+        current, previous = await asyncio.to_thread(_query_both)
 
         def _pct_change(cur: float, prev: float) -> float | None:
             if prev == 0:
@@ -304,7 +325,7 @@ class MetricsStore:
             "range": range_str,
         }
 
-    def get_per_key_stats(self, range_str: str) -> dict:
+    async def get_per_key_stats(self, range_str: str) -> dict:
         """Get per API key usage stats for a given time range."""
         range_ms = {"1h": 3600_000, "6h": 21600_000, "24h": 86400_000, "7d": 604800_000, "30d": 2592000_000}.get(
             range_str, 86400_000
@@ -312,21 +333,25 @@ class MetricsStore:
         now_ms = int(time.time() * 1000)
         since_ms = now_ms - range_ms
 
-        rows = self._conn.execute(
-            """
-            SELECT
-                api_key,
-                COUNT(*) AS total_requests,
-                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS total_errors,
-                AVG(latency_ms) AS avg_latency,
-                MAX(timestamp_ms) AS last_used
-            FROM metrics
-            WHERE timestamp_ms >= ? AND timestamp_ms <= ? AND api_key != ''
-            GROUP BY api_key
-            ORDER BY total_requests DESC
-            """,
-            (since_ms, now_ms),
-        ).fetchall()
+        def _query():
+            with self._db_lock:
+                return self._conn.execute(
+                    """
+                    SELECT
+                        api_key,
+                        COUNT(*) AS total_requests,
+                        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS total_errors,
+                        AVG(latency_ms) AS avg_latency,
+                        MAX(timestamp_ms) AS last_used
+                    FROM metrics
+                    WHERE timestamp_ms >= ? AND timestamp_ms <= ? AND api_key != ''
+                    GROUP BY api_key
+                    ORDER BY total_requests DESC
+                    """,
+                    (since_ms, now_ms),
+                ).fetchall()
+
+        rows = await asyncio.to_thread(_query)
 
         keys = []
         for row in rows:

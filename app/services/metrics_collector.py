@@ -24,22 +24,22 @@ class MetricsCollector:
         except Exception as e:
             log.error("Failed to persist metric", extra={"error": str(e)})
 
-    def get_time_series(self, range_str: str) -> dict:
+    async def get_time_series(self, range_str: str) -> dict:
         """Get time series data from persistent store."""
-        return self._store.get_time_series(range_str)
+        return await self._store.get_time_series(range_str)
 
-    def get_breakdown(self) -> dict:
+    async def get_breakdown(self) -> dict:
         """Get 24h aggregated breakdown from persistent store."""
-        return self._store.get_breakdown()
+        return await self._store.get_breakdown()
 
-    def get_percentiles(self, range_str: str) -> dict:
+    async def get_percentiles(self, range_str: str) -> dict:
         """Get latency percentiles (P50/P95/P99) from persistent store."""
-        return self._store.get_percentiles(range_str)
+        return await self._store.get_percentiles(range_str)
 
-    def get_summary(self, range_str: str) -> dict:
+    async def get_summary(self, range_str: str) -> dict:
         """Get KPI summary with period-over-period comparison."""
-        return self._store.get_summary(range_str)
+        return await self._store.get_summary(range_str)
 
-    def get_per_key_stats(self, range_str: str) -> dict:
+    async def get_per_key_stats(self, range_str: str) -> dict:
         """Get per API key usage stats."""
-        return self._store.get_per_key_stats(range_str)
+        return await self._store.get_per_key_stats(range_str)

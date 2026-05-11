@@ -1,5 +1,8 @@
 """Account bootstrap service - manages codex login subprocess lifecycle.
 
+All mutable state is encapsulated in the BootstrapManager class.
+An instance is created during app startup and stored in AppDependencies.
+
 Orchestrates the codex login --device-auth flow:
 1. Creates CODEX_HOME directory
 2. Spawns codex login subprocess
@@ -40,9 +43,6 @@ class BootstrapSession:
     expires_at: float = field(default_factory=lambda: time.time() + BOOTSTRAP_TIMEOUT_SEC)
 
 
-_sessions: dict[str, BootstrapSession] = {}
-
-
 # Regex to strip ANSI escape sequences (e.g. \x1b[0m, \x1b[1;32m)
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
@@ -61,169 +61,6 @@ def _parse_output_line(text: str, session: BootstrapSession) -> None:
             session.device_code = code_match.group(0)
 
 
-async def _monitor_process(session: BootstrapSession) -> None:
-    """Monitor subprocess stdout/stderr and wait for completion."""
-    try:
-        while True:
-            line = await session.process.stdout.readline()
-            if not line:
-                break
-            text = line.decode(errors="replace").strip()
-            if text:
-                _parse_output_line(text, session)
-
-        returncode = await session.process.wait()
-
-        if returncode == 0:
-            auth_file = Path(session.codex_home) / "auth.json"
-            if auth_file.exists():
-                session.status = "success"
-                log.info(
-                    "Bootstrap login succeeded",
-                    extra={"sessionId": session.session_id, "codexHome": session.codex_home},
-                )
-            else:
-                session.status = "failed"
-                session.error = "Login process completed but auth.json was not created"
-                log.warn(
-                    "Bootstrap login completed without auth.json",
-                    extra={"sessionId": session.session_id, "codexHome": session.codex_home},
-                )
-        else:
-            stderr_data = await session.process.stderr.read()
-            stderr_text = stderr_data.decode(errors="replace").strip()
-            session.status = "failed"
-            session.error = stderr_text or f"Process exited with code {returncode}"
-            log.warn(
-                "Bootstrap login failed",
-                extra={
-                    "sessionId": session.session_id,
-                    "codexHome": session.codex_home,
-                    "exitCode": returncode,
-                    "stderr": stderr_text,
-                },
-            )
-    except Exception as e:
-        session.status = "failed"
-        session.error = str(e)
-        log.error(
-            "Bootstrap monitor error",
-            extra={"sessionId": session.session_id, "error": str(e)},
-        )
-
-
-async def _timeout_killer(session: BootstrapSession) -> None:
-    """Wait for timeout, then kill the subprocess if still running."""
-    await asyncio.sleep(BOOTSTRAP_TIMEOUT_SEC)
-    if session.status == "waiting_for_login":
-        if session.process and session.process.returncode is None:
-            session.process.kill()
-            try:
-                await asyncio.wait_for(session.process.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                pass
-        session.status = "timeout"
-        session.error = "Login timed out after 5 minutes"
-        log.warn(
-            "Bootstrap login timed out",
-            extra={"sessionId": session.session_id, "codexHome": session.codex_home},
-        )
-
-
-async def start_bootstrap(remark: str, max_concurrency: int | None) -> BootstrapSession:
-    """Create directory and start codex login --device-auth subprocess.
-
-    Returns the BootstrapSession immediately. The subprocess is monitored
-    asynchronously; callers should poll get_session() for status updates.
-    """
-    session_id = f"bootstrap-{uuid.uuid4().hex[:12]}"
-    account_dir = CODEX_POOL_DIR / f"account-{uuid.uuid4().hex[:8]}"
-    account_dir.mkdir(parents=True, exist_ok=True)
-
-    session = BootstrapSession(
-        session_id=session_id,
-        codex_home=str(account_dir),
-        remark=remark,
-        max_concurrency=max_concurrency,
-        status="waiting_for_login",
-    )
-
-    from app.config import settings
-
-    env = {**os.environ, "CODEX_HOME": str(account_dir)}
-    proc = await asyncio.create_subprocess_exec(
-        settings.codex_cli_path,
-        "login",
-        "--device-auth",
-        env=env,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    session.process = proc
-
-    # Start monitor and timeout killer concurrently
-    asyncio.create_task(_monitor_process(session))
-    asyncio.create_task(_timeout_killer(session))
-
-    _sessions[session_id] = session
-
-    log.info(
-        "Bootstrap session started",
-        extra={"sessionId": session_id, "codexHome": str(account_dir)},
-    )
-
-    return session
-
-
-def get_session(session_id: str) -> BootstrapSession | None:
-    """Get a bootstrap session by ID."""
-    return _sessions.get(session_id)
-
-
-async def confirm_bootstrap(session_id: str) -> dict | None:
-    """Confirm a successful bootstrap and return account data for registration.
-
-    Removes the session from the store. The caller is responsible for
-    calling add_account() with the returned data.
-    """
-    session = _sessions.pop(session_id, None)
-    if not session:
-        return None
-    if session.status != "success":
-        return None
-    return {
-        "codex_home": session.codex_home,
-        "remark": session.remark,
-        "max_concurrency": session.max_concurrency,
-    }
-
-
-async def cancel_bootstrap(session_id: str) -> bool:
-    """Cancel a bootstrap session: kill subprocess and remove directory."""
-    session = _sessions.pop(session_id, None)
-    if not session:
-        return False
-
-    if session.process and session.process.returncode is None:
-        session.process.kill()
-        try:
-            await asyncio.wait_for(session.process.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
-            pass
-
-    # Clean up the created directory
-    codex_dir = Path(session.codex_home)
-    if codex_dir.exists():
-        shutil.rmtree(str(codex_dir), ignore_errors=True)
-
-    log.info(
-        "Bootstrap session cancelled",
-        extra={"sessionId": session_id, "codexHome": session.codex_home},
-    )
-
-    return True
-
-
 def session_to_dict(session: BootstrapSession) -> dict:
     """Convert a BootstrapSession to a JSON-serializable dict for API responses."""
     return {
@@ -235,3 +72,171 @@ def session_to_dict(session: BootstrapSession) -> dict:
         "error": session.error,
         "expiresAt": int(session.expires_at),
     }
+
+
+class BootstrapManager:
+    """Encapsulated bootstrap session state — no module-level globals.
+
+    All session data is instance-level, making it testable
+    and safe in multi-instance scenarios.
+    """
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, BootstrapSession] = {}
+
+    async def _monitor_process(self, session: BootstrapSession) -> None:
+        """Monitor subprocess stdout/stderr and wait for completion."""
+        try:
+            while True:
+                line = await session.process.stdout.readline()
+                if not line:
+                    break
+                text = line.decode(errors="replace").strip()
+                if text:
+                    _parse_output_line(text, session)
+
+            returncode = await session.process.wait()
+
+            if returncode == 0:
+                auth_file = Path(session.codex_home) / "auth.json"
+                if auth_file.exists():
+                    session.status = "success"
+                    log.info(
+                        "Bootstrap login succeeded",
+                        extra={"sessionId": session.session_id, "codexHome": session.codex_home},
+                    )
+                else:
+                    session.status = "failed"
+                    session.error = "Login process completed but auth.json was not created"
+                    log.warn(
+                        "Bootstrap login completed without auth.json",
+                        extra={"sessionId": session.session_id, "codexHome": session.codex_home},
+                    )
+            else:
+                stderr_data = await session.process.stderr.read()
+                stderr_text = stderr_data.decode(errors="replace").strip()
+                session.status = "failed"
+                session.error = stderr_text or f"Process exited with code {returncode}"
+                log.warn(
+                    "Bootstrap login failed",
+                    extra={
+                        "sessionId": session.session_id,
+                        "codexHome": session.codex_home,
+                        "exitCode": returncode,
+                        "stderr": stderr_text,
+                    },
+                )
+        except Exception as e:
+            session.status = "failed"
+            session.error = str(e)
+            log.error(
+                "Bootstrap monitor error",
+                extra={"sessionId": session.session_id, "error": str(e)},
+            )
+
+    async def _timeout_killer(self, session: BootstrapSession) -> None:
+        """Wait for timeout, then kill the subprocess if still running."""
+        await asyncio.sleep(BOOTSTRAP_TIMEOUT_SEC)
+        if session.status == "waiting_for_login":
+            if session.process and session.process.returncode is None:
+                session.process.kill()
+                try:
+                    await asyncio.wait_for(session.process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
+            session.status = "timeout"
+            session.error = "Login timed out after 5 minutes"
+            log.warn(
+                "Bootstrap login timed out",
+                extra={"sessionId": session.session_id, "codexHome": session.codex_home},
+            )
+
+    async def start_bootstrap(self, remark: str, max_concurrency: int | None) -> BootstrapSession:
+        """Create directory and start codex login --device-auth subprocess.
+
+        Returns the BootstrapSession immediately. The subprocess is monitored
+        asynchronously; callers should poll get_session() for status updates.
+        """
+        session_id = f"bootstrap-{uuid.uuid4().hex[:12]}"
+        account_dir = CODEX_POOL_DIR / f"account-{uuid.uuid4().hex[:8]}"
+        account_dir.mkdir(parents=True, exist_ok=True)
+
+        session = BootstrapSession(
+            session_id=session_id,
+            codex_home=str(account_dir),
+            remark=remark,
+            max_concurrency=max_concurrency,
+            status="waiting_for_login",
+        )
+
+        from app.config import settings
+
+        env = {**os.environ, "CODEX_HOME": str(account_dir)}
+        proc = await asyncio.create_subprocess_exec(
+            settings.codex_cli_path,
+            "login",
+            "--device-auth",
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        session.process = proc
+
+        # Start monitor and timeout killer concurrently
+        asyncio.create_task(self._monitor_process(session))
+        asyncio.create_task(self._timeout_killer(session))
+
+        self._sessions[session_id] = session
+
+        log.info(
+            "Bootstrap session started",
+            extra={"sessionId": session_id, "codexHome": str(account_dir)},
+        )
+
+        return session
+
+    def get_session(self, session_id: str) -> BootstrapSession | None:
+        """Get a bootstrap session by ID."""
+        return self._sessions.get(session_id)
+
+    async def confirm_bootstrap(self, session_id: str) -> dict | None:
+        """Confirm a successful bootstrap and return account data for registration.
+
+        Removes the session from the store. The caller is responsible for
+        calling add_account() with the returned data.
+        """
+        session = self._sessions.pop(session_id, None)
+        if not session:
+            return None
+        if session.status != "success":
+            return None
+        return {
+            "codex_home": session.codex_home,
+            "remark": session.remark,
+            "max_concurrency": session.max_concurrency,
+        }
+
+    async def cancel_bootstrap(self, session_id: str) -> bool:
+        """Cancel a bootstrap session: kill subprocess and remove directory."""
+        session = self._sessions.pop(session_id, None)
+        if not session:
+            return False
+
+        if session.process and session.process.returncode is None:
+            session.process.kill()
+            try:
+                await asyncio.wait_for(session.process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+
+        # Clean up the created directory
+        codex_dir = Path(session.codex_home)
+        if codex_dir.exists():
+            shutil.rmtree(str(codex_dir), ignore_errors=True)
+
+        log.info(
+            "Bootstrap session cancelled",
+            extra={"sessionId": session_id, "codexHome": session.codex_home},
+        )
+
+        return True

@@ -12,6 +12,7 @@ import json
 import time
 from pathlib import Path
 
+import aiofiles
 import httpx
 
 from app.utils.logger import log
@@ -62,12 +63,15 @@ class TokenManager:
         self._expires_at: float | None = None
         self._plan_type: str | None = None
         self._refresh_lock = asyncio.Lock()
-        self._load_auth_json()
+        self._loaded = False
 
     # ── Public API ──────────────────────────────────────
 
     async def get_access_token(self) -> str | None:
         """Return a valid access_token, refreshing if needed."""
+        if not self._loaded:
+            await self._load_auth_json()
+            self._loaded = True
         if self._access_token and self._needs_refresh():
             await self.refresh_if_needed()
         return self._access_token
@@ -111,14 +115,16 @@ class TokenManager:
             return bool(self._refresh_token)
         return (self._expires_at - time.time()) < TOKEN_REFRESH_BUFFER_SEC
 
-    def _load_auth_json(self) -> None:
-        """Load tokens from auth.json."""
+    async def _load_auth_json(self) -> None:
+        """Load tokens from auth.json (async file I/O)."""
         try:
             auth_path = Path(self._codex_home) / "auth.json"
-            if not auth_path.exists():
+            exists = await asyncio.to_thread(auth_path.exists)
+            if not exists:
                 log.warn("auth.json not found", extra={"codexHome": self._codex_home})
                 return
-            raw = auth_path.read_text(encoding="utf-8")
+            async with aiofiles.open(auth_path, mode="r", encoding="utf-8") as f:
+                raw = await f.read()
             auth = json.loads(raw)
             tokens = auth.get("tokens") or {}
             self._access_token = tokens.get("access_token")
@@ -195,9 +201,11 @@ class TokenManager:
         """Persist refreshed tokens back to auth.json."""
         try:
             auth_path = Path(self._codex_home) / "auth.json"
-            if not auth_path.exists():
+            exists = await asyncio.to_thread(auth_path.exists)
+            if not exists:
                 return
-            raw = auth_path.read_text(encoding="utf-8")
+            async with aiofiles.open(auth_path, mode="r", encoding="utf-8") as f:
+                raw = await f.read()
             auth = json.loads(raw)
             tokens = auth.get("tokens") or {}
             tokens["access_token"] = refresh_data["access_token"]
@@ -207,6 +215,7 @@ class TokenManager:
                 tokens["id_token"] = refresh_data["id_token"]
             auth["tokens"] = tokens
             auth["last_refresh"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            auth_path.write_text(json.dumps(auth, indent=2), encoding="utf-8")
+            async with aiofiles.open(auth_path, mode="w", encoding="utf-8") as f:
+                await f.write(json.dumps(auth, indent=2))
         except Exception as e:
             log.error("Failed to save auth.json", extra={"codexHome": self._codex_home, "error": str(e)})

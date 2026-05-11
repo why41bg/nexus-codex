@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -97,7 +98,7 @@ class LogStore:
     def __init__(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> None:
         self._retention_days = retention_days
         self._conn = _ensure_db(str(DB_PATH), check_same_thread=False)
-        self._write_lock = asyncio.Lock()
+        self._db_lock = threading.Lock()
         deleted = _cleanup_old(self._conn, retention_days)
         log.info(
             "LogStore initialized",
@@ -124,8 +125,8 @@ class LogStore:
         now_ms = int(time.time() * 1000)
         context_json = json.dumps(context, ensure_ascii=False) if context else None
 
-        try:
-            async with self._write_lock:
+        def _do_write() -> int:
+            with self._db_lock:
                 cursor = self._conn.execute(
                     """INSERT INTO logs
                        (timestamp, level, source, event, message, context,
@@ -148,11 +149,14 @@ class LogStore:
 
                 self._conn.commit()
                 return log_id
+
+        try:
+            return await asyncio.to_thread(_do_write)
         except Exception as e:
             log.error("LogStore write failed", extra={"error": str(e)})
             return -1
 
-    def query(
+    async def query(
         self,
         *,
         keyword: str | None = None,
@@ -272,50 +276,54 @@ class LogStore:
 
         order_dir = "DESC" if order == "desc" else "ASC"
 
-        # Count total
-        count_sql = f"SELECT COUNT(DISTINCT l.id) FROM logs l{tag_join} WHERE {where_clause}"
-        total = self._conn.execute(count_sql, params).fetchone()[0]
+        def _execute_query():
+            with self._db_lock:
+                # Count total
+                count_sql = f"SELECT COUNT(DISTINCT l.id) FROM logs l{tag_join} WHERE {where_clause}"
+                total = self._conn.execute(count_sql, params).fetchone()[0]
 
-        # Fetch items
-        query_sql = f"""
-            SELECT DISTINCT l.id, l.timestamp, l.level, l.source, l.event, l.message,
-                   l.context, l.trace_id, l.session_id, l.account_id, l.api_key_id,
-                   l.client_ip, l.duration_ms, l.schema_ver
-            FROM logs l{tag_join}
-            WHERE {where_clause}
-            ORDER BY l.timestamp {order_dir}
-            LIMIT ? OFFSET ?
-        """
-        rows = self._conn.execute(query_sql, params + [limit, offset]).fetchall()
+                # Fetch items
+                query_sql = f"""
+                    SELECT DISTINCT l.id, l.timestamp, l.level, l.source, l.event, l.message,
+                           l.context, l.trace_id, l.session_id, l.account_id, l.api_key_id,
+                           l.client_ip, l.duration_ms, l.schema_ver
+                    FROM logs l{tag_join}
+                    WHERE {where_clause}
+                    ORDER BY l.timestamp {order_dir}
+                    LIMIT ? OFFSET ?
+                """
+                rows = self._conn.execute(query_sql, params + [limit, offset]).fetchall()
 
-        # Fetch tags for returned logs
-        items = []
-        for row in rows:
-            log_id = row[0]
-            tag_rows = self._conn.execute(
-                "SELECT tag FROM log_tags WHERE log_id = ?", (log_id,)
-            ).fetchall()
-            items.append({
-                "id": row[0],
-                "timestamp": row[1],
-                "level": row[2],
-                "source": row[3],
-                "event": row[4],
-                "message": row[5],
-                "context": json.loads(row[6]) if row[6] else None,
-                "tags": [r[0] for r in tag_rows],
-                "trace_id": row[7],
-                "session_id": row[8],
-                "account_id": row[9],
-                "api_key_id": row[10],
-                "client_ip": row[11],
-                "duration_ms": row[12],
-                "schema_ver": row[13],
-            })
+                # Fetch tags for returned logs
+                items = []
+                for row in rows:
+                    log_id = row[0]
+                    tag_rows = self._conn.execute(
+                        "SELECT tag FROM log_tags WHERE log_id = ?", (log_id,)
+                    ).fetchall()
+                    items.append({
+                        "id": row[0],
+                        "timestamp": row[1],
+                        "level": row[2],
+                        "source": row[3],
+                        "event": row[4],
+                        "message": row[5],
+                        "context": json.loads(row[6]) if row[6] else None,
+                        "tags": [r[0] for r in tag_rows],
+                        "trace_id": row[7],
+                        "session_id": row[8],
+                        "account_id": row[9],
+                        "api_key_id": row[10],
+                        "client_ip": row[11],
+                        "duration_ms": row[12],
+                        "schema_ver": row[13],
+                    })
 
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+                return {"items": items, "total": total, "limit": limit, "offset": offset}
 
-    def get_error_summary(self, range_str: str) -> dict:
+        return await asyncio.to_thread(_execute_query)
+
+    async def get_error_summary(self, range_str: str) -> dict:
         """Get error event statistics for a given time range."""
         range_ms = {
             "1h": 3600_000, "6h": 21600_000, "24h": 86400_000,
@@ -324,85 +332,99 @@ class LogStore:
         now_ms = int(time.time() * 1000)
         since_ms = now_ms - range_ms
 
-        # Total errors
-        total = self._conn.execute(
-            "SELECT COUNT(*) FROM logs WHERE level IN ('error', 'critical') AND timestamp >= ?",
-            (since_ms,),
-        ).fetchone()[0]
+        def _execute():
+            with self._db_lock:
+                # Total errors
+                total = self._conn.execute(
+                    "SELECT COUNT(*) FROM logs WHERE level IN ('error', 'critical') AND timestamp >= ?",
+                    (since_ms,),
+                ).fetchone()[0]
 
-        # By event
-        by_event = self._conn.execute(
-            """SELECT event, COUNT(*) as cnt FROM logs
-               WHERE level IN ('error', 'critical') AND timestamp >= ?
-               GROUP BY event ORDER BY cnt DESC LIMIT 20""",
-            (since_ms,),
-        ).fetchall()
+                # By event
+                by_event = self._conn.execute(
+                    """SELECT event, COUNT(*) as cnt FROM logs
+                       WHERE level IN ('error', 'critical') AND timestamp >= ?
+                       GROUP BY event ORDER BY cnt DESC LIMIT 20""",
+                    (since_ms,),
+                ).fetchall()
 
-        # By source
-        by_source = self._conn.execute(
-            """SELECT source, COUNT(*) as cnt FROM logs
-               WHERE level IN ('error', 'critical') AND timestamp >= ?
-               GROUP BY source ORDER BY cnt DESC LIMIT 20""",
-            (since_ms,),
-        ).fetchall()
+                # By source
+                by_source = self._conn.execute(
+                    """SELECT source, COUNT(*) as cnt FROM logs
+                       WHERE level IN ('error', 'critical') AND timestamp >= ?
+                       GROUP BY source ORDER BY cnt DESC LIMIT 20""",
+                    (since_ms,),
+                ).fetchall()
 
-        # Hourly trend
-        bucket_ms = 3600_000
-        trend_rows = self._conn.execute(
-            """SELECT (timestamp / ?) * ? AS bucket_ts, COUNT(*) as cnt
-               FROM logs
-               WHERE level IN ('error', 'critical') AND timestamp >= ?
-               GROUP BY bucket_ts ORDER BY bucket_ts""",
-            (bucket_ms, bucket_ms, since_ms),
-        ).fetchall()
+                # Hourly trend
+                bucket_ms = 3600_000
+                trend_rows = self._conn.execute(
+                    """SELECT (timestamp / ?) * ? AS bucket_ts, COUNT(*) as cnt
+                       FROM logs
+                       WHERE level IN ('error', 'critical') AND timestamp >= ?
+                       GROUP BY bucket_ts ORDER BY bucket_ts""",
+                    (bucket_ms, bucket_ms, since_ms),
+                ).fetchall()
 
-        return {
-            "range": range_str,
-            "total_errors": total,
-            "by_event": [{"event": r[0], "count": r[1]} for r in by_event],
-            "by_source": [{"source": r[0], "count": r[1]} for r in by_source],
-            "trend": [{"bucket": r[0], "count": r[1]} for r in trend_rows],
-        }
+                return {
+                    "range": range_str,
+                    "total_errors": total,
+                    "by_event": [{"event": r[0], "count": r[1]} for r in by_event],
+                    "by_source": [{"source": r[0], "count": r[1]} for r in by_source],
+                    "trend": [{"bucket": r[0], "count": r[1]} for r in trend_rows],
+                }
 
-    def get_trace(self, trace_id: str) -> list[dict]:
+        return await asyncio.to_thread(_execute)
+
+    async def get_trace(self, trace_id: str) -> list[dict]:
         """Get all log entries for a given trace_id, ordered chronologically."""
-        rows = self._conn.execute(
-            """SELECT id, timestamp, level, source, event, message, context,
-                      trace_id, session_id, account_id, api_key_id, client_ip,
-                      duration_ms, schema_ver
-               FROM logs WHERE trace_id = ? ORDER BY timestamp ASC""",
-            (trace_id,),
-        ).fetchall()
 
-        items = []
-        for row in rows:
-            log_id = row[0]
-            tag_rows = self._conn.execute(
-                "SELECT tag FROM log_tags WHERE log_id = ?", (log_id,)
-            ).fetchall()
-            items.append({
-                "id": row[0],
-                "timestamp": row[1],
-                "level": row[2],
-                "source": row[3],
-                "event": row[4],
-                "message": row[5],
-                "context": json.loads(row[6]) if row[6] else None,
-                "tags": [r[0] for r in tag_rows],
-                "trace_id": row[7],
-                "session_id": row[8],
-                "account_id": row[9],
-                "api_key_id": row[10],
-                "client_ip": row[11],
-                "duration_ms": row[12],
-                "schema_ver": row[13],
-            })
-        return items
+        def _execute():
+            with self._db_lock:
+                rows = self._conn.execute(
+                    """SELECT id, timestamp, level, source, event, message, context,
+                              trace_id, session_id, account_id, api_key_id, client_ip,
+                              duration_ms, schema_ver
+                       FROM logs WHERE trace_id = ? ORDER BY timestamp ASC""",
+                    (trace_id,),
+                ).fetchall()
 
-    def cleanup(self, retention_days: int | None = None) -> int:
+                items = []
+                for row in rows:
+                    log_id = row[0]
+                    tag_rows = self._conn.execute(
+                        "SELECT tag FROM log_tags WHERE log_id = ?", (log_id,)
+                    ).fetchall()
+                    items.append({
+                        "id": row[0],
+                        "timestamp": row[1],
+                        "level": row[2],
+                        "source": row[3],
+                        "event": row[4],
+                        "message": row[5],
+                        "context": json.loads(row[6]) if row[6] else None,
+                        "tags": [r[0] for r in tag_rows],
+                        "trace_id": row[7],
+                        "session_id": row[8],
+                        "account_id": row[9],
+                        "api_key_id": row[10],
+                        "client_ip": row[11],
+                        "duration_ms": row[12],
+                        "schema_ver": row[13],
+                    })
+                return items
+
+        return await asyncio.to_thread(_execute)
+
+    async def cleanup(self, retention_days: int | None = None) -> int:
         """Remove expired logs. Returns number of deleted rows."""
         days = retention_days if retention_days is not None else self._retention_days
-        return _cleanup_old(self._conn, days)
+
+        def _do_cleanup() -> int:
+            with self._db_lock:
+                return _cleanup_old(self._conn, days)
+
+        return await asyncio.to_thread(_do_cleanup)
 
     def close(self) -> None:
         """Close the database connection."""
