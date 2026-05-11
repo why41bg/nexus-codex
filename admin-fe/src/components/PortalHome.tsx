@@ -47,40 +47,38 @@ function PoolQuotaBanner() {
       .catch(() => setSnapshot(null));
   }, []);
 
-  if (!snapshot) return null;
+  const statusConfig = snapshot ? {
+    ok: { bg: 'bg-sky-50 dark:bg-sky-900/20', text: 'text-sky-700 dark:text-sky-300' },
+    partial: { bg: 'bg-amber-50 dark:bg-amber-900/20', text: 'text-amber-700 dark:text-amber-300' },
+    stale: { bg: 'bg-orange-50 dark:bg-orange-900/20', text: 'text-orange-700 dark:text-orange-300' },
+    unavailable: { bg: 'bg-gray-100 dark:bg-slate-800', text: 'text-gray-600 dark:text-slate-300' },
+  }[snapshot.status] : { bg: 'bg-gray-100 dark:bg-slate-800', text: 'text-gray-600 dark:text-slate-300' };
 
-  const statusConfig = {
-    ok: { bg: 'bg-sky-50 dark:bg-sky-900/20', text: 'text-sky-700 dark:text-sky-300', label: '快照正常' },
-    partial: { bg: 'bg-amber-50 dark:bg-amber-900/20', text: 'text-amber-700 dark:text-amber-300', label: '部分采样' },
-    stale: { bg: 'bg-orange-50 dark:bg-orange-900/20', text: 'text-orange-700 dark:text-orange-300', label: '快照过期' },
-    unavailable: { bg: 'bg-gray-100 dark:bg-slate-800', text: 'text-gray-600 dark:text-slate-300', label: '暂无数据' },
-  }[snapshot.status];
-
-  const remaining5h = snapshot.window5hRemainingPercent;
-  const remaining1w = snapshot.window1wRemainingPercent;
+  const remaining5h = snapshot?.window5hRemainingPercent;
+  const remaining1w = snapshot?.window1wRemainingPercent;
+  const isLoading = snapshot === null;
 
   return (
-    <div className={`mx-auto mt-4 flex w-full max-w-3xl flex-col gap-3 rounded-xl px-5 py-4 ${statusConfig.bg}`}>
+    <div className={`mx-auto mt-4 flex min-h-[156px] w-full max-w-3xl flex-col gap-3 rounded-xl px-5 py-4 ${statusConfig.bg}`}>
       <div className="flex items-center gap-3">
         <span className={`text-sm font-semibold ${statusConfig.text}`}>号池剩余容量</span>
-        <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${statusConfig.text} bg-white/60 dark:bg-slate-900/30`}>
-          {statusConfig.label}
-        </span>
-        <span className={`ml-auto text-xs ${statusConfig.text} opacity-80`}>
-          快照时间 {formatSnapshotTime(snapshot.snapshotAt)}
-        </span>
+        {snapshot ? (
+          <span className={`ml-auto text-xs ${statusConfig.text} opacity-80`}>
+            快照时间 {formatSnapshotTime(snapshot.snapshotAt)}
+          </span>
+        ) : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg bg-white/70 px-4 py-3 dark:bg-slate-900/30">
           <div className="text-xs text-gray-500 dark:text-slate-400">5h 窗口剩余</div>
           <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
-            {remaining5h == null ? '—' : `${remaining5h}%`}
+            {isLoading ? <span className="inline-block h-8 w-20 animate-pulse rounded-md bg-gray-200 dark:bg-slate-700" /> : remaining5h == null ? '—' : `${remaining5h}%`}
           </div>
         </div>
         <div className="rounded-lg bg-white/70 px-4 py-3 dark:bg-slate-900/30">
           <div className="text-xs text-gray-500 dark:text-slate-400">1w 窗口剩余</div>
           <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-slate-100">
-            {remaining1w == null ? '—' : `${remaining1w}%`}
+            {isLoading ? <span className="inline-block h-8 w-20 animate-pulse rounded-md bg-gray-200 dark:bg-slate-700" /> : remaining1w == null ? '—' : `${remaining1w}%`}
           </div>
         </div>
       </div>
