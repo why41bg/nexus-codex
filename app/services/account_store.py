@@ -36,6 +36,7 @@ class AccountStore:
     def __init__(self) -> None:
         self._accounts_cache: list[Account] | None = None
         self._write_lock = asyncio.Lock()
+        self._flush_lock = asyncio.Lock()
         self._pending_increments: dict[str, int] = {}
         self._pending_last_used: dict[str, str] = {}
         self._last_flush_time: float = 0.0
@@ -148,29 +149,31 @@ class AccountStore:
         """Flush all pending usage increments to disk.
 
         Safe to call at any time.  If there are no pending increments the
-        function returns immediately.
+        function returns immediately.  Uses _flush_lock to prevent concurrent
+        flush operations from interleaving read-modify-write cycles.
         """
-        if not self._pending_increments:
+        async with self._flush_lock:
+            if not self._pending_increments:
+                self._last_flush_time = time.monotonic()
+                return
+
+            # Snapshot and clear pending state atomically
+            increments = dict(self._pending_increments)
+            last_used = dict(self._pending_last_used)
+            self._pending_increments.clear()
+            self._pending_last_used.clear()
             self._last_flush_time = time.monotonic()
-            return
 
-        # Snapshot and clear pending state atomically
-        increments = dict(self._pending_increments)
-        last_used = dict(self._pending_last_used)
-        self._pending_increments.clear()
-        self._pending_last_used.clear()
-        self._last_flush_time = time.monotonic()
-
-        accounts = await self.load_accounts()
-        changed = False
-        for acc in accounts:
-            delta = increments.get(acc.id)
-            if delta:
-                acc.usage_count += delta
-                acc.last_used_at = last_used.get(acc.id, acc.last_used_at)
-                changed = True
-        if changed:
-            await self._save_accounts(accounts)
+            accounts = await self.load_accounts()
+            changed = False
+            for acc in accounts:
+                delta = increments.get(acc.id)
+                if delta:
+                    acc.usage_count += delta
+                    acc.last_used_at = last_used.get(acc.id, acc.last_used_at)
+                    changed = True
+            if changed:
+                await self._save_accounts(accounts)
 
     # ─── Bulk operations ────────────────────────────────────────
 
