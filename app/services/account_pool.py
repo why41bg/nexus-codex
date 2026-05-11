@@ -285,5 +285,13 @@ class AccountPool:
                 pass
 
     async def close(self) -> None:
-        """Clean up resources."""
-        pass
+        """Clean up resources — close all ChatGPT HTTP clients."""
+        for entry in self._pool:
+            if entry.chatgpt_client:
+                try:
+                    await entry.chatgpt_client.aclose()
+                except Exception:
+                    pass
+        self._pool.clear()
+        self._session_bindings.clear()
+        self._account_sessions.clear()

@@ -137,13 +137,20 @@ def _transform_response(data: dict[str, Any]) -> QuotaInfo | None:
 # ─── Core ───────────────────────────────────────────────────
 
 
-async def _fetch_quota(codex_home: str, timeout_ms: int) -> QuotaInfo | None:
+async def _fetch_quota(
+    codex_home: str,
+    timeout_ms: int,
+    token_manager: TokenManager | None = None,
+) -> QuotaInfo | None:
     """Fetch quota from API, store in cache on success.
 
     Uses TokenManager to get a valid access_token with auto-refresh support,
     so expired tokens are refreshed before the quota request.
+
+    If *token_manager* is supplied it will be reused instead of creating a
+    throwaway instance (avoids duplicate refresh races).
     """
-    token_mgr = TokenManager(codex_home)
+    token_mgr = token_manager or TokenManager(codex_home)
     token = await token_mgr.get_access_token()
     if not token:
         log.warn("quota-probe: no valid access_token", extra={"codexHome": codex_home})
@@ -212,7 +219,12 @@ async def _fetch_quota(codex_home: str, timeout_ms: int) -> QuotaInfo | None:
         return None
 
 
-async def probe_quota(codex_home: str, timeout_ms: int = 10_000) -> QuotaInfo | None:
+async def probe_quota(
+    codex_home: str,
+    timeout_ms: int = 10_000,
+    *,
+    token_manager: TokenManager | None = None,
+) -> QuotaInfo | None:
     """Query account quota info (with in-memory cache).
 
     - Returns cached data if still valid
@@ -222,6 +234,7 @@ async def probe_quota(codex_home: str, timeout_ms: int = 10_000) -> QuotaInfo | 
     Args:
         codex_home: The account's CODEX_HOME directory path
         timeout_ms: HTTP request timeout in milliseconds (default 10s)
+        token_manager: Optional existing ``TokenManager`` to reuse.
     """
     # Check cache
     cached = _cache.get(codex_home)
@@ -233,7 +246,9 @@ async def probe_quota(codex_home: str, timeout_ms: int = 10_000) -> QuotaInfo | 
     if existing and not existing.done():
         return await existing
 
-    task = asyncio.create_task(_fetch_quota(codex_home, timeout_ms))
+    task = asyncio.create_task(
+        _fetch_quota(codex_home, timeout_ms, token_manager=token_manager)
+    )
     _inflight[codex_home] = task
     try:
         return await task
@@ -241,12 +256,18 @@ async def probe_quota(codex_home: str, timeout_ms: int = 10_000) -> QuotaInfo | 
         _inflight.pop(codex_home, None)
 
 
-async def refresh_quota(codex_home: str, timeout_ms: int = 10_000) -> QuotaInfo | None:
+async def refresh_quota(
+    codex_home: str,
+    timeout_ms: int = 10_000,
+    *,
+    token_manager: TokenManager | None = None,
+) -> QuotaInfo | None:
     """Force refresh quota (bypasses cache).
 
     Args:
         codex_home: The account's CODEX_HOME directory path
         timeout_ms: HTTP request timeout in milliseconds (default 10s)
+        token_manager: Optional existing ``TokenManager`` to reuse.
     """
     _cache.pop(codex_home, None)
-    return await probe_quota(codex_home, timeout_ms)
+    return await probe_quota(codex_home, timeout_ms, token_manager=token_manager)

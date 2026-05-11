@@ -48,11 +48,21 @@ class ChatGPTClient:
     Uses OAuth token authentication (not API key) to call
     chatgpt.com/backend-api/codex/* endpoints, billing against the
     Plus account's quota.
+
+    A single long-lived ``httpx.AsyncClient`` is reused for all requests
+    so that TCP connections / HTTP/2 streams are properly pooled.
+    Call :meth:`aclose` during shutdown to release the underlying
+    connection pool.
     """
 
     def __init__(self, token_manager: TokenManager):
         self._token_manager = token_manager
         self._base_url = CODEX_BASE_URL
+        self._http: httpx.AsyncClient = httpx.AsyncClient(
+            timeout=DEFAULT_TIMEOUT,
+            http2=False,  # chatgpt.com may not support h2; keep HTTP/1.1
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
 
     # ── Public API ──────────────────────────────────────
 
@@ -65,15 +75,14 @@ class ChatGPTClient:
         headers = self._build_headers(token)
         headers["Accept"] = "application/json"
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                "https://chatgpt.com/backend-api/models",
-                headers=headers,
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("models", data) if isinstance(data, dict) else data
+        resp = await self._http.get(
+            "https://chatgpt.com/backend-api/models",
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("models", data) if isinstance(data, dict) else data
 
     async def get_account_info(self) -> dict:
         """Get account information from /backend-api/me."""
@@ -84,14 +93,13 @@ class ChatGPTClient:
         headers = self._build_headers(token)
         headers["Accept"] = "application/json"
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                "https://chatgpt.com/backend-api/me",
-                headers=headers,
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._http.get(
+            "https://chatgpt.com/backend-api/me",
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     async def get_usage(self) -> dict:
         """Get Codex usage/quota from /backend-api/codex/usage."""
@@ -102,14 +110,13 @@ class ChatGPTClient:
         headers = self._build_headers(token)
         headers["Accept"] = "application/json"
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{self._base_url}/usage",
-                headers=headers,
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._http.get(
+            f"{self._base_url}/usage",
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     # ── Responses API ───────────────────────────────────
 
@@ -190,18 +197,17 @@ class ChatGPTClient:
             async for chunk in self._stream_sse(headers, payload):
                 yield chunk
         else:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{self._base_url}/responses",
-                    headers=headers,
-                    json=payload,
-                    timeout=DEFAULT_TIMEOUT,
-                )
-                if resp.status_code != 200:
-                    if resp.status_code == 429:
-                        raise QuotaExhaustedError(f"HTTP 429: {resp.text[:200]}")
-                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-                yield json.dumps(resp.json())
+            resp = await self._http.post(
+                f"{self._base_url}/responses",
+                headers=headers,
+                json=payload,
+                timeout=DEFAULT_TIMEOUT,
+            )
+            if resp.status_code != 200:
+                if resp.status_code == 429:
+                    raise QuotaExhaustedError(f"HTTP 429: {resp.text[:200]}")
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+            yield json.dumps(resp.json())
 
     # ── Internal: SSE streaming ─────────────────────────
 
@@ -211,48 +217,53 @@ class ChatGPTClient:
         payload: dict,
     ) -> AsyncGenerator[str, None]:
         """Stream SSE events from ChatGPT backend."""
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                f"{self._base_url}/responses",
-                headers=headers,
-                json=payload,
-                timeout=DEFAULT_TIMEOUT,
-            ) as resp:
-                account_id = self._token_manager.get_account_id() or "unknown"
-                log.debug("ChatGPT response status", extra={
-                    "status": resp.status_code, "account_id": account_id,
+        async with self._http.stream(
+            "POST",
+            f"{self._base_url}/responses",
+            headers=headers,
+            json=payload,
+            timeout=DEFAULT_TIMEOUT,
+        ) as resp:
+            account_id = self._token_manager.get_account_id() or "unknown"
+            log.debug("ChatGPT response status", extra={
+                "status": resp.status_code, "account_id": account_id,
+            })
+
+            if resp.status_code == 403:
+                body = await resp.aread()
+                if b"_cf_chl_opt" in body or b"challenge-platform" in body:
+                    log.warn("Cloudflare challenge detected", extra={"account_id": account_id})
+                    raise CloudflareChallengeError("Blocked by Cloudflare")
+                log.error("ChatGPT HTTP 403", extra={"account_id": account_id, "body": body.decode(errors='replace')[:200]})
+                raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
+
+            if resp.status_code == 429:
+                body = await resp.aread()
+                log.warn("ChatGPT quota exhausted (HTTP 429)", extra={"account_id": account_id})
+                raise QuotaExhaustedError(f"HTTP 429: {body.decode(errors='replace')[:200]}")
+
+            if resp.status_code != 200:
+                body = await resp.aread()
+                log.error("ChatGPT upstream error", extra={
+                    "account_id": account_id, "status": resp.status_code,
+                    "body": body.decode(errors='replace')[:200],
                 })
+                raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
 
-                if resp.status_code == 403:
-                    body = await resp.aread()
-                    if b"_cf_chl_opt" in body or b"challenge-platform" in body:
-                        log.warn("Cloudflare challenge detected", extra={"account_id": account_id})
-                        raise CloudflareChallengeError("Blocked by Cloudflare")
-                    log.error("ChatGPT HTTP 403", extra={"account_id": account_id, "body": body.decode(errors='replace')[:200]})
-                    raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
+            async for line in resp.aiter_lines():
+                if line.startswith("data: "):
+                    data = line[6:]
+                    if data == "[DONE]":
+                        log.debug("ChatGPT SSE: [DONE]")
+                        break
+                    log.debug("ChatGPT SSE data", extra={"raw": data[:300]})
+                    yield data
 
-                if resp.status_code == 429:
-                    body = await resp.aread()
-                    log.warn("ChatGPT quota exhausted (HTTP 429)", extra={"account_id": account_id})
-                    raise QuotaExhaustedError(f"HTTP 429: {body.decode(errors='replace')[:200]}")
+    # ── Lifecycle ──────────────────────────────────────
 
-                if resp.status_code != 200:
-                    body = await resp.aread()
-                    log.error("ChatGPT upstream error", extra={
-                        "account_id": account_id, "status": resp.status_code,
-                        "body": body.decode(errors='replace')[:200],
-                    })
-                    raise RuntimeError(f"HTTP {resp.status_code}: {body.decode(errors='replace')[:200]}")
-
-                async for line in resp.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
-                            log.debug("ChatGPT SSE: [DONE]")
-                            break
-                        log.debug("ChatGPT SSE data", extra={"raw": data[:300]})
-                        yield data
+    async def aclose(self) -> None:
+        """Close the underlying HTTP client and release connections."""
+        await self._http.aclose()
 
     # ── Internal: Helpers ───────────────────────────────
 
