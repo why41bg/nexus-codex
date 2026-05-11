@@ -230,8 +230,6 @@ async def with_stream_retry(
                 account_id=entry.account_id,
             )
 
-        create_bg_task(increment_counters(deps, entry.account_id, api_key), name="increment-counters")
-
         try:
             async for chunk in stream_fn(entry):
                 yield chunk
@@ -239,6 +237,9 @@ async def with_stream_retry(
             latency_ms = int((time.time() - req_start) * 1000)
             await deps.metrics_collector.record(model, entry.account_id, latency_ms, True, api_key)
             deps.pool.release(entry.account_id)
+            # Only increment usage counters after successful completion to avoid
+            # double-counting on retries.
+            create_bg_task(increment_counters(deps, entry.account_id, api_key), name="increment-counters")
             if collector:
                 await collector.emit(
                     "account_released",

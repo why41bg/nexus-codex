@@ -77,8 +77,6 @@ async def _do_non_stream(
     api_key: str,
 ) -> JSONResponse:
     """Non-streaming Responses API via pass-through to ChatGPT backend."""
-    create_bg_task(increment_counters(deps, entry.account_id, api_key), name="increment-counters")
-
     client = entry.chatgpt_client
     if not client:
         raise RuntimeError("ChatGPT client not initialized")
@@ -118,6 +116,9 @@ async def _do_non_stream(
 
     latency_ms = int((time.time() - req_start) * 1000)
     await deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True, api_key)
+    # Increment usage counters only after successful completion to avoid
+    # double-counting when with_retry retries the operation.
+    create_bg_task(increment_counters(deps, entry.account_id, api_key), name="increment-counters")
     return JSONResponse(content=result)
 
 
