@@ -264,65 +264,6 @@ class ChatGPTAdapter:
         return f"event: {event_name}\ndata: {json.dumps(data)}\n\n"
 
     @staticmethod
-    def build_response_created(response_id: str, model: str) -> str:
-        """Build a response.created named event."""
-        return ChatGPTAdapter.build_named_event("response.created", {
-            "type": "response.created",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": model,
-                "output": [],
-                "status": "in_progress",
-            },
-        })
-
-    @staticmethod
-    def build_text_delta(delta: str) -> str:
-        """Build a response.output_text.delta named event."""
-        return ChatGPTAdapter.build_named_event("response.output_text.delta", {
-            "type": "response.output_text.delta",
-            "output_index": 0,
-            "content_index": 0,
-            "delta": delta,
-        })
-
-    @staticmethod
-    def build_response_completed(
-        response_id: str,
-        model: str,
-        item_id: str,
-        full_text: str,
-        usage: dict | None = None,
-    ) -> str:
-        """Build a response.completed named event."""
-        return ChatGPTAdapter.build_named_event("response.completed", {
-            "type": "response.completed",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": int(time.time()),
-                "model": model,
-                "output": [
-                    {
-                        "id": item_id,
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{"type": "output_text", "text": full_text}],
-                    }
-                ],
-                "status": "completed",
-                "usage": usage
-                or {
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "total_tokens": 0,
-                },
-            },
-        })
-
-    @staticmethod
     def build_response_failed(response_id: str, model: str, error_message: str) -> str:
         """Build a response.failed named event."""
         return ChatGPTAdapter.build_named_event("response.failed", {

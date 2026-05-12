@@ -44,11 +44,6 @@ def set_request_context(
         request.state.account_id = account_id
 
 
-def error_response(message: str, code: str, status: int = 500) -> JSONResponse:
-    """Build a standard OpenAI-compatible error JSONResponse."""
-    return build_openai_error_response(status, message, "server_error", code)
-
-
 def build_openai_error_response(
     status_code: int,
     message: str,
