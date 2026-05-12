@@ -3,11 +3,19 @@ from __future__ import annotations
 """Application configuration via environment variables."""
 
 import os
+from enum import StrEnum
 from pathlib import Path
 
 import bcrypt
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
+
+
+class PersistedSettingKey(StrEnum):
+    """Keys for runtime settings persisted in data/settings.json."""
+
+    CODEX_CLI_PATH = "codex_cli_path"
+    CODEX_NODE_PATH = "codex_node_path"
 
 
 class Settings(BaseSettings):
