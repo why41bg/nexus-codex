@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { ApiKey } from '@/types';
-import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, secondaryBtnClass } from '@/lib/styles';
-import { useToast } from '@/contexts/ToastContext';
+import { useUpdateApiKey } from '@/hooks/useAdminMutations';
 import { CloseIcon } from './icons';
 import Spinner from './Spinner';
 import { useFocusTrap } from '../lib/use-focus-trap';
@@ -20,11 +19,10 @@ export default function EditKeyModal({
   onClose,
   onSaved,
 }: EditKeyModalProps) {
-  const { toast } = useToast();
+  const updateKeyMutation = useUpdateApiKey();
   const [name, setName] = useState(target.name || '');
   const [selectedModels, setSelectedModels] = useState<string[]>([...target.models]);
   const [customModel, setCustomModel] = useState('');
-  const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [expiresAt, setExpiresAt] = useState(target.expiresAt ? target.expiresAt.slice(0, 16) : '');
@@ -61,31 +59,28 @@ export default function EditKeyModal({
     setCustomModel('');
   };
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      const ips = ipWhitelist.split('\n').map((s) => s.trim()).filter(Boolean);
-      const res = await api('PATCH', `/api/admin/keys/${encodeURIComponent(target.keyPrefix)}`, {
-        name,
-        models: selectedModels,
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-        rateLimitMax: rateLimitMax ? Number(rateLimitMax) : null,
-        rateLimitWindowMs: rateLimitWindowMs ? Number(rateLimitWindowMs) : null,
-        monthlyQuota: monthlyQuota ? Number(monthlyQuota) : null,
-        ipWhitelist: ips,
-      });
-      if (res.ok) {
-        toast('API Key 已更新', 'success');
-        onSaved();
-        onClose();
-      } else {
-        toast(extractErrorMessage(res.data, '更新失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setSaving(false);
-    }
+  const save = () => {
+    const ips = ipWhitelist.split('\n').map((s) => s.trim()).filter(Boolean);
+    updateKeyMutation.mutate(
+      {
+        keyPrefix: target.keyPrefix,
+        body: {
+          name,
+          models: selectedModels,
+          expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+          rateLimitMax: rateLimitMax ? Number(rateLimitMax) : null,
+          rateLimitWindowMs: rateLimitWindowMs ? Number(rateLimitWindowMs) : null,
+          monthlyQuota: monthlyQuota ? Number(monthlyQuota) : null,
+          ipWhitelist: ips,
+        },
+      },
+      {
+        onSuccess: () => {
+          onSaved();
+          onClose();
+        },
+      },
+    );
   };
 
   return (
@@ -257,10 +252,10 @@ export default function EditKeyModal({
           </button>
           <button
             onClick={save}
-            disabled={saving}
+            disabled={updateKeyMutation.isPending}
             className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50"
           >
-            {saving && <Spinner className="mr-1.5 inline h-4 w-4" />}
+            {updateKeyMutation.isPending && <Spinner className="mr-1.5 inline h-4 w-4" />}
             保存
           </button>
         </div>

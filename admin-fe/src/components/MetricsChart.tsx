@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { TimeSeriesResponse, MetricsBreakdown, PercentileResponse, SummaryResponse } from '@/types';
 import { api } from '@/lib/api';
 import RequestTrendChart from './RequestTrendChart';
@@ -16,11 +17,6 @@ interface Props {
 
 export default function MetricsChart({ onSummaryChange, onPercentilesChange }: Props) {
   const [range, setRange] = useState<Range>('1h');
-  const [timeSeries, setTimeSeries] = useState<TimeSeriesResponse | null>(null);
-  const [breakdown, setBreakdown] = useState<MetricsBreakdown | null>(null);
-  const [percentiles, setPercentiles] = useState<PercentileResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Use refs to hold callback props so they don't trigger re-renders
   const onSummaryChangeRef = useRef(onSummaryChange);
@@ -28,10 +24,9 @@ export default function MetricsChart({ onSummaryChange, onPercentilesChange }: P
   useEffect(() => { onSummaryChangeRef.current = onSummaryChange; }, [onSummaryChange]);
   useEffect(() => { onPercentilesChangeRef.current = onPercentilesChange; }, [onPercentilesChange]);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: metricsData, isLoading: loading, error: queryError } = useQuery({
+    queryKey: ['admin', 'metrics', 'chart', range],
+    queryFn: async () => {
       const [tsRes, bdRes, pctRes, sumRes] = await Promise.all([
         api<TimeSeriesResponse>('GET', `/api/admin/metrics/timeseries?range=${range}`),
         api<MetricsBreakdown>('GET', '/api/admin/metrics/breakdown'),
@@ -39,33 +34,26 @@ export default function MetricsChart({ onSummaryChange, onPercentilesChange }: P
         api<SummaryResponse>('GET', `/api/admin/metrics/summary?range=${range}`),
       ]);
 
-      if (tsRes.ok) {
-        setTimeSeries(tsRes.data);
-      }
-      if (bdRes.ok) {
-        setBreakdown(bdRes.data);
-      }
-      if (pctRes.ok) {
-        setPercentiles(pctRes.data);
-        onPercentilesChangeRef.current(pctRes.data);
-      }
-      if (sumRes.ok) {
-        onSummaryChangeRef.current(sumRes.data);
-      }
-    } catch {
-      setError('加载指标数据失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [range]);
+      const result = {
+        timeSeries: tsRes.ok ? tsRes.data : null,
+        breakdown: bdRes.ok ? bdRes.data : null,
+        percentiles: pctRes.ok ? pctRes.data : null,
+        summary: sumRes.ok ? sumRes.data : null,
+      };
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+      // Notify parent of summary / percentiles changes
+      if (result.percentiles) onPercentilesChangeRef.current(result.percentiles);
+      if (result.summary) onSummaryChangeRef.current(result.summary);
 
-  const buckets = timeSeries?.buckets ?? [];
+      return result;
+    },
+    refetchInterval: 30_000,
+  });
+
+  const error = queryError ? '加载指标数据失败' : null;
+  const buckets = metricsData?.timeSeries?.buckets ?? [];
+  const breakdown = metricsData?.breakdown ?? null;
+  const percentiles = metricsData?.percentiles ?? null;
 
   const rangeButtons: { label: string; value: Range }[] = [
     { label: '1 小时', value: '1h' },

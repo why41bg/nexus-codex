@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { LogEntry, LogQueryResult } from '@/types';
 import { api } from '@/lib/api';
 import { cardClass, inputClass, secondaryBtnClass } from '@/lib/styles';
@@ -191,12 +192,9 @@ function LogDetailModal({ entry, onClose, onFilterKeyword, onFilterAccountId, on
 }
 
 export default function LogsTab() {
-  const [items, setItems] = useState<LogEntry[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<LogEntry | null>(null);
 
-  // Filters
+  // Filters — "committed" values are used as query keys to trigger fetches
   const [keyword, setKeyword] = useState('');
   const [level, setLevel] = useState('');
   const [source, setSource] = useState('');
@@ -208,28 +206,31 @@ export default function LogsTab() {
   const [page, setPage] = useState(0);
   const pageSize = 50;
 
-  // Trigger counter: incremented to force a re-fetch (on initial mount + manual query + page change)
-  const [fetchTrigger, setFetchTrigger] = useState(0);
+  // Committed filter snapshot — changes only on explicit search to avoid over-fetching on every keystroke
+  const [committed, setCommitted] = useState({
+    keyword: '', level: '', source: '', event: '', timeRange: '24h',
+    accountId: '', apiKeyId: '', clientIp: '',
+  });
 
   const triggerSearch = useCallback(() => {
     setPage(0);
-    setFetchTrigger((n) => n + 1);
-  }, []);
+    setCommitted({ keyword, level, source, event, timeRange, accountId, apiKeyId, clientIp });
+  }, [keyword, level, source, event, timeRange, accountId, apiKeyId, clientIp]);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
-    try {
+  // Use useQuery with committed filters + page as query key, so exhaustive deps are satisfied naturally
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ['admin', 'logs', committed, page] as const,
+    queryFn: async () => {
       const params = new URLSearchParams();
-      if (keyword) params.set('keyword', keyword);
-      if (level) params.set('level', level);
-      if (source) params.set('source', source);
-      if (event) params.set('event', event);
-      if (accountId) params.set('account_id', accountId);
-      if (apiKeyId) params.set('api_key_id', apiKeyId);
-      if (clientIp) params.set('client_ip', clientIp);
+      if (committed.keyword) params.set('keyword', committed.keyword);
+      if (committed.level) params.set('level', committed.level);
+      if (committed.source) params.set('source', committed.source);
+      if (committed.event) params.set('event', committed.event);
+      if (committed.accountId) params.set('account_id', committed.accountId);
+      if (committed.apiKeyId) params.set('api_key_id', committed.apiKeyId);
+      if (committed.clientIp) params.set('client_ip', committed.clientIp);
 
-      // Time range
-      const rangeEntry = TIME_RANGES.find((r) => r.value === timeRange);
+      const rangeEntry = TIME_RANGES.find((r) => r.value === committed.timeRange);
       if (rangeEntry && rangeEntry.ms > 0) {
         params.set('since', String(Date.now() - rangeEntry.ms));
       }
@@ -239,24 +240,14 @@ export default function LogsTab() {
       params.set('order', 'desc');
 
       const res = await api<LogQueryResult>('GET', `/api/admin/logs?${params.toString()}`);
-      if (res.ok && res.data) {
-        setItems(res.data.items || []);
-        setTotal(res.data.total || 0);
-      }
-    } catch {
-      // Network error — clear results so the user sees something changed
-      setItems([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchTrigger, page]);
+      if (!res.ok) throw new Error('Failed to fetch logs');
+      return { items: res.data.items || [], total: res.data.total || 0 };
+    },
+    placeholderData: (prev) => prev,
+  });
 
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
-
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Active filter chips (for secondary filters like account_id, api_key_id, client_ip)

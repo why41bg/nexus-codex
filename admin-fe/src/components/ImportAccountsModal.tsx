@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useId, useEffect } from 'react';
-import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
+import { useImportAccounts } from '@/hooks/useAdminMutations';
 import { useFocusTrap } from '@/lib/use-focus-trap';
 import Spinner from './Spinner';
 
@@ -24,6 +24,7 @@ interface Props {
 
 export default function ImportAccountsModal({ onImported, onCancel }: Props) {
   const { toast } = useToast();
+  const importMutation = useImportAccounts();
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useFocusTrap(dialogRef);
@@ -32,7 +33,6 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
   const [inputMethod, setInputMethod] = useState<'file' | 'text'>('file');
   const [textInput, setTextInput] = useState('');
   const [parsed, setParsed] = useState<ValidationResult | null>(null);
-  const [importing, setImporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -119,28 +119,10 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
 
   const doImport = async () => {
     if (!parsed || parsed.valid.length === 0) return;
-    setImporting(true);
-    try {
-      const res = await api<{ imported: number; skipped: number; errors: Array<{ index: number; message: string }> }>(
-        'POST',
-        '/api/admin/accounts/import',
-        { accounts: parsed.valid, mode },
-      );
-      if (res.ok) {
-        const d = res.data;
-        const parts: string[] = [`成功导入 ${d.imported} 个账号`];
-        if (d.skipped > 0) parts.push(`跳过 ${d.skipped} 个重复`);
-        if (d.errors.length > 0) parts.push(`${d.errors.length} 个失败`);
-        toast(parts.join('，'), d.errors.length > 0 ? 'error' : 'success');
-        onImported();
-      } else {
-        toast(extractErrorMessage(res.data, '导入失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setImporting(false);
-    }
+    importMutation.mutate(
+      { accounts: parsed.valid, mode },
+      { onSuccess: () => onImported() },
+    );
   };
 
   const validCount = parsed?.valid.length ?? 0;
@@ -313,10 +295,10 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
           </button>
           <button
             onClick={doImport}
-            disabled={validCount === 0 || importing}
+            disabled={validCount === 0 || importMutation.isPending}
             className={primaryBtnClass}
           >
-            {importing && <Spinner className="mr-1.5 h-4 w-4" />}
+            {importMutation.isPending && <Spinner className="mr-1.5 h-4 w-4" />}
             {validCount > 0 ? `确认导入 (${validCount} 条)` : '确认导入'}
           </button>
         </div>

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, extractErrorMessage } from '@/lib/api';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import { cardClass, inputClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
+import { useSaveSettings } from '@/hooks/useAdminMutations';
 import Spinner from './Spinner';
 
 interface SettingsData {
@@ -11,62 +13,51 @@ interface SettingsData {
 
 export default function SettingsTab() {
   const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const saveSettingsMutation = useSaveSettings();
+
+  const { data: settingsData, isLoading: loading } = useQuery({
+    queryKey: ['admin', 'settings'],
+    queryFn: async () => {
+      const res = await api<SettingsData>('GET', '/api/admin/settings');
+      if (!res.ok) throw new Error('获取设置失败');
+      return res.data;
+    },
+  });
+
   const [codexCliPath, setCodexCliPath] = useState('');
   const [nodePath, setNodePath] = useState('');
   const [originalPath, setOriginalPath] = useState('');
   const [originalNodePath, setOriginalNodePath] = useState('');
+  const [initialized, setInitialized] = useState(false);
 
-  const fetchSettings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await api<SettingsData>('GET', '/api/admin/settings');
-      if (res.ok) {
-        setCodexCliPath(res.data.codexCliPath || '');
-        setNodePath(res.data.nodePath || '');
-        setOriginalPath(res.data.codexCliPath || '');
-        setOriginalNodePath(res.data.nodePath || '');
-      } else {
-        toast(extractErrorMessage(res.data, '获取设置失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+  // Sync query data to local state once loaded
+  if (settingsData && !initialized) {
+    const cliPath = settingsData.codexCliPath || '';
+    const nPath = settingsData.nodePath || '';
+    setCodexCliPath(cliPath);
+    setNodePath(nPath);
+    setOriginalPath(cliPath);
+    setOriginalNodePath(nPath);
+    setInitialized(true);
+  }
 
-  useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+  const hasChanges = codexCliPath !== originalPath || nodePath !== originalNodePath;
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!hasChanges) {
       toast('没有需要保存的修改', 'success');
       return;
     }
-    setSaving(true);
-    try {
-      const res = await api<{ updated: Record<string, string> }>('PATCH', '/api/admin/settings', {
-        codexCliPath: codexCliPath.trim(),
-        nodePath: nodePath.trim(),
-      });
-      if (res.ok) {
-        toast('设置已保存', 'success');
-        setOriginalPath(codexCliPath.trim());
-        setOriginalNodePath(nodePath.trim());
-      } else {
-        toast(extractErrorMessage(res.data, '保存失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setSaving(false);
-    }
+    saveSettingsMutation.mutate(
+      { codexCliPath: codexCliPath.trim(), nodePath: nodePath.trim() },
+      {
+        onSuccess: () => {
+          setOriginalPath(codexCliPath.trim());
+          setOriginalNodePath(nodePath.trim());
+        },
+      },
+    );
   };
-
-  const hasChanges = codexCliPath !== originalPath || nodePath !== originalNodePath;
 
   if (loading) {
     return (
@@ -131,10 +122,10 @@ export default function SettingsTab() {
       <div className="mt-6 flex items-center gap-3">
         <button
           onClick={handleSave}
-          disabled={!hasChanges || saving}
+          disabled={!hasChanges || saveSettingsMutation.isPending}
           className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {saving && <Spinner className="h-4 w-4 text-white" />}
+          {saveSettingsMutation.isPending && <Spinner className="h-4 w-4 text-white" />}
           保存设置
         </button>
         {hasChanges && (

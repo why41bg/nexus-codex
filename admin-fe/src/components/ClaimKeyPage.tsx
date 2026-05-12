@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import type { ApiKeyTemplate } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { cardClass, inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
@@ -18,30 +19,29 @@ interface ClaimResult {
 
 export default function ClaimKeyPage() {
   const { toast } = useToast();
-  const [templates, setTemplates] = useState<ApiKeyTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [applicantName, setApplicantName] = useState('');
   const [applicantContact, setApplicantContact] = useState('');
   const [note, setNote] = useState('');
   const [claimCode, setClaimCode] = useState('');
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ClaimResult | null>(null);
+  const [templateIdInitialized, setTemplateIdInitialized] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    api<{ templates: ApiKeyTemplate[] }>('GET', '/api/public/key-templates')
-      .then((res) => {
-        if (cancelled) return;
-        const items = res.ok ? (res.data.templates || []) : [];
-        setTemplates(items);
-        setTemplateId(items[0]?.id || '');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+  const { data: templates = [], isLoading: loading } = useQuery({
+    queryKey: ['public', 'key-templates'],
+    queryFn: async () => {
+      const res = await api<{ templates: ApiKeyTemplate[] }>('GET', '/api/public/key-templates');
+      if (!res.ok) throw new Error('加载模板失败');
+      return res.data.templates || [];
+    },
+  });
+
+  // Auto-select the first template once loaded
+  if (templates.length > 0 && !templateIdInitialized) {
+    setTemplateId(templates[0].id);
+    setTemplateIdInitialized(true);
+  }
 
   const selectedTemplate = useMemo(
     () => templates.find((item) => item.id === templateId) || null,

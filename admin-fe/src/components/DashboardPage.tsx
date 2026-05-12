@@ -123,7 +123,6 @@ export default function DashboardPage() {
                 <ContributionsTab
                   invites={invites ?? []}
                   records={records ?? []}
-                  onRefresh={async () => { await Promise.all([refetchInvites(), refetchRecords()]); }}
                 />
               }
             />
@@ -133,7 +132,6 @@ export default function DashboardPage() {
                 <BannedIpsTab
                   bannedIps={bannedIps ?? []}
                   loading={isFetching}
-                  onRefresh={async () => { await refetchBannedIps(); }}
                 />
               }
             />

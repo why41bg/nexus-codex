@@ -1,8 +1,6 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, primaryBtnClass, cardClass } from '@/lib/styles';
-import { useToast } from '@/contexts/ToastContext';
+import { useAddModel, useDeleteModel } from '@/hooks/useAdminMutations';
 import ConfirmModal from './ConfirmModal';
 import Spinner from './Spinner';
 
@@ -11,49 +9,23 @@ interface Props {
 }
 
 export default function ModelManager({ models }: Props) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const addModelMutation = useAddModel();
+  const deleteModelMutation = useDeleteModel();
   const [newModel, setNewModel] = useState('');
-  const [adding, setAdding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
-  const addModel = async () => {
+  const addModel = () => {
     if (!newModel.trim()) return;
-    setAdding(true);
-    try {
-      const res = await api<{ models: string[] }>('POST', '/api/admin/models', { model: newModel.trim() });
-      if (res.ok) {
-        queryClient.invalidateQueries({ queryKey: ['dashboardData'] });
-        toast(`已添加模型 ${newModel.trim()}`, 'success');
-        setNewModel('');
-      } else {
-        toast(extractErrorMessage(res.data, '添加失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setAdding(false);
-    }
+    addModelMutation.mutate(newModel.trim(), {
+      onSuccess: () => setNewModel(''),
+    });
   };
 
-  const doDelete = async () => {
+  const doDelete = () => {
     if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const res = await api<{ models: string[] }>('DELETE', `/api/admin/models/${encodeURIComponent(deleteTarget)}`);
-      if (res.ok) {
-        queryClient.invalidateQueries({ queryKey: ['dashboardData'] });
-        toast(`已移除模型 ${deleteTarget}`, 'success');
-        setDeleteTarget(null);
-      } else {
-        toast(extractErrorMessage(res.data, '移除失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setDeleting(false);
-    }
+    deleteModelMutation.mutate(deleteTarget, {
+      onSuccess: () => setDeleteTarget(null),
+    });
   };
 
   return (
@@ -102,10 +74,10 @@ export default function ModelManager({ models }: Props) {
         </div>
         <button
           onClick={addModel}
-          disabled={!newModel.trim() || adding}
+          disabled={!newModel.trim() || addModelMutation.isPending}
           className={primaryBtnClass}
         >
-          {adding && <Spinner className="mr-1.5 h-4 w-4" />}
+          {addModelMutation.isPending && <Spinner className="mr-1.5 h-4 w-4" />}
           添加
         </button>
       </div>
@@ -115,7 +87,7 @@ export default function ModelManager({ models }: Props) {
         <ConfirmModal
           title="确认移除模型"
           confirmLabel="移除"
-          loading={deleting}
+          loading={deleteModelMutation.isPending}
           onConfirm={doDelete}
           onCancel={() => setDeleteTarget(null)}
         >

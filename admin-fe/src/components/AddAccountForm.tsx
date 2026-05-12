@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, primaryBtnClass, secondaryBtnClass, cardClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
+import { useAddAccount } from '@/hooks/useAdminMutations';
 import { useAccountBootstrap } from '@/hooks/useAccountBootstrap';
 import Spinner from './Spinner';
 
@@ -17,12 +17,12 @@ function formatTime(seconds: number): string {
 
 export default function AddAccountForm({ onAdded }: Props) {
   const { toast } = useToast();
+  const addAccountMutation = useAddAccount();
 
   // Manual mode state
   const [codexHome, setCodexHome] = useState('');
   const [remark, setRemark] = useState('');
   const [maxConcurrency, setMaxConcurrency] = useState('');
-  const [adding, setAdding] = useState(false);
 
   // Bootstrap mode
   const { state: bs, startBootstrap, confirmBootstrap, cancelBootstrap, reset } =
@@ -32,27 +32,21 @@ export default function AddAccountForm({ onAdded }: Props) {
   const handleManualAdd = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!codexHome.trim()) return;
-    setAdding(true);
-    try {
-      const res = await api('POST', '/api/admin/accounts', {
+    addAccountMutation.mutate(
+      {
         codexHome: codexHome.trim(),
         remark: remark.trim(),
         ...(maxConcurrency && { maxConcurrency: Number(maxConcurrency) }),
-      });
-      if (res.ok) {
-        toast('账号添加成功', 'success');
-        setCodexHome('');
-        setRemark('');
-        setMaxConcurrency('');
-        onAdded();
-      } else {
-        toast(extractErrorMessage(res.data, '添加失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setAdding(false);
-    }
+      },
+      {
+        onSuccess: () => {
+          setCodexHome('');
+          setRemark('');
+          setMaxConcurrency('');
+          onAdded();
+        },
+      },
+    );
   };
 
   const handleBootstrapStart = async (e?: React.FormEvent) => {
@@ -264,10 +258,10 @@ export default function AddAccountForm({ onAdded }: Props) {
           </div>
           <button
             type="submit"
-            disabled={!codexHome.trim() || adding}
+            disabled={!codexHome.trim() || addAccountMutation.isPending}
             className={primaryBtnClass}
           >
-            {adding && <Spinner className="mr-1.5 h-4 w-4" />}
+            {addAccountMutation.isPending && <Spinner className="mr-1.5 h-4 w-4" />}
             添加
           </button>
         </form>

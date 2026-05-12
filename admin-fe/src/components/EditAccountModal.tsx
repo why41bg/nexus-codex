@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Account } from '@/types';
-import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, secondaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
+import { useUpdateAccount } from '@/hooks/useAdminMutations';
 import Spinner from './Spinner';
 import { useFocusTrap } from '../lib/use-focus-trap';
 
@@ -18,7 +18,7 @@ export default function EditAccountModal({ account, onSaved, onCancel }: Props) 
   const [maxConcurrency, setMaxConcurrency] = useState(
     account.runtime?.maxConcurrency?.toString() ?? '',
   );
-  const [saving, setSaving] = useState(false);
+  const updateAccountMutation = useUpdateAccount();
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
 
@@ -32,34 +32,24 @@ export default function EditAccountModal({ account, onSaved, onCancel }: Props) 
   }, [onCancel]);
 
   const handleSave = async () => {
-    setSaving(true);
-    try {
-      const body: Record<string, unknown> = {};
-      if (remark !== (account.remark ?? '')) {
-        body.remark = remark.trim();
-      }
-      const newConcurrency = maxConcurrency.trim() ? Number(maxConcurrency) : undefined;
-      const oldConcurrency = account.runtime?.maxConcurrency;
-      if (newConcurrency !== undefined && newConcurrency !== oldConcurrency) {
-        body.maxConcurrency = newConcurrency;
-      }
-      if (Object.keys(body).length === 0) {
-        toast('没有需要保存的修改', 'success');
-        onCancel();
-        return;
-      }
-      const res = await api('PATCH', `/api/admin/accounts/${account.id}`, body);
-      if (res.ok) {
-        toast('账号配置已更新', 'success');
-        onSaved();
-      } else {
-        toast(extractErrorMessage(res.data, '保存失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setSaving(false);
+    const body: Record<string, unknown> = {};
+    if (remark !== (account.remark ?? '')) {
+      body.remark = remark.trim();
     }
+    const newConcurrency = maxConcurrency.trim() ? Number(maxConcurrency) : undefined;
+    const oldConcurrency = account.runtime?.maxConcurrency;
+    if (newConcurrency !== undefined && newConcurrency !== oldConcurrency) {
+      body.maxConcurrency = newConcurrency;
+    }
+    if (Object.keys(body).length === 0) {
+      toast('没有需要保存的修改', 'success');
+      onCancel();
+      return;
+    }
+    updateAccountMutation.mutate(
+      { id: account.id, body },
+      { onSuccess: () => onSaved() },
+    );
   };
 
   return (
@@ -118,10 +108,10 @@ export default function EditAccountModal({ account, onSaved, onCancel }: Props) 
           </button>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={updateAccountMutation.isPending}
             className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50"
           >
-            {saving && <Spinner className="mr-1.5 inline h-4 w-4" />}
+            {updateAccountMutation.isPending && <Spinner className="mr-1.5 inline h-4 w-4" />}
             保存
           </button>
         </div>

@@ -1,16 +1,23 @@
 import { useState, useMemo } from 'react';
 import type { ApiKey } from '@/types';
-import { api, extractErrorMessage } from '@/lib/api';
 import { copyToClipboard } from '@/lib/clipboard';
 import { inputClass, primaryBtnClass, cardClass } from '@/lib/styles';
 import { relativeTime } from '@/lib/time';
 import { useToast } from '@/contexts/ToastContext';
 import { CopyIcon } from './icons';
 import { SelfServiceBadge, KeyApplicantInfo } from './KeyApplicantInfo';
+import KeyRestrictionTags from './KeyRestrictionTags';
 import EditKeyModal from './EditKeyModal';
 import ConfirmModal from './ConfirmModal';
 import PasswordConfirmModal from './PasswordConfirmModal';
 import Spinner from './Spinner';
+import {
+  useCreateApiKey,
+  useDeleteApiKey,
+  useUpdateApiKey,
+  useBatchApiKeyAction,
+  useRevealApiKey,
+} from '@/hooks/useAdminMutations';
 
 type SourceFilter = 'all' | 'admin' | 'self_service';
 
@@ -26,21 +33,23 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [newKeyName, setNewKeyName] = useState('');
-  const [addingKey, setAddingKey] = useState(false);
   const [lastCreatedKey, setLastCreatedKey] = useState<string | null>(null);
 
   const [editTarget, setEditTarget] = useState<ApiKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
-  const [deletingKey, setDeletingKey] = useState(false);
 
   // Batch selection
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [batchLoading, setBatchLoading] = useState(false);
 
   // Reveal key with password
   const [revealTarget, setRevealTarget] = useState<ApiKey | null>(null);
-  const [revealLoading, setRevealLoading] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
+
+  const createKeyMutation = useCreateApiKey();
+  const deleteKeyMutation = useDeleteApiKey();
+  const updateKeyMutation = useUpdateApiKey();
+  const batchMutation = useBatchApiKeyAction();
+  const revealMutation = useRevealApiKey();
 
   const handleCopy = async (text: string) => {
     await copyToClipboard(text);
@@ -49,105 +58,57 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
 
   const handleRevealAndCopy = async (password: string) => {
     if (!revealTarget) return;
-    setRevealLoading(true);
-    setRevealError(null);
     try {
-      const res = await api<{ key: string }>('POST', '/api/admin/keys/reveal', {
+      const data = await revealMutation.mutateAsync({
         keyPrefix: revealTarget.keyPrefix,
         password,
       });
-      if (res.ok && res.data?.key) {
-        await copyToClipboard(res.data.key);
-        toast('完整 Key 已复制到剪贴板', 'success');
-        setRevealTarget(null);
-      } else {
-        setRevealError(extractErrorMessage(res.data, '验证失败'));
-      }
-    } catch {
-      setRevealError('请求失败');
-    } finally {
-      setRevealLoading(false);
+      await copyToClipboard(data.key);
+      setRevealTarget(null);
+    } catch (err) {
+      setRevealError(err instanceof Error ? err.message : '验证失败');
     }
   };
 
   const addKey = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    setAddingKey(true);
     setLastCreatedKey(null);
     try {
-      const res = await api<{ key: string }>('POST', '/api/admin/keys', {
+      const data = await createKeyMutation.mutateAsync({
         name: newKeyName.trim(),
         models: [],
       });
-      if (res.ok && res.data?.key) {
-        setLastCreatedKey(res.data.key);
-        setNewKeyName('');
-        toast('API Key 已生成', 'success');
-        onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data, '生成失败'), 'error');
-      }
+      setLastCreatedKey(data.key);
+      setNewKeyName('');
+      onRefresh();
     } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setAddingKey(false);
+      // Error toast handled by mutation hook
     }
   };
 
   const doDeleteKey = async () => {
     if (!deleteTarget) return;
-    setDeletingKey(true);
-    try {
-      const res = await api('DELETE', `/api/admin/keys/${encodeURIComponent(deleteTarget.keyPrefix)}`);
-      if (res.ok) {
-        toast('API Key 已删除', 'success');
-        setDeleteTarget(null);
-        onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data, '删除失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setDeletingKey(false);
-    }
+    await deleteKeyMutation.mutateAsync(deleteTarget.keyPrefix);
+    setDeleteTarget(null);
+    onRefresh();
   };
 
-  const toggleKeyEnabled = async (k: ApiKey) => {
+  const toggleKeyEnabled = (k: ApiKey) => {
     const newEnabled = !(k.enabled ?? true);
-    try {
-      const res = await api('PATCH', `/api/admin/keys/${encodeURIComponent(k.keyPrefix)}`, { enabled: newEnabled });
-      if (res.ok) {
-        toast(newEnabled ? '已启用' : '已禁用', 'success');
-        onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data, '操作失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    }
+    updateKeyMutation.mutate(
+      { keyPrefix: k.keyPrefix, body: { enabled: newEnabled } },
+      { onSuccess: () => onRefresh() },
+    );
   };
 
   const doBatchAction = async (action: 'delete' | 'enable' | 'disable') => {
     if (selectedKeys.size === 0) return;
-    setBatchLoading(true);
-    try {
-      const res = await api<{ succeeded: number; failed: number }>('POST', '/api/admin/keys/batch', {
-        keyPrefixes: Array.from(selectedKeys),
-        action,
-      });
-      if (res.ok && res.data) {
-        toast(`操作完成：成功 ${res.data.succeeded ?? 0}，失败 ${res.data.failed ?? 0}`, 'success');
-        setSelectedKeys(new Set());
-        onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data, '批量操作失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setBatchLoading(false);
-    }
+    await batchMutation.mutateAsync({
+      keyPrefixes: Array.from(selectedKeys),
+      action,
+    });
+    setSelectedKeys(new Set());
+    onRefresh();
   };
 
   const toggleSelectAll = () => {
@@ -249,9 +210,9 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         <div className="mt-4 flex items-center gap-3 rounded-lg bg-brand-50 dark:bg-brand-950 px-4 py-2.5 ring-1 ring-brand-200 dark:ring-brand-800">
           <span className="text-sm font-medium text-brand-700 dark:text-brand-300">已选 {selectedKeys.size} 项</span>
           <div className="ml-auto flex gap-2">
-            <button onClick={() => doBatchAction('enable')} disabled={batchLoading} className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50">批量启用</button>
-            <button onClick={() => doBatchAction('disable')} disabled={batchLoading} className="rounded-md bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-700 disabled:opacity-50">批量禁用</button>
-            <button onClick={() => doBatchAction('delete')} disabled={batchLoading} className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">批量删除</button>
+            <button onClick={() => doBatchAction('enable')} disabled={batchMutation.isPending} className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50">批量启用</button>
+            <button onClick={() => doBatchAction('disable')} disabled={batchMutation.isPending} className="rounded-md bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-700 disabled:opacity-50">批量禁用</button>
+            <button onClick={() => doBatchAction('delete')} disabled={batchMutation.isPending} className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">批量删除</button>
           </div>
         </div>
       )}
@@ -438,10 +399,10 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
           </div>
           <button
             type="submit"
-            disabled={addingKey}
+            disabled={createKeyMutation.isPending}
             className={primaryBtnClass}
           >
-            {addingKey && <Spinner className="mr-1.5 h-4 w-4" />}
+            {createKeyMutation.isPending && <Spinner className="mr-1.5 h-4 w-4" />}
             生成
           </button>
         </form>
@@ -471,7 +432,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
           title="复制完整 API Key"
           description={`验证管理员密码后将复制 ${revealTarget.keyMasked} 的完整内容到剪贴板。`}
           confirmLabel="验证并复制"
-          loading={revealLoading}
+          loading={revealMutation.isPending}
           error={revealError}
           onConfirm={handleRevealAndCopy}
           onCancel={() => setRevealTarget(null)}
@@ -491,7 +452,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         <ConfirmModal
           title="确认删除 API Key"
           confirmLabel="删除"
-          loading={deletingKey}
+          loading={deleteKeyMutation.isPending}
           onConfirm={doDeleteKey}
           onCancel={() => setDeleteTarget(null)}
         >
@@ -504,49 +465,5 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         </ConfirmModal>
       )}
     </div>
-  );
-}
-
-// ─── 限制 Tag 子组件 ────────────────────────────────────────────
-
-function KeyRestrictionTags({ apiKey }: { apiKey: ApiKey }) {
-  const tags: Array<{ label: string; color: string }> = [];
-
-  if (apiKey.expiresAt) {
-    const expired = new Date(apiKey.expiresAt) <= new Date();
-    if (expired) {
-      tags.push({ label: '已过期', color: 'bg-red-50 text-red-700 ring-red-200 dark:bg-red-950 dark:text-red-400 dark:ring-red-800' });
-    } else {
-      tags.push({ label: `${relativeTime(apiKey.expiresAt)} 过期`, color: 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950 dark:text-orange-400 dark:ring-orange-800' });
-    }
-  }
-
-  if (apiKey.rateLimitMax != null) {
-    const windowSec = (apiKey.rateLimitWindowMs ?? 60000) / 1000;
-    const unit = windowSec >= 60 ? `${windowSec / 60}min` : `${windowSec}s`;
-    tags.push({ label: `${apiKey.rateLimitMax} req/${unit}`, color: 'bg-purple-50 text-purple-700 ring-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:ring-purple-800' });
-  }
-
-  if (apiKey.monthlyQuota != null) {
-    const usage = apiKey.monthlyUsage ?? 0;
-    tags.push({ label: `${usage.toLocaleString()} / ${apiKey.monthlyQuota.toLocaleString()} 次/月`, color: 'bg-cyan-50 text-cyan-700 ring-cyan-200 dark:bg-cyan-950 dark:text-cyan-400 dark:ring-cyan-800' });
-  }
-
-  if (apiKey.ipWhitelist && apiKey.ipWhitelist.length > 0) {
-    tags.push({ label: `${apiKey.ipWhitelist.length} 个 IP`, color: 'bg-green-50 text-green-700 ring-green-200 dark:bg-green-950 dark:text-green-400 dark:ring-green-800' });
-  }
-
-  if (tags.length === 0) {
-    return <span className="rounded px-2 py-0.5 text-xs text-gray-400 dark:text-slate-500 bg-gray-50 dark:bg-slate-700 ring-1 ring-gray-200 dark:ring-slate-600">无额外限制</span>;
-  }
-
-  return (
-    <>
-      {tags.map((tag, i) => (
-        <span key={i} className={`rounded px-2 py-0.5 text-xs font-medium ring-1 ${tag.color}`}>
-          {tag.label}
-        </span>
-      ))}
-    </>
   );
 }

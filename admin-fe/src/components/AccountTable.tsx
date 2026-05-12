@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import type { Account, QuotaInfo } from '@/types';
 import { relativeTime } from '@/lib/time';
-import { api, extractErrorMessage } from '@/lib/api';
 import { getAccountStatus } from '@/lib/account-utils';
 import {
   cardClass,
@@ -12,7 +11,12 @@ import {
   successSubtleBtnClass,
   warningSubtleBtnClass,
 } from '@/lib/styles';
-import { useToast } from '@/contexts/ToastContext';
+import {
+  useUpdateAccount,
+  useDeleteAccount,
+  useFetchAccountQuota,
+  useFetchAllAccountQuotas,
+} from '@/hooks/useAdminMutations';
 import ConfirmModal from './ConfirmModal';
 import EditAccountModal from './EditAccountModal';
 import AccountDetailModal from './AccountDetailModal';
@@ -182,15 +186,17 @@ const AccountMobileCard = memo(function AccountMobileCard({
 // ─── Main Component ───────────────────────────────────────────────
 
 export default function AccountTable({ accounts, loading, onRefresh }: Props) {
-  const { toast } = useToast();
   const [filter, setFilter] = useState<FilterKey>('all');
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [editTarget, setEditTarget] = useState<Account | null>(null);
   const [detailTarget, setDetailTarget] = useState<Account | null>(null);
 
   const [quotaMap, setQuotaMap] = useState<Record<string, QuotaState>>({});
-  const [batchFetching, setBatchFetching] = useState(false);
+
+  const updateAccountMutation = useUpdateAccount();
+  const deleteAccountMutation = useDeleteAccount();
+  const fetchQuotaMutation = useFetchAccountQuota();
+  const fetchAllQuotasMutation = useFetchAllAccountQuotas();
 
   // tick drives relative-time re-renders every minute
   const [tick, setTick] = useState(0);
@@ -230,7 +236,6 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
   }, [accounts, filter]);
 
   const fetchAllQuota = useCallback(async () => {
-    setBatchFetching(true);
     setQuotaMap((prev) => {
       const next = { ...prev };
       for (const acc of accounts) {
@@ -239,34 +244,22 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
       return next;
     });
     try {
-      const res = await api<{ quotas?: Record<string, { quota?: QuotaInfo; error?: { message: string } }> }>(
-        'POST',
-        '/api/admin/accounts/quota/batch',
-      );
-      if (res.ok && res.data.quotas) {
-        setQuotaMap((prev) => {
-          const next = { ...prev };
-          for (const [id, result] of Object.entries(res.data.quotas!)) {
-            if (result.quota) {
-              next[id] = { loading: false, data: result.quota, error: null };
-            } else {
-              const msg = extractErrorMessage(result, '获取额度失败');
-              next[id] = { loading: false, data: null, error: msg };
-            }
+      const quotas = await fetchAllQuotasMutation.mutateAsync();
+      setQuotaMap((prev) => {
+        const next = { ...prev };
+        for (const [id, result] of Object.entries(quotas)) {
+          if (result.quota) {
+            next[id] = { loading: false, data: result.quota, error: null };
+          } else {
+            next[id] = { loading: false, data: null, error: result.error?.message ?? '获取额度失败' };
           }
-          return next;
-        });
-        toast('已刷新全部账号额度', 'success');
-      } else {
-        const msg = extractErrorMessage(res.data, '批量查询失败');
-        toast(msg, 'error');
-      }
+        }
+        return next;
+      });
     } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setBatchFetching(false);
+      // Error toast is handled by the mutation hook
     }
-  }, [accounts, toast]);
+  }, [accounts, fetchAllQuotasMutation]);
 
   const fetchQuota = useCallback(async (acc: Account, forceRefresh = false) => {
     setQuotaMap((prev) => ({
@@ -274,67 +267,32 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
       [acc.id]: { loading: true, data: prev[acc.id]?.data ?? null, error: null },
     }));
     try {
-      const res = await api<{ quota?: QuotaInfo; error?: { message: string } }>(
-        forceRefresh ? 'POST' : 'GET',
-        forceRefresh
-          ? `/api/admin/accounts/${acc.id}/quota/refresh`
-          : `/api/admin/accounts/${acc.id}/quota`,
-      );
-      if (res.ok && res.data.quota) {
-        setQuotaMap((prev) => ({
-          ...prev,
-          [acc.id]: { loading: false, data: res.data.quota!, error: null },
-        }));
-      } else {
-        const msg = extractErrorMessage(res.data, '获取额度失败');
-        setQuotaMap((prev) => ({
-          ...prev,
-          [acc.id]: { loading: false, data: null, error: msg },
-        }));
-        toast(msg, 'error');
-      }
-    } catch {
+      const result = await fetchQuotaMutation.mutateAsync({ id: acc.id, forceRefresh });
       setQuotaMap((prev) => ({
         ...prev,
-        [acc.id]: { loading: false, data: null, error: '请求失败' },
+        [result.id]: { loading: false, data: result.quota, error: null },
       }));
-      toast('请求失败', 'error');
+    } catch (err) {
+      setQuotaMap((prev) => ({
+        ...prev,
+        [acc.id]: { loading: false, data: null, error: err instanceof Error ? err.message : '获取额度失败' },
+      }));
     }
-  }, [toast]);
+  }, [fetchQuotaMutation]);
 
-  const toggleEnabled = useCallback(async (acc: Account) => {
-    const newEnabled = !acc.enabled;
-    try {
-      const res = await api('PATCH', `/api/admin/accounts/${acc.id}`, { enabled: newEnabled });
-      if (res.ok) {
-        toast(newEnabled ? `已启用 ${acc.id}` : `已禁用 ${acc.id}`, 'success');
-        onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data, '操作失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    }
-  }, [toast, onRefresh]);
+  const toggleEnabled = useCallback((acc: Account) => {
+    updateAccountMutation.mutate(
+      { id: acc.id, body: { enabled: !acc.enabled } },
+      { onSuccess: () => onRefresh() },
+    );
+  }, [updateAccountMutation, onRefresh]);
 
-  const doDelete = async () => {
+  const doDelete = useCallback(async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const res = await api('DELETE', `/api/admin/accounts/${deleteTarget.id}`);
-      if (res.ok) {
-        toast(`已删除 ${deleteTarget.id}`, 'success');
-        setDeleteTarget(null);
-        onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data, '删除失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setDeleting(false);
-    }
-  };
+    await deleteAccountMutation.mutateAsync(deleteTarget.id);
+    setDeleteTarget(null);
+    onRefresh();
+  }, [deleteTarget, deleteAccountMutation, onRefresh]);
 
   const handleDetail = useCallback((acc: Account) => setDetailTarget(acc), []);
   const handleEdit = useCallback((acc: Account) => setEditTarget(acc), []);
@@ -381,10 +339,10 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                       <span>额度</span>
                       <button
                         onClick={fetchAllQuota}
-                        disabled={batchFetching}
+                        disabled={fetchAllQuotasMutation.isPending}
                         className="rounded px-2 py-0.5 text-[11px] font-normal text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
-                        {batchFetching ? '查询中...' : '一键查询'}
+                        {fetchAllQuotasMutation.isPending ? '查询中...' : '一键查询'}
                       </button>
                     </div>
                   </th>
@@ -447,7 +405,7 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
         <ConfirmModal
           title="确认删除"
           confirmLabel="删除"
-          loading={deleting}
+          loading={deleteAccountMutation.isPending}
           onConfirm={doDelete}
           onCancel={() => setDeleteTarget(null)}
         >

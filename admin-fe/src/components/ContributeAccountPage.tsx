@@ -73,12 +73,16 @@ export default function ContributeAccountPage() {
   const startPolling = (contributionId: string) => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(async () => {
-      const res = await api<PublicContributionSession>('GET', `/api/public/contributions/${contributionId}`);
-      if (res.ok) {
-        setSession(res.data);
-        if (!['waiting_for_login'].includes(res.data.status)) {
-          if (timerRef.current) clearInterval(timerRef.current);
+      try {
+        const res = await api<PublicContributionSession>('GET', `/api/public/contributions/${contributionId}`);
+        if (res.ok) {
+          setSession(res.data);
+          if (!['waiting_for_login'].includes(res.data.status)) {
+            if (timerRef.current) clearInterval(timerRef.current);
+          }
         }
+      } catch {
+        // Silently ignore polling errors — will retry on next interval
       }
     }, 2000);
   };
@@ -87,25 +91,34 @@ export default function ContributeAccountPage() {
     e.preventDefault();
     setLoading(true);
     setError('');
-    const res = await api<PublicContributionSession>('POST', '/api/public/contributions/start', {
-      inviteCode: inviteCode.trim(),
-      applicantName: applicantName.trim(),
-      applicantContact: applicantContact.trim(),
-      note: note.trim(),
-      requestedMaxConcurrency: Number(requestedMaxConcurrency || '1'),
-    });
-    setLoading(false);
-    if (!res.ok) {
-      setError(extractErrorMessage(res.data, '发起共享登录失败'));
-      return;
+    try {
+      const res = await api<PublicContributionSession>('POST', '/api/public/contributions/start', {
+        inviteCode: inviteCode.trim(),
+        applicantName: applicantName.trim(),
+        applicantContact: applicantContact.trim(),
+        note: note.trim(),
+        requestedMaxConcurrency: Number(requestedMaxConcurrency || '1'),
+      });
+      if (!res.ok) {
+        setError(extractErrorMessage(res.data, '发起共享登录失败'));
+        return;
+      }
+      setSession(res.data);
+      startPolling(res.data.contributionId);
+    } catch {
+      setError('网络请求失败，请稍后重试');
+    } finally {
+      setLoading(false);
     }
-    setSession(res.data);
-    startPolling(res.data.contributionId);
   };
 
   const cancel = async () => {
     if (!session) return;
-    await api('POST', `/api/public/contributions/${session.contributionId}/cancel`);
+    try {
+      await api('POST', `/api/public/contributions/${session.contributionId}/cancel`);
+    } catch {
+      // Ignore cancel errors
+    }
     if (timerRef.current) clearInterval(timerRef.current);
     setSession(null);
   };

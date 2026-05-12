@@ -1,105 +1,9 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { BannedIP } from '@/types';
-import { api, extractErrorMessage } from '@/lib/api';
-import { useToast } from '@/contexts/ToastContext';
-import { relativeTime } from '@/lib/time';
+import { useBanIp, useUnbanIp, useBatchUnbanIps } from '@/hooks/useAdminMutations';
+import { ReasonCell, TimeCell, SortIcon, type SortField, type SortDirection } from './BannedIpHelpers';
 import ConfirmModal from './ConfirmModal';
 import Pagination from './Pagination';
-
-// ─── Helper Components ──────────────────────────────────────────
-
-/** 可展开的原因单元格：文本过长时截断，hover 显示完整 Tooltip */
-function ReasonCell({ reason }: { reason: string }) {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const [isTruncated, setIsTruncated] = useState(false);
-  const [showTooltip, setShowTooltip] = useState(false);
-
-  useEffect(() => {
-    const el = textRef.current;
-    if (el) {
-      setIsTruncated(el.scrollWidth > el.clientWidth);
-    }
-  }, [reason]);
-
-  return (
-    <div className="relative max-w-xs group">
-      <span
-        ref={textRef}
-        className="block truncate cursor-default"
-        onMouseEnter={() => isTruncated && setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        {reason}
-      </span>
-      {showTooltip && (
-        <div className="absolute left-0 bottom-full mb-2 z-50 max-w-sm w-max rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-gray-700 dark:text-slate-200 shadow-lg whitespace-pre-wrap break-words">
-          {reason}
-          <div className="absolute left-4 top-full -mt-px w-0 h-0 border-x-[6px] border-x-transparent border-t-[6px] border-t-gray-200 dark:border-t-slate-600" />
-          <div className="absolute left-4 top-full -mt-[7px] w-0 h-0 border-x-[6px] border-x-transparent border-t-[6px] border-t-white dark:border-t-slate-800" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 时间单元格：显示相对时间，hover 显示精确时间 */
-function TimeCell({ iso }: { iso: string | undefined | null }) {
-  const [showTooltip, setShowTooltip] = useState(false);
-
-  if (!iso) return <span>-</span>;
-
-  const date = new Date(iso);
-  const isValid = !isNaN(date.getTime());
-  const precise = isValid
-    ? date.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
-    : '未知时间';
-
-  return (
-    <div className="relative inline-block">
-      <span
-        className="cursor-default"
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        {relativeTime(iso)}
-      </span>
-      {showTooltip && (
-        <div className="absolute left-0 bottom-full mb-2 z-50 w-max rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-xs text-gray-700 dark:text-slate-200 shadow-lg whitespace-nowrap">
-          {precise}
-          <div className="absolute left-4 top-full -mt-px w-0 h-0 border-x-[6px] border-x-transparent border-t-[6px] border-t-gray-200 dark:border-t-slate-600" />
-          <div className="absolute left-4 top-full -mt-[7px] w-0 h-0 border-x-[6px] border-x-transparent border-t-[6px] border-t-white dark:border-t-slate-800" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Sort types ────────────────────────────────────────────────
-
-type SortField = 'bannedAt' | 'hitCount';
-type SortDirection = 'asc' | 'desc';
-
-function SortIcon({ field, currentField, currentDir }: { field: SortField; currentField: SortField | null; currentDir: SortDirection }) {
-  const isActive = field === currentField;
-  return (
-    <svg className={`inline-block ml-1 h-3.5 w-3.5 ${isActive ? 'text-brand-600 dark:text-brand-400' : 'text-gray-400 dark:text-slate-500'}`} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-      {isActive && currentDir === 'asc' ? (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-      ) : isActive && currentDir === 'desc' ? (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-      ) : (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
-      )}
-    </svg>
-  );
-}
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -110,21 +14,16 @@ const PAGE_SIZE = 10;
 interface Props {
   bannedIps: BannedIP[];
   loading: boolean;
-  onRefresh: () => Promise<void>;
 }
 
-export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
-  const { toast } = useToast();
+export default function BannedIpsTab({ bannedIps, loading }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newIp, setNewIp] = useState('');
   const [newReason, setNewReason] = useState('');
-  const [adding, setAdding] = useState(false);
   const [unbanTarget, setUnbanTarget] = useState<string | null>(null);
-  const [unbanning, setUnbanning] = useState(false);
 
   // Batch selection
   const [selectedIps, setSelectedIps] = useState<Set<string>>(new Set());
-  const [batchUnbanning, setBatchUnbanning] = useState(false);
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
 
   // Sorting
@@ -133,6 +32,11 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Mutations
+  const banIpMutation = useBanIp();
+  const unbanIpMutation = useUnbanIp();
+  const batchUnbanMutation = useBatchUnbanIps();
 
   // Reset page when data changes
   useEffect(() => {
@@ -205,70 +109,26 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newIp.trim()) return;
-
-    setAdding(true);
-    try {
-      const res = await api('POST', '/api/admin/banned-ips', {
-        ip: newIp.trim(),
-        reason: newReason.trim() || 'Manually banned',
-      });
-      if (res.ok) {
-        toast('IP 已加入黑名单', 'success');
-        setNewIp('');
-        setNewReason('');
-        setShowAddForm(false);
-        await onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data), 'error');
-      }
-    } catch {
-      toast('操作失败', 'error');
-    } finally {
-      setAdding(false);
-    }
+    await banIpMutation.mutateAsync({
+      ip: newIp.trim(),
+      reason: newReason.trim() || 'Manually banned',
+    });
+    setNewIp('');
+    setNewReason('');
+    setShowAddForm(false);
   };
 
   const handleUnban = async () => {
     if (!unbanTarget) return;
-
-    setUnbanning(true);
-    try {
-      const res = await api('DELETE', `/api/admin/banned-ips/${encodeURIComponent(unbanTarget)}`);
-      if (res.ok) {
-        toast('IP 已解除拉黑', 'success');
-        await onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data), 'error');
-      }
-    } catch {
-      toast('操作失败', 'error');
-    } finally {
-      setUnbanning(false);
-      setUnbanTarget(null);
-    }
+    await unbanIpMutation.mutateAsync(unbanTarget);
+    setUnbanTarget(null);
   };
 
   const handleBatchUnban = async () => {
     if (selectedIps.size === 0) return;
-
-    setBatchUnbanning(true);
-    try {
-      const res = await api('POST', '/api/admin/banned-ips/batch-unban', {
-        ips: Array.from(selectedIps),
-      });
-      if (res.ok) {
-        toast(`已批量解除 ${selectedIps.size} 个 IP 的拉黑`, 'success');
-        setSelectedIps(new Set());
-        await onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data), 'error');
-      }
-    } catch {
-      toast('操作失败', 'error');
-    } finally {
-      setBatchUnbanning(false);
-      setShowBatchConfirm(false);
-    }
+    await batchUnbanMutation.mutateAsync(Array.from(selectedIps));
+    setSelectedIps(new Set());
+    setShowBatchConfirm(false);
   };
 
   // ─── Render ────────────────────────────────────────────────
@@ -336,10 +196,10 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={adding || !newIp.trim()}
+              disabled={banIpMutation.isPending || !newIp.trim()}
               className="inline-flex items-center rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
             >
-              {adding ? '添加中...' : '确认拉黑'}
+              {banIpMutation.isPending ? '添加中...' : '确认拉黑'}
             </button>
             <button
               type="button"
@@ -455,7 +315,7 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
         <ConfirmModal
           title="解除拉黑"
           confirmLabel="确认解除"
-          loading={unbanning}
+          loading={unbanIpMutation.isPending}
           onConfirm={handleUnban}
           onCancel={() => setUnbanTarget(null)}
         >
@@ -468,7 +328,7 @@ export default function BannedIpsTab({ bannedIps, loading, onRefresh }: Props) {
         <ConfirmModal
           title="批量解除拉黑"
           confirmLabel={`确认解除 ${selectedIps.size} 个`}
-          loading={batchUnbanning}
+          loading={batchUnbanMutation.isPending}
           onConfirm={handleBatchUnban}
           onCancel={() => setShowBatchConfirm(false)}
         >

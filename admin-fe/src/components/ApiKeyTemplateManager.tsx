@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { ApiKeyTemplate } from '@/types';
-import { api, API_BASE, extractErrorMessage } from '@/lib/api';
+import { API_BASE } from '@/lib/api';
 import { copyToClipboard } from '@/lib/clipboard';
 import { formatDuration } from '@/lib/time';
 import { cardClass, primaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
+import { useDeleteApiKeyTemplate, useResetClaimUsage } from '@/hooks/useAdminMutations';
 import { CopyIcon } from './icons';
 import ConfirmModal from './ConfirmModal';
 import TemplateFormModal from './TemplateFormModal';
@@ -19,10 +20,11 @@ interface Props {
 
 export default function ApiKeyTemplateManager({ templates, models, loading, onRefresh }: Props) {
   const { toast } = useToast();
+  const deleteTemplateMutation = useDeleteApiKeyTemplate();
+  const resetUsageMutation = useResetClaimUsage();
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<ApiKeyTemplate | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKeyTemplate | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const openCreate = () => {
     setEditingTemplate(null);
@@ -51,33 +53,20 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
     toast('申领码已复制', 'success');
   };
 
-  const resetClaimUsage = async (templateId: string) => {
-    const res = await api('POST', `/api/admin/key-templates/${encodeURIComponent(templateId)}/reset-usage`);
-    if (res.ok) {
-      toast('申领码用量已重置', 'success');
-      onRefresh();
-    } else {
-      toast(extractErrorMessage(res.data, '重置失败'), 'error');
-    }
+  const resetClaimUsage = (templateId: string) => {
+    resetUsageMutation.mutate(templateId, {
+      onSuccess: () => onRefresh(),
+    });
   };
 
-  const deleteTemplate = async () => {
+  const deleteTemplate = () => {
     if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const res = await api('DELETE', `/api/admin/key-templates/${encodeURIComponent(deleteTarget.id)}`);
-      if (res.ok) {
-        toast('申领模板已删除', 'success');
+    deleteTemplateMutation.mutate(deleteTarget.id, {
+      onSuccess: () => {
         setDeleteTarget(null);
         onRefresh();
-      } else {
-        toast(extractErrorMessage(res.data, '删除失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setDeleting(false);
-    }
+      },
+    });
   };
 
   return (
@@ -228,7 +217,7 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
         <ConfirmModal
           title="确认删除申领模板"
           confirmLabel="删除"
-          loading={deleting}
+          loading={deleteTemplateMutation.isPending}
           onConfirm={deleteTemplate}
           onCancel={() => setDeleteTarget(null)}
         >

@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { Dashboard, SummaryResponse, PercentileResponse, PerKeyStats } from '@/types';
 import { api } from '@/lib/api';
 import { cardClass } from '@/lib/styles';
@@ -13,17 +14,17 @@ interface Props {
 
 function PerKeyMetrics() {
   const [range, setRange] = useState('24h');
-  const [data, setData] = useState<PerKeyStats[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    setLoading(true);
-    api<{ keys: PerKeyStats[] }>('GET', `/api/admin/metrics/per-key?range=${range}`)
-      .then((res) => {
-        if (res.ok) setData(res.data.keys);
-      })
-      .finally(() => setLoading(false));
-  }, [range]);
+  const { data: perKeyData = [], isLoading: loading } = useQuery({
+    queryKey: ['admin', 'metrics', 'per-key', range],
+    queryFn: async () => {
+      const res = await api<{ keys: PerKeyStats[] }>('GET', `/api/admin/metrics/per-key?range=${range}`);
+      if (!res.ok) throw new Error('Failed to fetch per-key metrics');
+      return res.data.keys;
+    },
+  });
+
+  const data = perKeyData;
 
   return (
     <div className={`mt-6 ${cardClass} p-6`}>

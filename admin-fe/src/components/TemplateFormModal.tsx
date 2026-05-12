@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import type { ApiKeyTemplate } from '@/types';
-import { api, extractErrorMessage } from '@/lib/api';
 import { formatDuration, WINDOW_PRESETS, generateRandomCode } from '@/lib/time';
 import { inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
-import { useToast } from '@/contexts/ToastContext';
+import { useSaveApiKeyTemplate } from '@/hooks/useAdminMutations';
 import BaseModal from './BaseModal';
 import Spinner from './Spinner';
 
@@ -66,9 +65,8 @@ interface TemplateFormModalProps {
 }
 
 export default function TemplateFormModal({ editing, models, onClose, onSaved }: TemplateFormModalProps) {
-  const { toast } = useToast();
+  const saveTemplateMutation = useSaveApiKeyTemplate();
   const [form, setForm] = useState<TemplateForm>(editing ? toForm(editing) : defaultForm);
-  const [saving, setSaving] = useState(false);
 
   const toggleModel = (model: string) => {
     setForm((prev) => ({
@@ -79,27 +77,17 @@ export default function TemplateFormModal({ editing, models, onClose, onSaved }:
     }));
   };
 
-  const saveTemplate = async (e: React.FormEvent) => {
+  const saveTemplate = (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-    try {
-      const path = editing
-        ? `/api/admin/key-templates/${encodeURIComponent(editing.id)}`
-        : '/api/admin/key-templates';
-      const method = editing ? 'PATCH' : 'POST';
-      const res = await api<{ template: ApiKeyTemplate }>(method, path, toPayload(form));
-      if (res.ok) {
-        toast(editing ? '申领模板已更新' : '申领模板已创建', 'success');
-        onSaved();
-        onClose();
-      } else {
-        toast(extractErrorMessage(res.data, '保存失败'), 'error');
-      }
-    } catch {
-      toast('请求失败', 'error');
-    } finally {
-      setSaving(false);
-    }
+    saveTemplateMutation.mutate(
+      { id: editing?.id, body: toPayload(form) },
+      {
+        onSuccess: () => {
+          onSaved();
+          onClose();
+        },
+      },
+    );
   };
 
   return (
@@ -247,8 +235,8 @@ export default function TemplateFormModal({ editing, models, onClose, onSaved }:
           {/* 操作按钮 */}
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className={secondaryBtnClass}>取消</button>
-            <button type="submit" disabled={saving} className={primaryBtnClass}>
-              {saving && <Spinner className="mr-1.5 h-4 w-4" />}
+            <button type="submit" disabled={saveTemplateMutation.isPending} className={primaryBtnClass}>
+              {saveTemplateMutation.isPending && <Spinner className="mr-1.5 h-4 w-4" />}
               {editing ? '保存' : '创建'}
             </button>
           </div>
