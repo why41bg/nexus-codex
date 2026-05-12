@@ -12,7 +12,7 @@ import aiofiles
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.config import DATA_DIR, settings
+from app.config import DATA_DIR, PersistedSettingKey, settings
 from app.middleware.auth import admin_auth_dependency
 from app.models import SettingsResponse, UpdateSettingsRequest, UpdateSettingsResponse
 
@@ -127,10 +127,9 @@ async def update_settings(body: UpdateSettingsRequest):
         except (json.JSONDecodeError, OSError):
             existing = {}
     if body.codex_cli_path is not None:
-        existing["codex_cli_path"] = settings.codex_cli_path
+        existing[PersistedSettingKey.CODEX_CLI_PATH] = settings.codex_cli_path
     if body.node_path is not None:
-        existing["codex_node_path"] = settings.codex_node_path
-        existing.pop("node_path", None)
+        existing[PersistedSettingKey.CODEX_NODE_PATH] = settings.codex_node_path
     async with aiofiles.open(settings_file, mode="w") as f:
         await f.write(json.dumps(existing, indent=2))
 

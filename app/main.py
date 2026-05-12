@@ -7,14 +7,13 @@ import json
 import time
 import traceback
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.anthropic_adapter import AnthropicAdapter
-from app.config import DATA_DIR, settings
+from app.config import DATA_DIR, PersistedSettingKey, settings
 from app.dependencies import AppDependencies, get_deps_from_request
 from app.exceptions import NexusError
 from app.middleware.ip_ban import IPBanMiddleware
@@ -207,15 +206,10 @@ def _load_persisted_settings():
         return
     try:
         data = json.loads(settings_file.read_text())
-        if "codex_cli_path" in data and data["codex_cli_path"]:
-            settings.codex_cli_path = data["codex_cli_path"]
-            log.info("Loaded persisted setting", extra={"codex_cli_path": data["codex_cli_path"]})
-        if "codex_node_path" in data:
-            settings.codex_node_path = data["codex_node_path"] or ""
-            log.info("Loaded persisted setting", extra={"codex_node_path": settings.codex_node_path})
-        elif "node_path" in data:
-            settings.codex_node_path = data["node_path"] or ""
-            log.info("Loaded legacy persisted setting", extra={"codex_node_path": settings.codex_node_path})
+        if PersistedSettingKey.CODEX_CLI_PATH in data and data[PersistedSettingKey.CODEX_CLI_PATH]:
+            settings.codex_cli_path = data[PersistedSettingKey.CODEX_CLI_PATH]
+        if PersistedSettingKey.CODEX_NODE_PATH in data:
+            settings.codex_node_path = data[PersistedSettingKey.CODEX_NODE_PATH] or ""
     except (json.JSONDecodeError, OSError) as e:
         log.warning("Failed to load persisted settings", extra={"error": str(e)})
 
