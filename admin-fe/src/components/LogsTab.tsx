@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { LogEntry, LogQueryResult } from '@/types';
 import { api } from '@/lib/api';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import { cardClass, inputClass, secondaryBtnClass } from '@/lib/styles';
 
 const LEVELS = ['debug', 'info', 'warn', 'error', 'critical'] as const;
@@ -192,10 +191,6 @@ function LogDetailModal({ entry, onClose, onFilterKeyword, onFilterAccountId, on
 }
 
 export default function LogsTab() {
-  const authGuard = useAuthGuard();
-  const authGuardRef = useRef(authGuard);
-  authGuardRef.current = authGuard;
-
   const [items, setItems] = useState<LogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -244,7 +239,6 @@ export default function LogsTab() {
       params.set('order', 'desc');
 
       const res = await api<LogQueryResult>('GET', `/api/admin/logs?${params.toString()}`);
-      if (authGuardRef.current(res.status)) return;
       if (res.ok && res.data) {
         setItems(res.data.items || []);
         setTotal(res.data.total || 0);

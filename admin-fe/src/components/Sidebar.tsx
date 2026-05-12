@@ -45,7 +45,7 @@ const tabs: Tab[] = [
   },
   {
     key: 'contributions',
-    label: '共享贡献',
+    label: '账号共享',
     path: '/dashboard/contributions',
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">

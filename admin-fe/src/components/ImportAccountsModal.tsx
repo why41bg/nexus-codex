@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useId, useEffect } from 'react';
 import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import { useFocusTrap } from '@/lib/use-focus-trap';
 import Spinner from './Spinner';
 
@@ -25,7 +24,6 @@ interface Props {
 
 export default function ImportAccountsModal({ onImported, onCancel }: Props) {
   const { toast } = useToast();
-  const authGuard = useAuthGuard();
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useFocusTrap(dialogRef);
@@ -128,7 +126,6 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
         '/api/admin/accounts/import',
         { accounts: parsed.valid, mode },
       );
-      if (authGuard(res.status)) return;
       if (res.ok) {
         const d = res.data;
         const parts: string[] = [`成功导入 ${d.imported} 个账号`];

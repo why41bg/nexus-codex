@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, extractErrorMessage } from '@/lib/api';
 import { cardClass, inputClass } from '@/lib/styles';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import Spinner from './Spinner';
 
@@ -12,7 +11,6 @@ interface SettingsData {
 
 export default function SettingsTab() {
   const { toast } = useToast();
-  const authGuard = useAuthGuard();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [codexCliPath, setCodexCliPath] = useState('');
@@ -24,7 +22,6 @@ export default function SettingsTab() {
     setLoading(true);
     try {
       const res = await api<SettingsData>('GET', '/api/admin/settings');
-      if (authGuard(res.status)) return;
       if (res.ok) {
         setCodexCliPath(res.data.codexCliPath || '');
         setNodePath(res.data.nodePath || '');
@@ -38,7 +35,7 @@ export default function SettingsTab() {
     } finally {
       setLoading(false);
     }
-  }, [authGuard, toast]);
+  }, [toast]);
 
   useEffect(() => {
     fetchSettings();
@@ -55,7 +52,6 @@ export default function SettingsTab() {
         codexCliPath: codexCliPath.trim(),
         nodePath: nodePath.trim(),
       });
-      if (authGuard(res.status)) return;
       if (res.ok) {
         toast('设置已保存', 'success');
         setOriginalPath(codexCliPath.trim());

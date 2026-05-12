@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
+import { useIsFetching } from '@tanstack/react-query';
 import Sidebar, { type TabKey } from './Sidebar';
 import DashboardTab from './DashboardTab';
 import AccountsTab from './AccountsTab';
@@ -10,7 +11,17 @@ import LogsTab from './LogsTab';
 import SettingsTab from './SettingsTab';
 import TopBar from './TopBar';
 import MobileNavbar from './MobileNavbar';
-import { useDashboardData } from '@/hooks/useDashboardData';
+import { useSSE } from '@/hooks/useSSE';
+import {
+  useDashboard,
+  useAccounts,
+  useModels,
+  useApiKeys,
+  useApiKeyTemplates,
+  useBannedIps,
+  useContributionInvites,
+  useContributionRecords,
+} from '@/hooks/useAdminQueries';
 
 function getTabFromPath(pathname: string): TabKey {
   if (pathname.includes('/accounts')) return 'accounts';
@@ -25,15 +36,41 @@ function getTabFromPath(pathname: string): TabKey {
 export default function DashboardPage() {
   const location = useLocation();
   const activeTab = getTabFromPath(location.pathname);
-  const { data, loading, connected, refresh } = useDashboardData();
+  const { connected } = useSSE();
+
+  // 各 Tab 按需使用独立 query
+  const { data: dashboard, refetch: refetchDashboard } = useDashboard();
+  const { data: accounts, refetch: refetchAccounts } = useAccounts();
+  const { data: models, refetch: refetchModels } = useModels();
+  const { data: apiKeys, refetch: refetchApiKeys } = useApiKeys();
+  const { data: templates, refetch: refetchTemplates } = useApiKeyTemplates();
+  const { data: bannedIps, refetch: refetchBannedIps } = useBannedIps();
+  const { data: invites, refetch: refetchInvites } = useContributionInvites();
+  const { data: records, refetch: refetchRecords } = useContributionRecords();
+
+  const isFetching = useIsFetching({ queryKey: ['admin'] }) > 0;
+
+  const refreshAll = async () => {
+    await Promise.all([
+      refetchDashboard(),
+      refetchAccounts(),
+      refetchModels(),
+      refetchApiKeys(),
+      refetchTemplates(),
+      refetchBannedIps(),
+      refetchInvites(),
+      refetchRecords(),
+    ]);
+  };
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="flex h-full">
       <MobileNavbar
         connected={connected}
-        loading={loading}
-        onRefresh={refresh}
+        loading={isFetching}
+        onRefresh={refreshAll}
         onMenuClick={() => setSidebarOpen(true)}
       />
 
@@ -52,25 +89,31 @@ export default function DashboardPage() {
 
       <div className="flex-1 overflow-y-auto pt-14 md:pt-0 bg-gray-50 dark:bg-slate-900">
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-6 md:py-8 lg:px-8">
-          <TopBar connected={connected} loading={loading} onRefresh={refresh} />
+          <TopBar connected={connected} loading={isFetching} onRefresh={refreshAll} />
           <Routes>
             <Route
               index
-              element={<DashboardTab dashboard={data.dashboard} models={data.models} />}
+              element={<DashboardTab dashboard={dashboard ?? ({} as never)} models={models ?? []} />}
             />
             <Route
               path="accounts"
-              element={<AccountsTab accounts={data.accounts} loading={loading} onRefresh={refresh} />}
+              element={
+                <AccountsTab
+                  accounts={accounts ?? []}
+                  loading={isFetching}
+                  onRefresh={async () => { await refetchAccounts(); }}
+                />
+              }
             />
             <Route
               path="apikeys"
               element={
                 <ApiKeysTab
-                  apiKeys={data.apiKeys}
-                  templates={data.apiKeyTemplates}
-                  models={data.models}
-                  loading={loading}
-                  onRefresh={refresh}
+                  apiKeys={apiKeys ?? []}
+                  templates={templates ?? []}
+                  models={models ?? []}
+                  loading={isFetching}
+                  onRefresh={async () => { await Promise.all([refetchApiKeys(), refetchTemplates()]); }}
                 />
               }
             />
@@ -78,15 +121,21 @@ export default function DashboardPage() {
               path="contributions"
               element={
                 <ContributionsTab
-                  invites={data.contributionInvites}
-                  records={data.contributionRecords}
-                  onRefresh={refresh}
+                  invites={invites ?? []}
+                  records={records ?? []}
+                  onRefresh={async () => { await Promise.all([refetchInvites(), refetchRecords()]); }}
                 />
               }
             />
             <Route
               path="banned-ips"
-              element={<BannedIpsTab bannedIps={data.bannedIps} loading={loading} onRefresh={refresh} />}
+              element={
+                <BannedIpsTab
+                  bannedIps={bannedIps ?? []}
+                  loading={isFetching}
+                  onRefresh={async () => { await refetchBannedIps(); }}
+                />
+              }
             />
             <Route
               path="logs"

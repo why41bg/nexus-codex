@@ -25,12 +25,53 @@ export function clearAuthToken() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/** 支持的 HTTP 方法 */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/** API 返回成功 */
+export interface ApiSuccess<T> {
+  ok: true;
+  status: number;
+  data: T;
+}
+
+/** API 返回失败 */
+export interface ApiFailure {
+  ok: false;
+  status: number;
+  data: unknown;
+}
+
+/** API 统一返回类型 */
+export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
+
+/**
+ * 全局 401 事件监听器列表。
+ * 当 API 请求返回 401 时自动调用所有已注册的监听器。
+ */
+const unauthorizedListeners: Array<() => void> = [];
+
+/** 注册 401 监听器，返回取消注册函数 */
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.push(listener);
+  return () => {
+    const idx = unauthorizedListeners.indexOf(listener);
+    if (idx >= 0) unauthorizedListeners.splice(idx, 1);
+  };
+}
+
+function notifyUnauthorized() {
+  for (const listener of unauthorizedListeners) {
+    listener();
+  }
+}
+
 export async function api<T = unknown>(
-  method: string,
+  method: HttpMethod,
   path: string,
   body?: unknown,
   timeoutMs = 30000,
-): Promise<{ ok: boolean; status: number; data: T }> {
+): Promise<ApiResult<T>> {
   const headers: Record<string, string> = {};
   const token = getAuthToken();
   if (token) {
@@ -48,21 +89,32 @@ export async function api<T = unknown>(
 
   try {
     const res = await fetch(`${API_BASE}${path}`, opts);
-    clearTimeout(timeoutId);
-    let data: T;
-    try {
-      data = (await res.json()) as T;
-    } catch {
-      // Response body is not valid JSON (e.g. 204 No Content) — use null-safe default
-      data = null as unknown as T;
+
+    // 统一 401 拦截
+    if (res.status === 401) {
+      notifyUnauthorized();
+      return { ok: false, status: 401, data: undefined } as ApiFailure;
     }
-    return { ok: res.ok, status: res.status, data };
+
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      // Response body is not valid JSON (e.g. 204 No Content)
+      data = undefined;
+    }
+
+    if (res.ok) {
+      return { ok: true, status: res.status, data: data as T };
+    }
+    return { ok: false, status: res.status, data };
   } catch (err) {
-    clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error(`Request timeout after ${timeoutMs}ms`);
     }
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

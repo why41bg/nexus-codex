@@ -15,3 +15,36 @@ export function relativeTime(iso: string | undefined | null): string {
   const d = Math.floor(h / 24);
   return `${d} 天前`;
 }
+
+/** 将毫秒转换为友好的时间显示 */
+export function formatDuration(ms: number): string {
+  if (ms >= 86400000) {
+    const days = ms / 86400000;
+    return days === 1 ? '1 天' : `${days} 天`;
+  }
+  if (ms >= 3600000) {
+    const hours = ms / 3600000;
+    return hours === 1 ? '1 小时' : `${hours} 小时`;
+  }
+  const minutes = ms / 60000;
+  return minutes === 1 ? '1 分钟' : `${minutes} 分钟`;
+}
+
+/** 预设的时间窗口选项 */
+export const WINDOW_PRESETS = [
+  { label: '1 小时', value: '3600000' },
+  { label: '6 小时', value: '21600000' },
+  { label: '12 小时', value: '43200000' },
+  { label: '24 小时', value: '86400000' },
+  { label: '7 天', value: '604800000' },
+] as const;
+
+/** 生成随机码（用于邀请码/申领码）*/
+export function generateRandomCode(length = 8): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}

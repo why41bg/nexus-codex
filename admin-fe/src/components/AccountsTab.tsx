@@ -3,7 +3,6 @@ import type { Account } from '@/types';
 import { api } from '@/lib/api';
 import { secondaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import AccountTable from './AccountTable';
 import AddAccountForm from './AddAccountForm';
 import ImportAccountsModal from './ImportAccountsModal';
@@ -17,7 +16,6 @@ interface Props {
 
 export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
   const { toast } = useToast();
-  const authGuard = useAuthGuard();
   const [showImport, setShowImport] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -37,7 +35,6 @@ export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
     setExporting(true);
     try {
       const res = await api<{ accounts: Account[] }>('GET', '/api/admin/accounts/export');
-      if (authGuard(res.status)) return;
       if (res.ok) {
         const date = new Date().toISOString().slice(0, 10);
         downloadJson(res.data, `nexus-codex-accounts-${date}.json`);
@@ -50,12 +47,11 @@ export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
     } finally {
       setExporting(false);
     }
-  }, [authGuard, downloadJson, toast]);
+  }, [downloadJson, toast]);
 
   const handleBackup = useCallback(async () => {
     try {
       const res = await api<Record<string, unknown>>('GET', '/api/admin/backup');
-      if (authGuard(res.status)) return;
       if (res.ok) {
         const date = new Date().toISOString().slice(0, 10);
         downloadJson(res.data, `nexus-codex-backup-${date}.json`);
@@ -66,7 +62,7 @@ export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
     } catch {
       toast('请求失败', 'error');
     }
-  }, [authGuard, downloadJson, toast]);
+  }, [downloadJson, toast]);
 
   return (
     <div>
