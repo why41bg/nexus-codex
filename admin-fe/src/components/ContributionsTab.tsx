@@ -16,6 +16,7 @@ import AdminPageHeader from './AdminPageHeader';
 import Spinner from './Spinner';
 import { CloseIcon } from './icons';
 import { useFocusTrap } from '../lib/use-focus-trap';
+import { useToast } from '@/contexts/ToastContext';
 
 interface Props {
   invites: ContributionInvite[];
@@ -264,6 +265,7 @@ function InviteFormModal({ title, confirmLabel, form, error, saving, onChange, o
 }
 
 export default function ContributionsTab({ invites, records, onRefresh }: Props) {
+  const { toast } = useToast();
   const [createForm, setCreateForm] = useState<InviteFormState>(defaultInviteForm);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [savingCreate, setSavingCreate] = useState(false);
@@ -320,6 +322,11 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
           : undefined,
     });
     if (res.ok) onRefresh();
+  };
+
+  const handleCopyInviteCode = async (code: string) => {
+    await copyToClipboard(code);
+    toast('邀请码已复制到剪贴板', 'success');
   };
 
   const toggleInvite = async (invite: ContributionInvite) => {
@@ -425,7 +432,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                       <button
                         type="button"
                         className="mt-1 text-xs text-brand-600 dark:text-brand-400"
-                        onClick={() => copyToClipboard(invite.code || '')}
+                        onClick={() => handleCopyInviteCode(invite.code || '')}
                       >
                         复制明文
                       </button>
