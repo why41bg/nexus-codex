@@ -276,6 +276,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
   const [editingInvite, setEditingInvite] = useState<ContributionInvite | null>(null);
   const [editForm, setEditForm] = useState<InviteFormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ContributionInvite | null>(null);
+  const pendingRecords = records.filter((record) => record.status === 'pending_review');
 
   const createInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -383,7 +384,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
     }
   };
 
-  const pendingCount = records.filter((record) => record.status === 'pending_review').length;
+  const pendingCount = pendingRecords.length;
 
   return (
     <div className="space-y-6">
@@ -447,7 +448,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500 dark:text-slate-400">
-                    <div>活跃流程: {invite.maxActiveSessions}</div>
+                    <div>最大活跃登录流程数: {invite.maxActiveSessions}</div>
                     <div>单 IP: {invite.perIpLimitMax} / {formatDuration(invite.perIpLimitWindowMs)}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
@@ -535,7 +536,11 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
           </span>
         </div>
         <div className="mt-4 space-y-3">
-          {records.map((record) => (
+          {pendingRecords.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-600 py-8 text-center text-sm text-gray-400 dark:text-slate-500">
+              暂无待审核的共享贡献记录
+            </div>
+          ) : pendingRecords.map((record) => (
             <div key={record.id} className="rounded-lg border border-gray-200 p-4 dark:border-slate-700">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -546,45 +551,36 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                     {record.applicantContact} · {record.clientIp} · {record.status}
                   </p>
                 </div>
-                {record.status === 'pending_review' ? (
-                  <div className="flex gap-2">
-                    <button className={primaryBtnClass} onClick={() => review(record.id, 'approve')}>批准</button>
-                    <button className={secondaryBtnClass} onClick={() => review(record.id, 'reject')}>拒绝</button>
-                  </div>
-                ) : null}
+                <div className="flex gap-2">
+                  <button className={primaryBtnClass} onClick={() => review(record.id, 'approve')}>批准</button>
+                  <button className={secondaryBtnClass} onClick={() => review(record.id, 'reject')}>拒绝</button>
+                </div>
               </div>
               {record.note ? <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">{record.note}</p> : null}
               <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
                 建议并发度：{record.requestedMaxConcurrency}
                 {record.approvedMaxConcurrency ? ` · 最终并发度：${record.approvedMaxConcurrency}` : ''}
               </p>
-              {record.status === 'pending_review' ? (
-                <div className="mt-3 space-y-3">
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min="1"
-                    placeholder="最终并发度（默认采用建议值）"
-                    value={approvedConcurrency[record.id] ?? String(record.requestedMaxConcurrency)}
-                    onChange={(e) => setApprovedConcurrency((prev) => ({ ...prev, [record.id]: e.target.value }))}
-                  />
-                  <textarea
-                    className={inputClass}
-                    rows={2}
-                    placeholder="审核备注（可选）"
-                    value={reviewNotes[record.id] || ''}
-                    onChange={(e) => setReviewNotes((prev) => ({ ...prev, [record.id]: e.target.value }))}
-                  />
-                </div>
-              ) : null}
+              <div className="mt-3 space-y-3">
+                <input
+                  className={inputClass}
+                  type="number"
+                  min="1"
+                  placeholder="最终并发度（默认采用建议值）"
+                  value={approvedConcurrency[record.id] ?? String(record.requestedMaxConcurrency)}
+                  onChange={(e) => setApprovedConcurrency((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                />
+                <textarea
+                  className={inputClass}
+                  rows={2}
+                  placeholder="审核备注（可选）"
+                  value={reviewNotes[record.id] || ''}
+                  onChange={(e) => setReviewNotes((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                />
+              </div>
               {record.accountId ? (
                 <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
                   accountId: {record.accountId} {record.accountPlanType ? `· ${record.accountPlanType}` : ''}
-                </p>
-              ) : null}
-              {(record.status === 'approved' || record.status === 'rejected') ? (
-                <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                  {record.status === 'approved' ? '审核完成，bootstrap 会话已收尾，账号目录保留用于正式入池。' : '审核完成，bootstrap 会话与待审核目录已清理。'}
                 </p>
               ) : null}
               {record.duplicateAccountId ? (
