@@ -217,22 +217,19 @@ async def _session_cleanup_loop(session_manager: SessionManager):
 
 async def _pool_quota_refresh_loop(pool_quota_snapshot_service: PoolQuotaSnapshotService):
     """Periodically refresh the public pool quota snapshot."""
-    await pool_quota_snapshot_service.refresh_if_empty()
+    await pool_quota_snapshot_service.ensure_snapshot()
     interval_sec = max(60, settings.pool_quota_refresh_interval_ms // 1000)
     while True:
         await asyncio.sleep(interval_sec)
-        try:
-            snapshot = await pool_quota_snapshot_service.refresh_snapshot_singleflight()
-            log.info(
-                "Pool quota snapshot refreshed",
-                extra={
-                    "status": snapshot.get("status"),
-                    "sampledAccountCount": snapshot.get("sampledAccountCount"),
-                    "eligibleAccountCount": snapshot.get("eligibleAccountCount"),
-                },
-            )
-        except Exception as e:
-            log.warning("Pool quota snapshot refresh failed", extra={"error": str(e)})
+        snapshot = await pool_quota_snapshot_service.refresh()
+        log.info(
+            "Pool quota snapshot refreshed",
+            extra={
+                "status": snapshot.get("status"),
+                "sampledAccountCount": snapshot.get("sampledAccountCount"),
+                "eligibleAccountCount": snapshot.get("eligibleAccountCount"),
+            },
+        )
 
 
 # ─── Create FastAPI app ──────────────────────────────────────
