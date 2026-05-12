@@ -52,37 +52,3 @@ class AnthropicMessagesRequest(BaseModel):
     top_p: float | None = None
     top_k: int | None = None
     metadata: dict | None = None
-
-
-class AnthropicContentBlock(BaseModel):
-    """Anthropic 响应内容块 — text / tool_use / thinking."""
-
-    type: str
-    text: str | None = None
-    id: str | None = None
-    name: str | None = None
-    input: dict | None = None
-    thinking: str | None = None
-    signature: str | None = None
-
-
-class AnthropicUsage(BaseModel):
-    """Anthropic token 用量."""
-
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_creation_input_tokens: int | None = None
-    cache_read_input_tokens: int | None = None
-
-
-class AnthropicMessagesResponse(BaseModel):
-    """Anthropic 非流式响应."""
-
-    id: str
-    type: str = "message"
-    role: str = "assistant"
-    model: str
-    content: list[AnthropicContentBlock] = Field(default_factory=list)
-    stop_reason: str | None = "end_turn"
-    stop_sequence: str | None = None
-    usage: AnthropicUsage = Field(default_factory=AnthropicUsage)

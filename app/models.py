@@ -212,48 +212,6 @@ class ChatCompletionRequest(BaseModel):
     stream_options: dict | None = None
 
 
-class ChatCompletionChoice(BaseModel):
-    index: int = 0
-    message: dict[str, str] = Field(default_factory=dict)
-    finish_reason: str | None = "stop"
-
-
-class ChatCompletionUsage(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-
-
-class ChatCompletionResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: list[ChatCompletionChoice]
-    usage: ChatCompletionUsage = Field(default_factory=ChatCompletionUsage)
-
-
-class ChatCompletionChunkDelta(BaseModel):
-    role: str | None = None
-    content: str | None = None
-    tool_calls: list[dict] | None = None
-
-
-class ChatCompletionChunkChoice(BaseModel):
-    index: int = 0
-    delta: ChatCompletionChunkDelta = Field(default_factory=ChatCompletionChunkDelta)
-    finish_reason: str | None = None
-
-
-class ChatCompletionChunk(BaseModel):
-    id: str
-    object: str = "chat.completion.chunk"
-    created: int
-    model: str
-    choices: list[ChatCompletionChunkChoice]
-    usage: dict | None = None
-
-
 # ─── Responses API ─────────────────────────────────────────
 
 
@@ -282,49 +240,7 @@ class ResponsesRequest(BaseModel):
     tool_choice: str | None = None
     parallel_tool_calls: bool | None = None
 
-
-class ResponsesUsage(BaseModel):
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
-
-
-class ResponsesOutputContent(BaseModel):
-    type: str = "output_text"
-    text: str = ""
-
-
-class ResponsesOutputItem(BaseModel):
-    id: str
-    type: str = "message"
-    role: str = "assistant"
-    content: list[ResponsesOutputContent] = Field(default_factory=list)
-
-
-class ResponsesObject(BaseModel):
-    id: str
-    object: str = "response"
-    created_at: int
-    model: str
-    output: list[ResponsesOutputItem] = Field(default_factory=list)
-    status: str = "completed"
-    usage: ResponsesUsage = Field(default_factory=ResponsesUsage)
-
-
 # ─── Models API ────────────────────────────────────────────
-
-
-class ModelObject(BaseModel):
-    id: str
-    object: str = "model"
-    created: int
-    owned_by: str = "nexus-codex"
-
-
-class ModelsListResponse(BaseModel):
-    object: str = "list"
-    data: list[ModelObject]
-
 
 # ─── Admin API ─────────────────────────────────────────────
 
@@ -499,16 +415,6 @@ class UpdateSettingsRequest(CamelModel):
 
 
 # ─── Error ─────────────────────────────────────────────────
-
-
-class ErrorDetail(BaseModel):
-    message: str
-    type: str
-    code: str
-
-
-class ErrorResponse(BaseModel):
-    error: ErrorDetail
 
 
 # ─── Admin Response Models ──────────────────────────────────
@@ -698,59 +604,3 @@ class KeyTemplateListResponse(BaseModel):
 class KeyTemplateResponse(BaseModel):
     """Response for single key template."""
     template: KeyTemplateItem
-
-
-class ContributionInviteItem(BaseModel):
-    id: str
-    name: str
-    note: str = ""
-    enabled: bool = True
-    code: str | None = None
-    codeMasked: str
-    createdAt: str
-    expiresAt: str | None = None
-    maxUses: int | None = None
-    usedCount: int = 0
-    maxActiveSessions: int = 1
-    perIpLimitMax: int = 3
-    perIpLimitWindowMs: int = 24 * 60 * 60 * 1000
-
-
-class ContributionInviteListResponse(BaseModel):
-    invites: list[ContributionInviteItem]
-
-
-class PublicContributionSessionResponse(BaseModel):
-    contributionId: str
-    loginUrl: str | None = None
-    deviceCode: str | None = None
-    status: str
-    error: str | None = None
-    expiresAt: int | None = None
-
-
-class ContributionRecordItem(BaseModel):
-    id: str
-    inviteId: str
-    inviteName: str
-    applicantName: str
-    applicantContact: str
-    note: str
-    clientIp: str
-    requestedMaxConcurrency: int
-    approvedMaxConcurrency: int | None = None
-    status: str
-    createdAt: str
-    expiresAt: str | None = None
-    completedAt: str | None = None
-    reviewedAt: str | None = None
-    reviewedBy: str | None = None
-    reviewerNote: str = ""
-    error: str | None = None
-    accountId: str | None = None
-    accountPlanType: str | None = None
-    duplicateAccountId: str | None = None
-
-
-class ContributionRecordListResponse(BaseModel):
-    records: list[ContributionRecordItem]
