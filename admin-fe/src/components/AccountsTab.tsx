@@ -7,6 +7,7 @@ import { useAuthGuard } from '@/contexts/AuthContext';
 import AccountTable from './AccountTable';
 import AddAccountForm from './AddAccountForm';
 import ImportAccountsModal from './ImportAccountsModal';
+import AdminPageHeader from './AdminPageHeader';
 
 interface Props {
   accounts: Account[];
@@ -69,33 +70,27 @@ export default function AccountsTab({ accounts, loading, onRefresh }: Props) {
 
   return (
     <div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">账号管理</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">管理 Codex 账号池中的所有账号</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowImport(true)}
-            className={secondaryBtnClass}
-          >
-            导入账号
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={exporting || accounts.length === 0}
-            className={`${secondaryBtnClass} disabled:opacity-50`}
-          >
-            {exporting ? '导出中...' : '导出账号'}
-          </button>
-          <button
-            onClick={handleBackup}
-            className={secondaryBtnClass}
-          >
-            下载备份
-          </button>
-        </div>
-      </div>
+      <AdminPageHeader
+        title="账号管理"
+        description="管理 Codex 账号池中的所有账号"
+        actions={
+          <>
+            <button onClick={() => setShowImport(true)} className={secondaryBtnClass}>
+              导入账号
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting || accounts.length === 0}
+              className={`${secondaryBtnClass} disabled:opacity-50`}
+            >
+              {exporting ? '导出中...' : '导出账号'}
+            </button>
+            <button onClick={handleBackup} className={secondaryBtnClass}>
+              下载备份
+            </button>
+          </>
+        }
+      />
 
       <AddAccountForm onAdded={onRefresh} />
 

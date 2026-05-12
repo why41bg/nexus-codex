@@ -2,8 +2,17 @@ import { useState } from 'react';
 import type { ContributionInvite, ContributionRecord } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { copyToClipboard } from '@/lib/clipboard';
-import { cardClass, inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
+import {
+  brandSubtleBtnClass,
+  cardClass,
+  dangerSubtleBtnClass,
+  inputClass,
+  primaryBtnClass,
+  secondaryBtnClass,
+  subtleBtnClass,
+} from '@/lib/styles';
 import ConfirmModal from './ConfirmModal';
+import AdminPageHeader from './AdminPageHeader';
 
 interface Props {
   invites: ContributionInvite[];
@@ -148,10 +157,22 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
     onRefresh();
   };
 
+  const pendingCount = records.filter((record) => record.status === 'pending_review').length;
+
   return (
     <div className="space-y-6">
+      <AdminPageHeader
+        title="共享贡献管理"
+        description="管理共享邀请码，并审核待入池的共享账号贡献记录"
+      />
+
       <section className={`${cardClass} p-6`}>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">邀请码</h2>
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">邀请码</h3>
+          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+            配置共享账号入口的邀请码、使用次数与单 IP 限制。
+          </p>
+        </div>
         <form onSubmit={createInvite} className="mt-4 space-y-3">
           <div className="grid gap-3 md:grid-cols-4">
             <input className={inputClass} placeholder="名称" value={name} onChange={(e) => setName(e.target.value)} />
@@ -176,21 +197,21 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
         {error ? <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-gray-500 dark:text-slate-400">
+            <thead className="border-b border-gray-100 bg-gray-50/60 text-left text-gray-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
               <tr>
-                <th className="py-2">名称</th>
-                <th className="py-2">邀请码</th>
-                <th className="py-2">状态</th>
-                <th className="py-2">限制</th>
-                <th className="py-2">已用</th>
-                <th className="py-2">操作</th>
+                <th className="px-4 py-3 font-medium">名称</th>
+                <th className="px-4 py-3 font-medium">邀请码</th>
+                <th className="px-4 py-3 font-medium">状态</th>
+                <th className="px-4 py-3 font-medium">限制</th>
+                <th className="px-4 py-3 font-medium">已用</th>
+                <th className="px-4 py-3 font-medium text-right">操作</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
               {invites.map((invite) => (
-                <tr key={invite.id} className="border-t border-gray-100 dark:border-slate-700">
-                  <td className="py-2 text-gray-900 dark:text-slate-100">{invite.name}</td>
-                  <td className="py-2 font-mono text-gray-600 dark:text-slate-300">
+                <tr key={invite.id} className="transition-colors hover:bg-gray-50/50 dark:hover:bg-slate-700/50">
+                  <td className="px-4 py-3 text-gray-900 dark:text-slate-100">{invite.name}</td>
+                  <td className="px-4 py-3 font-mono text-gray-600 dark:text-slate-300">
                     <div>{invite.codeMasked}</div>
                     {invite.code ? (
                       <button
@@ -202,21 +223,27 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                       </button>
                     ) : null}
                   </td>
-                  <td className="py-2">{invite.enabled ? '启用' : '停用'}</td>
-                  <td className="py-2 text-xs text-gray-500 dark:text-slate-400">
+                  <td className="px-4 py-3">
+                    <span className={`rounded px-2 py-0.5 text-xs ${invite.enabled ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400'}`}>
+                      {invite.enabled ? '启用' : '停用'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500 dark:text-slate-400">
                     <div>活跃流程: {invite.maxActiveSessions}</div>
                     <div>单 IP: {invite.perIpLimitMax} / {invite.perIpLimitWindowMs}ms</div>
                   </td>
-                  <td className="py-2">{invite.usedCount}{invite.maxUses ? ` / ${invite.maxUses}` : ''}</td>
-                  <td className="py-2">
-                    <div className="flex gap-2">
-                      <button type="button" className={secondaryBtnClass} onClick={() => toggleInvite(invite)}>
+                  <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
+                    {invite.usedCount}{invite.maxUses ? ` / ${invite.maxUses}` : ''}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <button type="button" className={subtleBtnClass} onClick={() => toggleInvite(invite)}>
                         {invite.enabled ? '停用' : '启用'}
                       </button>
-                      <button type="button" className={secondaryBtnClass} onClick={() => openEditInvite(invite)}>
+                      <button type="button" className={brandSubtleBtnClass} onClick={() => openEditInvite(invite)}>
                         编辑
                       </button>
-                      <button type="button" className={secondaryBtnClass} onClick={() => setDeleteTarget(invite)}>
+                      <button type="button" className={dangerSubtleBtnClass} onClick={() => setDeleteTarget(invite)}>
                         删除
                       </button>
                     </div>
@@ -269,7 +296,17 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
       ) : null}
 
       <section className={`${cardClass} p-6`}>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">共享贡献审核</h2>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">共享贡献审核</h3>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+              审核共享账号登录后的待入池记录，并确认最终并发度。
+            </p>
+          </div>
+          <span className="rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+            待审核 {pendingCount} 条
+          </span>
+        </div>
         <div className="mt-4 space-y-3">
           {records.map((record) => (
             <div key={record.id} className="rounded-lg border border-gray-200 p-4 dark:border-slate-700">
