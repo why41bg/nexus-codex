@@ -124,10 +124,6 @@ async def _startup(app: FastAPI) -> dict:
         _session_cleanup_loop(session_manager), name="session-cleanup"
     )
 
-    # Start log cleanup timer
-    log_cleanup_task = create_bg_task(
-        _log_cleanup_loop(log_store), name="log-cleanup"
-    )
     pool_quota_task = create_bg_task(
         _pool_quota_refresh_loop(pool_quota_snapshot_service), name="pool-quota-refresh"
     )
@@ -149,7 +145,6 @@ async def _startup(app: FastAPI) -> dict:
 
     return {
         "cleanup_task": cleanup_task,
-        "log_cleanup_task": log_cleanup_task,
         "pool_quota_task": pool_quota_task,
     }
 
@@ -167,9 +162,8 @@ async def _shutdown(app: FastAPI, bg_tasks: dict) -> None:
 
     # Cancel and await background tasks to ensure CancelledError is handled
     cleanup_task = bg_tasks.get("cleanup_task")
-    log_cleanup_task = bg_tasks.get("log_cleanup_task")
     pool_quota_task = bg_tasks.get("pool_quota_task")
-    tasks_to_cancel = [t for t in (cleanup_task, log_cleanup_task, pool_quota_task) if t is not None]
+    tasks_to_cancel = [t for t in (cleanup_task, pool_quota_task) if t is not None]
     for t in tasks_to_cancel:
         t.cancel()
     if tasks_to_cancel:
@@ -219,20 +213,6 @@ async def _session_cleanup_loop(session_manager: SessionManager):
     while True:
         await asyncio.sleep(600)  # every 10 minutes
         session_manager.cleanup_expired()
-
-
-async def _log_cleanup_loop(log_store: LogStore | None):
-    """Periodically clean up expired logs."""
-    if not log_store:
-        return
-    while True:
-        await asyncio.sleep(3600)  # every hour
-        try:
-            deleted = await log_store.cleanup()
-            if deleted > 0:
-                log.info("Log cleanup completed", extra={"deleted": deleted})
-        except Exception as e:
-            log.error("Log cleanup failed", extra={"error": str(e)})
 
 
 async def _pool_quota_refresh_loop(pool_quota_snapshot_service: PoolQuotaSnapshotService):
