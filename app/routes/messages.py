@@ -79,12 +79,13 @@ async def _do_non_stream(
         raise RuntimeError("ChatGPT client not initialized")
 
     params = AnthropicAdapter.to_responses_params(body)
-    params["stream"] = True
+    params["stream"] = False
 
     result = None
     async for raw_data in client.responses(**params):
         try:
             result = json.loads(raw_data)
+            break
         except json.JSONDecodeError:
             log.debug(
                 "Non-stream: failed to parse response chunk as JSON",

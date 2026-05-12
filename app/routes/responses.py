@@ -93,11 +93,12 @@ async def _do_non_stream(
         temperature=body.temperature,
         max_output_tokens=body.max_output_tokens,
         reasoning_effort=body.reasoning_effort,
-        stream=True,
+        stream=False,
     ):
         try:
             result = json.loads(raw_data)
             result["id"] = response_id
+            break
         except json.JSONDecodeError:
             log.warning(
                 "Non-stream responses: failed to parse response chunk as JSON",

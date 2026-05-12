@@ -108,25 +108,22 @@ async def _do_non_stream(
         raise RuntimeError("ChatGPT client not initialized")
 
     params = ChatGPTAdapter.prepare_request(body)
-    params["stream"] = True
+    params["stream"] = False
 
-    result = None
+    response_data = None
     async for raw_data in client.responses(**params):
         try:
             response_data = json.loads(raw_data)
-            result = ChatGPTAdapter.convert_non_stream_response(
-                response_data, completion_id, body.model
-            )
+            break
         except json.JSONDecodeError:
             log.warning(
                 "Non-stream chat completion: failed to parse response chunk as JSON",
                 extra={"completion_id": completion_id, "raw_data": raw_data[:200] if raw_data else ""},
             )
 
-    if result is None:
-        result = ChatGPTAdapter.convert_non_stream_response(
-            {"output": []}, completion_id, body.model
-        )
+    result = ChatGPTAdapter.convert_non_stream_response(
+        response_data or {"output": []}, completion_id, body.model
+    )
 
     latency_ms = int((time.time() - req_start) * 1000)
     await deps.metrics_collector.record(body.model, entry.account_id, latency_ms, True, api_key)
