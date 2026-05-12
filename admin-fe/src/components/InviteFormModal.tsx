@@ -54,22 +54,22 @@ export default function InviteFormModal({ title, confirmLabel, form, error, savi
   return (
     <BaseModal
       title={title}
-      description="配置共享账号邀请码与 IP 频率限制，风格与 API Key 申领模板保持一致。"
+      description="设置邀请码的基本信息、有效期限制与访问频率控制。"
       onClose={onClose}
     >
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">名称</label>
-          <input className={inputClass} value={form.name} onChange={(e) => onChange({ ...form, name: e.target.value })} placeholder="例如：社区共享入口" />
+          <input className={inputClass} value={form.name} onChange={(e) => onChange({ ...form, name: e.target.value })} placeholder="例如：开发者社区" />
         </div>
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">备注</label>
-          <textarea className={inputClass} rows={2} value={form.note} onChange={(e) => onChange({ ...form, note: e.target.value })} placeholder="说明此邀请码的用途或适用人群" />
+          <textarea className={inputClass} rows={2} value={form.note} onChange={(e) => onChange({ ...form, note: e.target.value })} placeholder="用途说明，例如面向哪些用户" />
         </div>
 
         <fieldset className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
-          <legend className="px-1 text-xs font-medium text-gray-600 dark:text-slate-400">邀请码设置</legend>
+          <legend className="px-1 text-xs font-medium text-gray-600 dark:text-slate-400">邀请码</legend>
           <div className="space-y-3">
             <div>
               <label className="mb-1 block text-[11px] text-gray-500 dark:text-slate-400">自定义邀请码</label>

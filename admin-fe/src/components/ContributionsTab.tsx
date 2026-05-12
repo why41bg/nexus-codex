@@ -149,16 +149,16 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
   return (
     <div className="space-y-6">
       <AdminPageHeader
-        title="共享贡献管理"
-        description="管理共享邀请码，并审核待入池的共享账号贡献记录"
+        title="账号共享"
+        description="通过邀请码让社区成员共享闲置账号，并在此审核入池申请"
       />
 
       <section className={`${cardClass} p-6`}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">邀请码</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">邀请码管理</h3>
             <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-              配置共享账号入口的邀请码、使用次数与单 IP 限制。
+              创建并管理共享入口的邀请码，控制使用次数与访问频率。
             </p>
           </div>
           <button type="button" onClick={() => { setError(''); setCreateForm(defaultInviteForm); setShowCreateModal(true); }} className={primaryBtnClass}>
@@ -168,7 +168,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
         <div className="mt-4 space-y-3">
           {invites.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-600 py-8 text-center text-sm text-gray-400 dark:text-slate-500">
-              暂无邀请码，点击右上角创建
+              尚未创建邀请码，点击上方按钮开始
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -208,7 +208,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500 dark:text-slate-400">
-                    <div>最大活跃登录流程数: {invite.maxActiveSessions}</div>
+                    <div>同时在线: {invite.maxActiveSessions}</div>
                     <div>单 IP: {invite.perIpLimitMax} / {formatDuration(invite.perIpLimitWindowMs)}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
@@ -279,26 +279,26 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
           onConfirm={removeInvite}
           onCancel={() => setDeleteTarget(null)}
         >
-          确认删除邀请码"{deleteTarget.name}"吗？已生成的历史贡献记录不会被删除。
+          确定删除邀请码「{deleteTarget.name}」吗？已产生的共享记录不受影响。
         </ConfirmModal>
       ) : null}
 
       <section className={`${cardClass} p-6`}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">共享贡献审核</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">入池审核</h3>
             <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-              审核共享账号登录后的待入池记录，并确认最终并发度。
+              审核社区提交的共享账号，确认后自动加入资源池。
             </p>
           </div>
           <span className="rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-            待审核 {pendingCount} 条
+            {pendingCount} 条待审
           </span>
         </div>
         <div className="mt-4 space-y-3">
           {pendingRecords.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-600 py-8 text-center text-sm text-gray-400 dark:text-slate-500">
-              暂无待审核的共享贡献记录
+              暂无待审核的共享申请
             </div>
           ) : pendingRecords.map((record) => (
             <div key={record.id} className="rounded-lg border border-gray-200 p-4 dark:border-slate-700">
@@ -318,15 +318,15 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
               </div>
               {record.note ? <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">{record.note}</p> : null}
               <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                建议并发度：{record.requestedMaxConcurrency}
-                {record.approvedMaxConcurrency ? ` · 最终并发度：${record.approvedMaxConcurrency}` : ''}
+                建议并发数：{record.requestedMaxConcurrency}
+                {record.approvedMaxConcurrency ? ` · 批准并发数：${record.approvedMaxConcurrency}` : ''}
               </p>
               <div className="mt-3 space-y-3">
                 <input
                   className={inputClass}
                   type="number"
                   min="1"
-                  placeholder="最终并发度（默认采用建议值）"
+                  placeholder="批准并发数（留空则采用建议值）"
                   value={approvedConcurrency[record.id] ?? String(record.requestedMaxConcurrency)}
                   onChange={(e) => setApprovedConcurrency((prev) => ({ ...prev, [record.id]: e.target.value }))}
                 />
