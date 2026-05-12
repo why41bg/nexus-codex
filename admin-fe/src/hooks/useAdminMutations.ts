@@ -13,7 +13,7 @@ import { queryKeys } from './useAdminQueries';
 // ─── 错误消息提取工具 ─────────────────────────────────────────
 
 /** 从 catch 中的 unknown 错误提取可读消息 */
-export function getErrorMessage(err: unknown): string {
+function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return '请求失败';
 }
