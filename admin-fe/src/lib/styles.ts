@@ -18,3 +18,35 @@ export const cardClass =
 /** 次级按钮（白底 + 灰框） */
 export const secondaryBtnClass =
   'rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-600';
+
+/** 管理台小号操作按钮 */
+export const subtleBtnClass =
+  'rounded-md bg-gray-50 dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-slate-600';
+
+/** 管理台品牌色小号操作按钮 */
+export const brandSubtleBtnClass =
+  'rounded-md bg-brand-50 dark:bg-brand-950 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:bg-brand-100 dark:hover:bg-brand-900';
+
+/** 危险操作小号按钮 */
+export const dangerSubtleBtnClass =
+  'rounded-md bg-red-50 dark:bg-red-950 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900';
+
+/** 警告操作小号按钮 */
+export const warningSubtleBtnClass =
+  'rounded-md bg-amber-50 dark:bg-amber-950 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400 transition-colors hover:bg-amber-100 dark:hover:bg-amber-900';
+
+/** 成功态小号按钮 */
+export const successSubtleBtnClass =
+  'rounded-md bg-green-50 dark:bg-green-950 px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400 transition-colors hover:bg-green-100 dark:hover:bg-green-900';
+
+/** 管理台筛选按钮容器 */
+export const filterTabsWrapClass =
+  'mt-4 flex gap-1 rounded-lg bg-gray-100 dark:bg-slate-800 p-1 w-fit';
+
+/** 管理台筛选按钮 */
+export const filterTabBtnClass = (active: boolean) =>
+  `rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+    active
+      ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm'
+      : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+  }`;

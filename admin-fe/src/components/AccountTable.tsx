@@ -3,7 +3,15 @@ import type { Account, QuotaInfo } from '@/types';
 import { relativeTime } from '@/lib/time';
 import { api, extractErrorMessage } from '@/lib/api';
 import { getAccountStatus, formatResetsIn, quotaBarColor } from '@/lib/account-utils';
-import { cardClass } from '@/lib/styles';
+import {
+  cardClass,
+  dangerSubtleBtnClass,
+  filterTabBtnClass,
+  filterTabsWrapClass,
+  subtleBtnClass,
+  successSubtleBtnClass,
+  warningSubtleBtnClass,
+} from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
 import { useAuthGuard } from '@/contexts/AuthContext';
 import ConfirmModal from './ConfirmModal';
@@ -187,23 +195,16 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
 
   return (
     <div className="mt-8">
-      {/* Filter Tabs */}
-      <div className="flex items-center justify-between border-b border-gray-200 dark:border-slate-700 pb-3">
-        <div className="flex gap-1">
-          {filterTabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                filter === tab.key
-                  ? 'bg-brand-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700'
-              }`}
-            >
-              {tab.label} ({tab.count})
-            </button>
-          ))}
-        </div>
+      <div className={filterTabsWrapClass}>
+        {filterTabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setFilter(tab.key)}
+            className={filterTabBtnClass(filter === tab.key)}
+          >
+            {tab.label} ({tab.count})
+          </button>
+        ))}
       </div>
 
       {/* Loading */}
@@ -319,23 +320,19 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={(e) => { e.stopPropagation(); setEditTarget(acc); }}
-                            className="rounded-md bg-gray-50 dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-slate-600"
+                            className={subtleBtnClass}
                           >
                             编辑
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleEnabled(acc); }}
-                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                              acc.enabled
-                                ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900'
-                                : 'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900'
-                            }`}
+                            className={acc.enabled ? warningSubtleBtnClass : successSubtleBtnClass}
                           >
                             {acc.enabled ? '禁用' : '启用'}
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(acc); }}
-                            className="rounded-md bg-red-50 dark:bg-red-950 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900"
+                            className={dangerSubtleBtnClass}
                           >
                             删除
                           </button>
@@ -385,23 +382,19 @@ export default function AccountTable({ accounts, loading, onRefresh }: Props) {
                   <div className="mt-3 flex items-center gap-2 border-t border-gray-100 dark:border-slate-700 pt-3">
                     <button
                       onClick={(e) => { e.stopPropagation(); setEditTarget(acc); }}
-                      className="rounded-md bg-gray-50 dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-slate-600"
+                      className={subtleBtnClass}
                     >
                       编辑
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleEnabled(acc); }}
-                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                        acc.enabled
-                          ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900'
-                          : 'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900'
-                      }`}
+                      className={acc.enabled ? warningSubtleBtnClass : successSubtleBtnClass}
                     >
                       {acc.enabled ? '禁用' : '启用'}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeleteTarget(acc); }}
-                      className="rounded-md bg-red-50 dark:bg-red-950 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900"
+                      className={dangerSubtleBtnClass}
                     >
                       删除
                     </button>

@@ -83,7 +83,7 @@ export default function ContributeAccountPage() {
             <input className={inputClass} placeholder="联系方式" value={applicantContact} onChange={(e) => setApplicantContact(e.target.value)} />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
-                建议并发度
+                建议并发名额
               </label>
               <input
                 className={inputClass}
@@ -94,7 +94,7 @@ export default function ContributeAccountPage() {
                 onChange={(e) => setRequestedMaxConcurrency(e.target.value)}
               />
               <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
-                用来说明这个共享账号希望分配多少个并发槽位，也就是允许多少个请求同时占用该账号。管理员会结合账号质量和池内负载最终确认。
+                表示你建议这个账号可同时处理多少个请求。数值越高，代表愿意共享的使用容量越大；管理员会根据实际情况审核确认。
               </p>
             </div>
             <textarea className={inputClass} placeholder="备注（可选）" value={note} onChange={(e) => setNote(e.target.value)} rows={4} />
