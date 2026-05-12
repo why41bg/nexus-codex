@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ContributionInvite, ContributionRecord } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -13,6 +13,9 @@ import {
 } from '@/lib/styles';
 import ConfirmModal from './ConfirmModal';
 import AdminPageHeader from './AdminPageHeader';
+import Spinner from './Spinner';
+import { CloseIcon } from './icons';
+import { useFocusTrap } from '../lib/use-focus-trap';
 
 interface Props {
   invites: ContributionInvite[];
@@ -31,6 +34,47 @@ interface InviteFormState {
   perIpLimitWindowMs: string;
 }
 
+const defaultInviteForm: InviteFormState = {
+  name: '',
+  note: '',
+  code: '',
+  enabled: true,
+  maxUses: '',
+  maxActiveSessions: '1',
+  perIpLimitMax: '3',
+  perIpLimitWindowMs: '86400000',
+};
+
+const WINDOW_PRESETS = [
+  { label: '1 小时', value: '3600000' },
+  { label: '6 小时', value: '21600000' },
+  { label: '12 小时', value: '43200000' },
+  { label: '24 小时', value: '86400000' },
+  { label: '7 天', value: '604800000' },
+];
+
+function formatDuration(ms: number): string {
+  if (ms >= 86400000) {
+    const days = ms / 86400000;
+    return days === 1 ? '1 天' : `${days} 天`;
+  }
+  if (ms >= 3600000) {
+    const hours = ms / 3600000;
+    return hours === 1 ? '1 小时' : `${hours} 小时`;
+  }
+  const minutes = ms / 60000;
+  return minutes === 1 ? '1 分钟' : `${minutes} 分钟`;
+}
+
+function generateInviteCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
 function toInviteForm(invite: ContributionInvite): InviteFormState {
   return {
     name: invite.name,
@@ -44,15 +88,186 @@ function toInviteForm(invite: ContributionInvite): InviteFormState {
   };
 }
 
+interface InviteFormModalProps {
+  title: string;
+  confirmLabel: string;
+  form: InviteFormState;
+  error: string;
+  saving: boolean;
+  onChange: (next: InviteFormState) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onClose: () => void;
+}
+
+function InviteFormModal({ title, confirmLabel, form, error, saving, onChange, onSubmit, onClose }: InviteFormModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = 'contribution-invite-form-modal-title';
+  useFocusTrap(dialogRef);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    dialogRef.current?.focus();
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="mx-4 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-xl ring-1 ring-gray-200 dark:ring-slate-700 outline-none"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 id={titleId} className="text-base font-semibold text-gray-900 dark:text-slate-100">{title}</h3>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+              配置共享账号邀请码与 IP 频率限制，风格与 API Key 申领模板保持一致。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        <form onSubmit={onSubmit} className="mt-4 space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">名称</label>
+            <input className={inputClass} value={form.name} onChange={(e) => onChange({ ...form, name: e.target.value })} placeholder="例如：社区共享入口" />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">备注</label>
+            <textarea className={inputClass} rows={2} value={form.note} onChange={(e) => onChange({ ...form, note: e.target.value })} placeholder="说明此邀请码的用途或适用人群" />
+          </div>
+
+          <fieldset className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
+            <legend className="px-1 text-xs font-medium text-gray-600 dark:text-slate-400">邀请码设置</legend>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-500 dark:text-slate-400">自定义邀请码</label>
+                <div className="flex gap-2">
+                  <input
+                    className={`flex-1 ${inputClass}`}
+                    value={form.code}
+                    onChange={(e) => onChange({ ...form, code: e.target.value })}
+                    placeholder="留空则由后端生成"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...form, code: generateInviteCode() })}
+                    className="rounded-lg bg-gray-100 dark:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 whitespace-nowrap"
+                  >
+                    随机生成
+                  </button>
+                </div>
+                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-slate-500">
+                  仅支持字母、数字、下划线和短横线，长度 6-64。
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-500 dark:text-slate-400">最大使用次数</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min="1"
+                    value={form.maxUses}
+                    onChange={(e) => onChange({ ...form, maxUses: e.target.value })}
+                    placeholder="不限制"
+                  />
+                  <span className="text-xs text-gray-400 dark:text-slate-500 whitespace-nowrap">次</span>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
+            <legend className="px-1 text-xs font-medium text-gray-600 dark:text-slate-400">会话与频率限制</legend>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-500 dark:text-slate-400">最大活跃流程数</label>
+                <input
+                  className={inputClass}
+                  type="number"
+                  min="1"
+                  value={form.maxActiveSessions}
+                  onChange={(e) => onChange({ ...form, maxActiveSessions: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-500 dark:text-slate-400">单 IP 次数限制</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min="1"
+                    value={form.perIpLimitMax}
+                    onChange={(e) => onChange({ ...form, perIpLimitMax: e.target.value })}
+                  />
+                  <span className="text-xs text-gray-400 dark:text-slate-500 whitespace-nowrap">次</span>
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-[11px] text-gray-500 dark:text-slate-400">单 IP 时间窗口</label>
+                <select
+                  value={WINDOW_PRESETS.some((preset) => preset.value === form.perIpLimitWindowMs) ? form.perIpLimitWindowMs : 'custom'}
+                  onChange={(e) => {
+                    if (e.target.value !== 'custom') {
+                      onChange({ ...form, perIpLimitWindowMs: e.target.value });
+                    }
+                  }}
+                  className={inputClass}
+                >
+                  {WINDOW_PRESETS.map((preset) => (
+                    <option key={preset.value} value={preset.value}>{preset.label}</option>
+                  ))}
+                  {!WINDOW_PRESETS.some((preset) => preset.value === form.perIpLimitWindowMs) && (
+                    <option value="custom">自定义 ({formatDuration(Number(form.perIpLimitWindowMs))})</option>
+                  )}
+                </select>
+              </div>
+            </div>
+          </fieldset>
+
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-slate-300">
+            <input type="checkbox" checked={form.enabled} onChange={(e) => onChange({ ...form, enabled: e.target.checked })} className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+            创建后立即启用
+          </label>
+
+          {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className={secondaryBtnClass}>取消</button>
+            <button type="submit" disabled={saving} className={primaryBtnClass}>
+              {saving && <Spinner className="mr-1.5 h-4 w-4" />}
+              {confirmLabel}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function ContributionsTab({ invites, records, onRefresh }: Props) {
-  const [name, setName] = useState('');
-  const [note, setNote] = useState('');
-  const [code, setCode] = useState('');
-  const [enabled, setEnabled] = useState(true);
-  const [maxUses, setMaxUses] = useState('');
-  const [maxActiveSessions, setMaxActiveSessions] = useState('1');
-  const [perIpLimitMax, setPerIpLimitMax] = useState('3');
-  const [perIpLimitWindowMs, setPerIpLimitWindowMs] = useState('86400000');
+  const [createForm, setCreateForm] = useState<InviteFormState>(defaultInviteForm);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [savingCreate, setSavingCreate] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [error, setError] = useState('');
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [approvedConcurrency, setApprovedConcurrency] = useState<Record<string, string>>({});
@@ -63,37 +278,36 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
   const createInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!name.trim()) {
+    if (!createForm.name.trim()) {
       setError('邀请码名称不能为空');
       return;
     }
-    if (code.trim() && !/^[A-Za-z0-9_-]{6,64}$/.test(code.trim())) {
+    if (createForm.code.trim() && !/^[A-Za-z0-9_-]{6,64}$/.test(createForm.code.trim())) {
       setError('邀请码只能包含字母、数字、下划线和短横线，长度 6-64');
       return;
     }
-    const res = await api('POST', '/api/admin/contribution-invites', {
-      name: name.trim(),
-      note: note.trim(),
-      code: code.trim() || undefined,
-      enabled,
-      maxUses: maxUses ? Number(maxUses) : undefined,
-      maxActiveSessions: Number(maxActiveSessions || '1'),
-      perIpLimitMax: Number(perIpLimitMax || '1'),
-      perIpLimitWindowMs: Number(perIpLimitWindowMs || '86400000'),
-    });
-    if (!res.ok) {
-      setError(extractErrorMessage(res.data, '创建邀请码失败'));
-      return;
+    setSavingCreate(true);
+    try {
+      const res = await api('POST', '/api/admin/contribution-invites', {
+        name: createForm.name.trim(),
+        note: createForm.note.trim(),
+        code: createForm.code.trim() || undefined,
+        enabled: createForm.enabled,
+        maxUses: createForm.maxUses ? Number(createForm.maxUses) : undefined,
+        maxActiveSessions: Number(createForm.maxActiveSessions || '1'),
+        perIpLimitMax: Number(createForm.perIpLimitMax || '1'),
+        perIpLimitWindowMs: Number(createForm.perIpLimitWindowMs || '86400000'),
+      });
+      if (!res.ok) {
+        setError(extractErrorMessage(res.data, '创建邀请码失败'));
+        return;
+      }
+      setCreateForm(defaultInviteForm);
+      setShowCreateModal(false);
+      onRefresh();
+    } finally {
+      setSavingCreate(false);
     }
-    setName('');
-    setNote('');
-    setCode('');
-    setEnabled(true);
-    setMaxUses('');
-    setMaxActiveSessions('1');
-    setPerIpLimitMax('3');
-    setPerIpLimitWindowMs('86400000');
-    onRefresh();
   };
 
   const review = async (recordId: string, action: 'approve' | 'reject') => {
@@ -137,24 +351,29 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
       setError('邀请码只能包含字母、数字、下划线和短横线，长度 6-64');
       return;
     }
-    const res = await api('PATCH', `/api/admin/contribution-invites/${editingInvite.id}`, {
-      name: editForm.name.trim(),
-      note: editForm.note.trim(),
-      code: editForm.code.trim(),
-      enabled: editForm.enabled,
-      maxUses: editForm.maxUses ? Number(editForm.maxUses) : null,
-      maxActiveSessions: Number(editForm.maxActiveSessions || '1'),
-      perIpLimitMax: Number(editForm.perIpLimitMax || '1'),
-      perIpLimitWindowMs: Number(editForm.perIpLimitWindowMs || '86400000'),
-    });
-    if (!res.ok) {
-      setError(extractErrorMessage(res.data, '更新邀请码失败'));
-      return;
+    setSavingEdit(true);
+    try {
+      const res = await api('PATCH', `/api/admin/contribution-invites/${editingInvite.id}`, {
+        name: editForm.name.trim(),
+        note: editForm.note.trim(),
+        code: editForm.code.trim(),
+        enabled: editForm.enabled,
+        maxUses: editForm.maxUses ? Number(editForm.maxUses) : null,
+        maxActiveSessions: Number(editForm.maxActiveSessions || '1'),
+        perIpLimitMax: Number(editForm.perIpLimitMax || '1'),
+        perIpLimitWindowMs: Number(editForm.perIpLimitWindowMs || '86400000'),
+      });
+      if (!res.ok) {
+        setError(extractErrorMessage(res.data, '更新邀请码失败'));
+        return;
+      }
+      setError('');
+      setEditingInvite(null);
+      setEditForm(null);
+      onRefresh();
+    } finally {
+      setSavingEdit(false);
     }
-    setError('');
-    setEditingInvite(null);
-    setEditForm(null);
-    onRefresh();
   };
 
   const pendingCount = records.filter((record) => record.status === 'pending_review').length;
@@ -167,36 +386,25 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
       />
 
       <section className={`${cardClass} p-6`}>
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">邀请码</h3>
-          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-            配置共享账号入口的邀请码、使用次数与单 IP 限制。
-          </p>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">邀请码</h3>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+              配置共享账号入口的邀请码、使用次数与单 IP 限制。
+            </p>
+          </div>
+          <button type="button" onClick={() => { setError(''); setCreateForm(defaultInviteForm); setShowCreateModal(true); }} className={primaryBtnClass}>
+            创建邀请码
+          </button>
         </div>
-        <form onSubmit={createInvite} className="mt-4 space-y-3">
-          <div className="grid gap-3 md:grid-cols-4">
-            <input className={inputClass} placeholder="名称" value={name} onChange={(e) => setName(e.target.value)} />
-            <input className={inputClass} placeholder="备注" value={note} onChange={(e) => setNote(e.target.value)} />
-            <input className={inputClass} placeholder="自定义邀请码（可选）" value={code} onChange={(e) => setCode(e.target.value)} />
-            <button type="submit" className={primaryBtnClass}>创建</button>
-          </div>
-          <div className="grid gap-3 md:grid-cols-4">
-            <input className={inputClass} type="number" min="1" placeholder="最大使用次数（可选）" value={maxUses} onChange={(e) => setMaxUses(e.target.value)} />
-            <input className={inputClass} type="number" min="1" placeholder="最大活跃流程数" value={maxActiveSessions} onChange={(e) => setMaxActiveSessions(e.target.value)} />
-            <input className={inputClass} type="number" min="1" placeholder="单 IP 次数限制" value={perIpLimitMax} onChange={(e) => setPerIpLimitMax(e.target.value)} />
-            <input className={inputClass} type="number" min="60000" placeholder="单 IP 窗口(ms)" value={perIpLimitWindowMs} onChange={(e) => setPerIpLimitWindowMs(e.target.value)} />
-          </div>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-slate-300">
-            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-            创建后立即启用
-          </label>
-        </form>
-        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-          自定义邀请码仅支持字母、数字、下划线和短横线，长度 6-64。
-        </p>
-        {error ? <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full text-sm">
+        <div className="mt-4 space-y-3">
+          {invites.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-600 py-8 text-center text-sm text-gray-400 dark:text-slate-500">
+              暂无邀请码，点击右上角创建
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
             <thead className="border-b border-gray-100 bg-gray-50/60 text-left text-gray-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3 font-medium">名称</th>
@@ -230,7 +438,7 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500 dark:text-slate-400">
                     <div>活跃流程: {invite.maxActiveSessions}</div>
-                    <div>单 IP: {invite.perIpLimitMax} / {invite.perIpLimitWindowMs}ms</div>
+                    <div>单 IP: {invite.perIpLimitMax} / {formatDuration(invite.perIpLimitWindowMs)}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
                     {invite.usedCount}{invite.maxUses ? ` / ${invite.maxUses}` : ''}
@@ -252,36 +460,45 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
               ))}
             </tbody>
           </table>
+            </div>
+          )}
         </div>
       </section>
 
+      {showCreateModal ? (
+        <InviteFormModal
+          title="创建邀请码"
+          confirmLabel="创建"
+          form={createForm}
+          error={error}
+          saving={savingCreate}
+          onChange={setCreateForm}
+          onSubmit={createInvite}
+          onClose={() => {
+            setShowCreateModal(false);
+            setError('');
+          }}
+        />
+      ) : null}
+
       {editingInvite && editForm ? (
-        <ConfirmModal
+        <InviteFormModal
           title="编辑邀请码"
           confirmLabel="保存"
-          confirmColor="brand"
-          onConfirm={saveInvite}
-          onCancel={() => {
+          form={editForm}
+          error={error}
+          saving={savingEdit}
+          onChange={setEditForm}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveInvite();
+          }}
+          onClose={() => {
             setEditingInvite(null);
             setEditForm(null);
+            setError('');
           }}
-        >
-          <div className="mt-3 space-y-3">
-            <input className={inputClass} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder="名称" />
-            <input className={inputClass} value={editForm.note} onChange={(e) => setEditForm({ ...editForm, note: e.target.value })} placeholder="备注" />
-            <input className={inputClass} value={editForm.code} onChange={(e) => setEditForm({ ...editForm, code: e.target.value })} placeholder="邀请码" />
-            <div className="grid grid-cols-2 gap-3">
-              <input className={inputClass} type="number" min="1" value={editForm.maxUses} onChange={(e) => setEditForm({ ...editForm, maxUses: e.target.value })} placeholder="最大使用次数" />
-              <input className={inputClass} type="number" min="1" value={editForm.maxActiveSessions} onChange={(e) => setEditForm({ ...editForm, maxActiveSessions: e.target.value })} placeholder="最大活跃流程数" />
-              <input className={inputClass} type="number" min="1" value={editForm.perIpLimitMax} onChange={(e) => setEditForm({ ...editForm, perIpLimitMax: e.target.value })} placeholder="单 IP 次数限制" />
-              <input className={inputClass} type="number" min="60000" value={editForm.perIpLimitWindowMs} onChange={(e) => setEditForm({ ...editForm, perIpLimitWindowMs: e.target.value })} placeholder="单 IP 窗口(ms)" />
-            </div>
-            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-slate-300">
-              <input type="checkbox" checked={editForm.enabled} onChange={(e) => setEditForm({ ...editForm, enabled: e.target.checked })} />
-              启用邀请码
-            </label>
-          </div>
-        </ConfirmModal>
+        />
       ) : null}
 
       {deleteTarget ? (
