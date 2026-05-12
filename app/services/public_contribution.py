@@ -10,6 +10,7 @@ from app.services.account_bootstrap import BootstrapManager, BootstrapSession
 from app.services.account_store import AccountStore
 from app.services.config_store import ConfigStore
 from app.services.token_manager import TokenManager
+from app.utils.bg_task import create_bg_task
 
 
 def _utc_now_iso() -> str:
@@ -105,7 +106,11 @@ class PublicContributionService:
             client_ip=client_ip,
             bootstrap_session_id=session.session_id,
         )
-        asyncio.create_task(self._watch_session(record.id, session.session_id, invite.id))
+        create_bg_task(
+            self._watch_session(record.id, session.session_id, invite.id),
+            name="watch-public-contribution",
+            message=f"record_id={record.id} bootstrap_session_id={session.session_id}",
+        )
         return self._public_session_payload(record)
 
     async def _watch_session(self, record_id: str, bootstrap_session_id: str, invite_id: str) -> None:
