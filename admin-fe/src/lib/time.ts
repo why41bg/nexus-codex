@@ -30,6 +30,18 @@ export function formatDuration(ms: number): string {
   return minutes === 1 ? '1 分钟' : `${minutes} 分钟`;
 }
 
+/** 将时间戳格式化为 HH:mm */
+export function formatClockTime(ts: number): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** 保留指定小数位 */
+export function roundTo(n: number, digits = 2): number {
+  const factor = 10 ** digits;
+  return Math.round(n * factor) / factor;
+}
+
 /** 预设的时间窗口选项 */
 export const WINDOW_PRESETS = [
   { label: '1 小时', value: '3600000' },

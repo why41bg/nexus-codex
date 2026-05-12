@@ -23,6 +23,18 @@ export const secondaryBtnClass =
 export const subtleBtnClass =
   'rounded-md bg-gray-50 dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-slate-600';
 
+/** 纯图标按钮 */
+export const iconButtonClass =
+  'rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300';
+
+/** 空状态占位（虚线边框） */
+export const dashedEmptyStateClass =
+  'rounded-lg border border-dashed border-gray-300 py-8 text-center text-sm text-gray-400 dark:border-slate-600 dark:text-slate-500';
+
+/** 图表空状态占位 */
+export const chartEmptyStateClass =
+  'flex h-48 items-center justify-center text-sm text-gray-400 dark:text-slate-500';
+
 /** 管理台品牌色小号操作按钮 */
 export const brandSubtleBtnClass =
   'rounded-md bg-brand-50 dark:bg-brand-950 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:bg-brand-100 dark:hover:bg-brand-900';
@@ -38,6 +50,14 @@ export const warningSubtleBtnClass =
 /** 成功态小号按钮 */
 export const successSubtleBtnClass =
   'rounded-md bg-green-50 dark:bg-green-950 px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400 transition-colors hover:bg-green-100 dark:hover:bg-green-900';
+
+/** 启停状态徽标 */
+export const enabledStatusBadgeClass = (enabled: boolean) =>
+  `rounded px-2 py-0.5 text-xs ${
+    enabled
+      ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400'
+      : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400'
+  }`;
 
 /** 管理台筛选按钮容器 */
 export const filterTabsWrapClass =
