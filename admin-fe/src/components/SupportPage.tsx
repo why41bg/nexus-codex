@@ -18,10 +18,10 @@ export default function SupportPage() {
           返回首页
         </Link>
         <h1 className="text-3xl font-extrabold tracking-tight text-gray-900 dark:text-slate-100 sm:text-4xl">
-          入池支持
+          共享入池
         </h1>
         <p className="mt-4 max-w-md text-base text-gray-500 dark:text-slate-400">
-          了解 Nexus Codex 账号池的运作方式，以及如何将你的账号加入共享池。
+          了解账号池的运作方式，以及如何将你的闲置账号加入共享。
         </p>
       </header>
 
@@ -32,17 +32,17 @@ export default function SupportPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">
-                  共享账号入口
+                  发起共享
                 </h2>
                 <p className="mt-1 text-sm text-gray-600 dark:text-slate-300">
-                  如果你已经拿到管理员发放的邀请码，可以直接发起共享账号登录，完成后会进入审核入池流程。
+                  持有邀请码即可发起共享，提交后将由管理员审核入池。
                 </p>
               </div>
               <Link
                 to="/contribute"
                 className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
               >
-                发起共享登录
+                开始共享
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
                 </svg>
