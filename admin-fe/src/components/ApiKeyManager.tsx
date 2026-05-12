@@ -5,8 +5,8 @@ import { copyToClipboard } from '@/lib/clipboard';
 import { inputClass, primaryBtnClass, cardClass } from '@/lib/styles';
 import { relativeTime } from '@/lib/time';
 import { useToast } from '@/contexts/ToastContext';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import { CopyIcon } from './icons';
+import { SelfServiceBadge, KeyApplicantInfo } from './KeyApplicantInfo';
 import EditKeyModal from './EditKeyModal';
 import ConfirmModal from './ConfirmModal';
 import PasswordConfirmModal from './PasswordConfirmModal';
@@ -23,7 +23,6 @@ interface Props {
 
 export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: Props) {
   const { toast } = useToast();
-  const authGuard = useAuthGuard();
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [newKeyName, setNewKeyName] = useState('');
@@ -57,7 +56,6 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         keyPrefix: revealTarget.keyPrefix,
         password,
       });
-      if (authGuard(res.status)) return;
       if (res.ok && res.data?.key) {
         await copyToClipboard(res.data.key);
         toast('完整 Key 已复制到剪贴板', 'success');
@@ -81,7 +79,6 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         name: newKeyName.trim(),
         models: [],
       });
-      if (authGuard(res.status)) return;
       if (res.ok && res.data?.key) {
         setLastCreatedKey(res.data.key);
         setNewKeyName('');
@@ -102,7 +99,6 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
     setDeletingKey(true);
     try {
       const res = await api('DELETE', `/api/admin/keys/${encodeURIComponent(deleteTarget.keyPrefix)}`);
-      if (authGuard(res.status)) return;
       if (res.ok) {
         toast('API Key 已删除', 'success');
         setDeleteTarget(null);
@@ -121,7 +117,6 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
     const newEnabled = !(k.enabled ?? true);
     try {
       const res = await api('PATCH', `/api/admin/keys/${encodeURIComponent(k.keyPrefix)}`, { enabled: newEnabled });
-      if (authGuard(res.status)) return;
       if (res.ok) {
         toast(newEnabled ? '已启用' : '已禁用', 'success');
         onRefresh();
@@ -141,7 +136,6 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
         keyPrefixes: Array.from(selectedKeys),
         action,
       });
-      if (authGuard(res.status)) return;
       if (res.ok && res.data) {
         toast(`操作完成：成功 ${res.data.succeeded ?? 0}，失败 ${res.data.failed ?? 0}`, 'success');
         setSelectedKeys(new Set());
@@ -290,39 +284,9 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                     <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
                       <div className="flex items-center gap-2">
                         <span>{k.name || '—'}</span>
-                        {k.source === 'self_service' && (
-                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
-                        )}
+                        {k.source === 'self_service' && <SelfServiceBadge />}
                       </div>
-                      {k.source === 'self_service' && (
-                        <div className="mt-1.5 space-y-0.5">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-slate-400">
-                            {k.applicantName && (
-                              <span className="inline-flex items-center gap-1">
-                                <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0" /></svg>
-                                {k.applicantName}
-                              </span>
-                            )}
-                            {k.applicantContact && (
-                              <span className="inline-flex items-center gap-1">
-                                <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
-                                {k.applicantContact}
-                              </span>
-                            )}
-                            {k.templateName && (
-                              <span className="inline-flex items-center gap-1">
-                                <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                                {k.templateName}
-                              </span>
-                            )}
-                          </div>
-                          {k.applicantNote && (
-                            <p className="text-[11px] text-gray-400 dark:text-slate-500 italic truncate max-w-xs" title={k.applicantNote}>
-                              备注: {k.applicantNote}
-                            </p>
-                          )}
-                        </div>
-                      )}
+                      <KeyApplicantInfo apiKey={k} />
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -397,39 +361,9 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{k.name || '—'}</span>
-                      {k.source === 'self_service' && (
-                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">自助申领</span>
-                      )}
+                      {k.source === 'self_service' && <SelfServiceBadge />}
                     </div>
-                    {k.source === 'self_service' && (
-                      <div className="mt-1.5 space-y-0.5">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-slate-400">
-                          {k.applicantName && (
-                            <span className="inline-flex items-center gap-1">
-                              <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0" /></svg>
-                              {k.applicantName}
-                            </span>
-                          )}
-                          {k.applicantContact && (
-                            <span className="inline-flex items-center gap-1">
-                              <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
-                              {k.applicantContact}
-                            </span>
-                          )}
-                          {k.templateName && (
-                            <span className="inline-flex items-center gap-1">
-                              <svg className="h-3 w-3 text-gray-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                              {k.templateName}
-                            </span>
-                          )}
-                        </div>
-                        {k.applicantNote && (
-                          <p className="text-[11px] text-gray-400 dark:text-slate-500 italic truncate" title={k.applicantNote}>
-                            备注: {k.applicantNote}
-                          </p>
-                        )}
-                      </div>
-                    )}
+                    <KeyApplicantInfo apiKey={k} />
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono text-xs text-gray-500 dark:text-slate-400">{k.keyMasked}</span>
