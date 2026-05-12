@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, primaryBtnClass, secondaryBtnClass, cardClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import { useAccountBootstrap } from '@/hooks/useAccountBootstrap';
 import Spinner from './Spinner';
 
@@ -18,7 +17,6 @@ function formatTime(seconds: number): string {
 
 export default function AddAccountForm({ onAdded }: Props) {
   const { toast } = useToast();
-  const authGuard = useAuthGuard();
 
   // Manual mode state
   const [codexHome, setCodexHome] = useState('');
@@ -41,7 +39,6 @@ export default function AddAccountForm({ onAdded }: Props) {
         remark: remark.trim(),
         ...(maxConcurrency && { maxConcurrency: Number(maxConcurrency) }),
       });
-      if (authGuard(res.status)) return;
       if (res.ok) {
         toast('账号添加成功', 'success');
         setCodexHome('');

@@ -3,7 +3,6 @@ import type { ApiKey } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, secondaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import { CloseIcon } from './icons';
 import Spinner from './Spinner';
 import { useFocusTrap } from '../lib/use-focus-trap';
@@ -22,7 +21,6 @@ export default function EditKeyModal({
   onSaved,
 }: EditKeyModalProps) {
   const { toast } = useToast();
-  const authGuard = useAuthGuard();
   const [name, setName] = useState(target.name || '');
   const [selectedModels, setSelectedModels] = useState<string[]>([...target.models]);
   const [customModel, setCustomModel] = useState('');
@@ -76,7 +74,6 @@ export default function EditKeyModal({
         monthlyQuota: monthlyQuota ? Number(monthlyQuota) : null,
         ipWhitelist: ips,
       });
-      if (authGuard(res.status)) return;
       if (res.ok) {
         toast('API Key 已更新', 'success');
         onSaved();

@@ -3,7 +3,6 @@ import type { Account } from '@/types';
 import { api, extractErrorMessage } from '@/lib/api';
 import { inputClass, secondaryBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
-import { useAuthGuard } from '@/contexts/AuthContext';
 import Spinner from './Spinner';
 import { useFocusTrap } from '../lib/use-focus-trap';
 
@@ -15,7 +14,6 @@ interface Props {
 
 export default function EditAccountModal({ account, onSaved, onCancel }: Props) {
   const { toast } = useToast();
-  const authGuard = useAuthGuard();
   const [remark, setRemark] = useState(account.remark ?? '');
   const [maxConcurrency, setMaxConcurrency] = useState(
     account.runtime?.maxConcurrency?.toString() ?? '',
@@ -51,7 +49,6 @@ export default function EditAccountModal({ account, onSaved, onCancel }: Props) 
         return;
       }
       const res = await api('PATCH', `/api/admin/accounts/${account.id}`, body);
-      if (authGuard(res.status)) return;
       if (res.ok) {
         toast('账号配置已更新', 'success');
         onSaved();
