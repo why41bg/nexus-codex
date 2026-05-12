@@ -14,7 +14,7 @@ import {
 import ConfirmModal from './ConfirmModal';
 import AdminPageHeader from './AdminPageHeader';
 import Spinner from './Spinner';
-import { CloseIcon } from './icons';
+import { CloseIcon, CopyIcon } from './icons';
 import { useFocusTrap } from '../lib/use-focus-trap';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -427,16 +427,19 @@ export default function ContributionsTab({ invites, records, onRefresh }: Props)
                 <tr key={invite.id} className="transition-colors hover:bg-gray-50/50 dark:hover:bg-slate-700/50">
                   <td className="px-4 py-3 text-gray-900 dark:text-slate-100">{invite.name}</td>
                   <td className="px-4 py-3 font-mono text-gray-600 dark:text-slate-300">
-                    <div>{invite.codeMasked}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span>{invite.codeMasked}</span>
                     {invite.code ? (
                       <button
                         type="button"
-                        className="mt-1 text-xs text-brand-600 dark:text-brand-400"
+                        className="rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
                         onClick={() => handleCopyInviteCode(invite.code || '')}
+                        title="复制邀请码"
                       >
-                        复制明文
+                        <CopyIcon />
                       </button>
                     ) : null}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`rounded px-2 py-0.5 text-xs ${invite.enabled ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400'}`}>
