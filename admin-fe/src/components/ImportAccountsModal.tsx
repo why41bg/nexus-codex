@@ -1,9 +1,9 @@
-import { useState, useCallback, useRef, useId, useEffect } from 'react';
-import { inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
+import { useState, useCallback, useRef } from 'react';
+import { inputClass, primaryBtnClass, secondaryBtnClass, filterTabBtnClass } from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
 import { useImportAccounts } from '@/hooks/useAdminMutations';
-import { useFocusTrap } from '@/lib/use-focus-trap';
 import Spinner from './Spinner';
+import BaseModal from './BaseModal';
 
 interface ImportAccount {
   codexHome: string;
@@ -25,9 +25,6 @@ interface Props {
 export default function ImportAccountsModal({ onImported, onCancel }: Props) {
   const { toast } = useToast();
   const importMutation = useImportAccounts();
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  useFocusTrap(dialogRef);
 
   const [mode, setMode] = useState<'merge' | 'replace'>('merge');
   const [inputMethod, setInputMethod] = useState<'file' | 'text'>('file');
@@ -35,15 +32,6 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
   const [parsed, setParsed] = useState<ValidationResult | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    dialogRef.current?.focus();
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
 
   const parseAndValidate = useCallback((raw: string): ValidationResult => {
     const result: ValidationResult = { valid: [], errors: [] };
@@ -117,7 +105,7 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
     }
   }, [parseAndValidate]);
 
-  const doImport = async () => {
+  const doImport = () => {
     if (!parsed || parsed.valid.length === 0) return;
     importMutation.mutate(
       { accounts: parsed.valid, mode },
@@ -129,180 +117,149 @@ export default function ImportAccountsModal({ onImported, onCancel }: Props) {
   const errorCount = parsed?.errors.length ?? 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-    >
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="mx-4 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-xl ring-1 ring-gray-200 dark:ring-slate-700 outline-none"
-      >
-        <h3 id={titleId} className="text-base font-semibold text-gray-900 dark:text-slate-100">导入账号</h3>
-
-        {/* 导入模式 */}
-        <fieldset className="mt-4">
-          <legend className="text-xs font-medium text-gray-600 dark:text-slate-400">导入模式</legend>
-          <div className="mt-2 flex flex-col gap-2">
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="importMode"
-                checked={mode === 'merge'}
-                onChange={() => setMode('merge')}
-                className="mt-0.5 accent-brand-600"
-              />
-              <div>
-                <span className="text-sm font-medium text-gray-800 dark:text-slate-200">合并导入</span>
-                <p className="text-xs text-gray-500 dark:text-slate-400">保留现有账号，仅追加新账号（按 codexHome 去重）</p>
-              </div>
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="importMode"
-                checked={mode === 'replace'}
-                onChange={() => setMode('replace')}
-                className="mt-0.5 accent-brand-600"
-              />
-              <div>
-                <span className="text-sm font-medium text-red-700 dark:text-red-400">替换导入</span>
-                <p className="text-xs text-gray-500 dark:text-slate-400">清空现有所有账号后导入（危险操作）</p>
-              </div>
-            </label>
-          </div>
-        </fieldset>
-
-        {/* 输入方式切换 */}
-        <div className="mt-4 flex gap-1 border-b border-gray-200 dark:border-slate-700">
-          <button
-            onClick={() => setInputMethod('file')}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${inputMethod === 'file' ? 'border-b-2 border-brand-600 text-brand-600 dark:text-brand-400' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'}`}
-          >
-            文件上传
-          </button>
-          <button
-            onClick={() => setInputMethod('text')}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${inputMethod === 'text' ? 'border-b-2 border-brand-600 text-brand-600 dark:text-brand-400' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'}`}
-          >
-            文本粘贴
-          </button>
-        </div>
-
-        {/* 文件上传 */}
-        {inputMethod === 'file' && (
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`mt-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-8 transition-colors ${
-              dragOver ? 'border-brand-500 bg-brand-50 dark:bg-brand-950' : 'border-gray-300 dark:border-slate-600 hover:border-gray-400 dark:hover:border-slate-500'
-            }`}
-          >
-            <p className="text-sm text-gray-600 dark:text-slate-400">拖拽 JSON 文件到此处，或点击选择文件</p>
-            <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">支持 .json 格式</p>
+    <BaseModal title="导入账号" maxWidth="max-w-lg" onClose={onCancel}>
+      <fieldset>
+        <legend className="text-xs font-medium text-gray-600 dark:text-slate-400">导入模式</legend>
+        <div className="mt-2 flex flex-col gap-2">
+          <label className="flex cursor-pointer items-start gap-2">
             <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleFileSelect(file);
-              }}
+              type="radio"
+              name="importMode"
+              checked={mode === 'merge'}
+              onChange={() => setMode('merge')}
+              className="mt-0.5 accent-brand-600"
             />
-          </div>
-        )}
-
-        {/* 文本粘贴 */}
-        {inputMethod === 'text' && (
-          <div className="mt-3">
-            <textarea
-              value={textInput}
-              onChange={(e) => handleTextChange(e.target.value)}
-              placeholder={`粘贴 JSON 数组，例如：\n[\n  {\n    "codexHome": "/Users/you/.codex-pool/account-1",\n    "remark": "account-1@example.com",\n    "maxConcurrency": 3\n  }\n]`}
-              rows={8}
-              className={inputClass + ' font-mono text-xs'}
-            />
-          </div>
-        )}
-
-        {/* 解析结果预览 */}
-        {parsed && (
-          <div className="mt-4">
-            <div className="flex items-center gap-3 text-sm">
-              {validCount > 0 && (
-                <span className="text-green-600 dark:text-green-400">{validCount} 条有效</span>
-              )}
-              {errorCount > 0 && (
-                <span className="text-red-600 dark:text-red-400">{errorCount} 条有错误</span>
-              )}
+            <div>
+              <span className="text-sm font-medium text-gray-800 dark:text-slate-200">合并导入</span>
+              <p className="text-xs text-gray-500 dark:text-slate-400">保留现有账号，仅追加新账号（按 codexHome 去重）</p>
             </div>
-
-            {validCount > 0 && (
-              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
-                <table className="w-full text-left text-xs">
-                  <thead className="sticky top-0 bg-gray-50 dark:bg-slate-700">
-                    <tr>
-                      <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">codexHome</th>
-                      <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">备注</th>
-                      <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">并发</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                    {parsed.valid.map((item, i) => (
-                      <tr key={i}>
-                        <td className="px-3 py-1.5 font-mono text-gray-700 dark:text-slate-300 truncate max-w-[200px]">{item.codexHome}</td>
-                        <td className="px-3 py-1.5 text-gray-500 dark:text-slate-400 truncate max-w-[120px]">{item.remark || '—'}</td>
-                        <td className="px-3 py-1.5 text-gray-500 dark:text-slate-400">{item.maxConcurrency ?? '默认'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {errorCount > 0 && (
-              <div className="mt-2 space-y-1">
-                {parsed.errors.map((err, i) => (
-                  <div key={i} className="text-xs text-red-600 dark:text-red-400">
-                    {err.index >= 0 ? `第 ${err.index + 1} 条：` : ''}{err.message}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 替换模式警告 */}
-        {mode === 'replace' && validCount > 0 && (
-          <div className="mt-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-4 py-3">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">⚠ 危险操作</p>
-            <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-              此操作将删除所有现有账号并用导入数据替换，此操作不可撤销！
-            </p>
-          </div>
-        )}
-
-        {/* 操作按钮 */}
-        <div className="mt-5 flex justify-end gap-3">
-          <button onClick={onCancel} className={secondaryBtnClass}>
-            取消
-          </button>
-          <button
-            onClick={doImport}
-            disabled={validCount === 0 || importMutation.isPending}
-            className={primaryBtnClass}
-          >
-            {importMutation.isPending && <Spinner className="mr-1.5 h-4 w-4" />}
-            {validCount > 0 ? `确认导入 (${validCount} 条)` : '确认导入'}
-          </button>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="radio"
+              name="importMode"
+              checked={mode === 'replace'}
+              onChange={() => setMode('replace')}
+              className="mt-0.5 accent-brand-600"
+            />
+            <div>
+              <span className="text-sm font-medium text-red-700 dark:text-red-400">替换导入</span>
+              <p className="text-xs text-gray-500 dark:text-slate-400">清空现有所有账号后导入（危险操作）</p>
+            </div>
+          </label>
         </div>
+      </fieldset>
+
+      <div className="mt-4 flex gap-1 border-b border-gray-200 dark:border-slate-700">
+        <button type="button" onClick={() => setInputMethod('file')} className={filterTabBtnClass(inputMethod === 'file')}>
+          文件上传
+        </button>
+        <button type="button" onClick={() => setInputMethod('text')} className={filterTabBtnClass(inputMethod === 'text')}>
+          文本粘贴
+        </button>
       </div>
-    </div>
+
+      {inputMethod === 'file' && (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`mt-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-8 transition-colors ${
+            dragOver ? 'border-brand-500 bg-brand-50 dark:bg-brand-950' : 'border-gray-300 dark:border-slate-600 hover:border-gray-400 dark:hover:border-slate-500'
+          }`}
+        >
+          <p className="text-sm text-gray-600 dark:text-slate-400">拖拽 JSON 文件到此处，或点击选择文件</p>
+          <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">支持 .json 格式</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFileSelect(file);
+            }}
+          />
+        </div>
+      )}
+
+      {inputMethod === 'text' && (
+        <div className="mt-3">
+          <textarea
+            value={textInput}
+            onChange={(e) => handleTextChange(e.target.value)}
+            placeholder={`粘贴 JSON 数组，例如：\n[\n  {\n    "codexHome": "/Users/you/.codex-pool/account-1",\n    "remark": "account-1@example.com",\n    "maxConcurrency": 3\n  }\n]`}
+            rows={8}
+            className={inputClass + ' font-mono text-xs'}
+          />
+        </div>
+      )}
+
+      {parsed && (
+        <div className="mt-4">
+          <div className="flex items-center gap-3 text-sm">
+            {validCount > 0 && <span className="text-green-600 dark:text-green-400">{validCount} 条有效</span>}
+            {errorCount > 0 && <span className="text-red-600 dark:text-red-400">{errorCount} 条有错误</span>}
+          </div>
+
+          {validCount > 0 && (
+            <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-slate-700">
+                  <tr>
+                    <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">codexHome</th>
+                    <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">备注</th>
+                    <th className="px-3 py-1.5 font-medium text-gray-500 dark:text-slate-400">并发</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                  {parsed.valid.map((item, i) => (
+                    <tr key={i}>
+                      <td className="max-w-[200px] truncate px-3 py-1.5 font-mono text-gray-700 dark:text-slate-300">{item.codexHome}</td>
+                      <td className="max-w-[120px] truncate px-3 py-1.5 text-gray-500 dark:text-slate-400">{item.remark || '—'}</td>
+                      <td className="px-3 py-1.5 text-gray-500 dark:text-slate-400">{item.maxConcurrency ?? '默认'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {errorCount > 0 && (
+            <div className="mt-2 space-y-1">
+              {parsed.errors.map((err, i) => (
+                <div key={i} className="text-xs text-red-600 dark:text-red-400">
+                  {err.index >= 0 ? `第 ${err.index + 1} 条：` : ''}
+                  {err.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'replace' && validCount > 0 && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950">
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">⚠ 危险操作</p>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            此操作将删除所有现有账号并用导入数据替换，此操作不可撤销！
+          </p>
+        </div>
+      )}
+
+      <div className="mt-5 flex justify-end gap-3">
+        <button type="button" onClick={onCancel} className={secondaryBtnClass}>
+          取消
+        </button>
+        <button type="button" onClick={doImport} disabled={validCount === 0 || importMutation.isPending} className={primaryBtnClass}>
+          {importMutation.isPending && <Spinner className="mr-1.5 h-4 w-4" />}
+          {validCount > 0 ? `确认导入 (${validCount} 条)` : '确认导入'}
+        </button>
+      </div>
+    </BaseModal>
   );
 }

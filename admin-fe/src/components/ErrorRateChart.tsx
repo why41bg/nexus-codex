@@ -9,8 +9,9 @@ import {
   ReferenceLine,
 } from 'recharts';
 import type { TimeSeriesBucket } from '@/types';
-import { cardClass } from '@/lib/styles';
+import { cardClass, chartEmptyStateClass } from '@/lib/styles';
 import { useTheme } from '@/contexts/ThemeContext';
+import { formatClockTime, roundTo } from '@/lib/time';
 
 interface Props {
   buckets: TimeSeriesBucket[];
@@ -18,17 +19,12 @@ interface Props {
 
 const ALERT_THRESHOLD = 5;
 
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
 export default function ErrorRateChart({ buckets }: Props) {
   const { isDark } = useTheme();
 
   const data = buckets.map((b) => ({
-    time: formatTime(b.timestamp),
-    错误率: b.requestCount > 0 ? round((b.errorCount / b.requestCount) * 100) : 0,
+    time: formatClockTime(b.timestamp),
+    错误率: b.requestCount > 0 ? roundTo((b.errorCount / b.requestCount) * 100) : 0,
   }));
 
   const gridStroke = isDark ? '#334155' : '#f0f0f0';
@@ -40,7 +36,7 @@ export default function ErrorRateChart({ buckets }: Props) {
     return (
       <div className={`${cardClass} p-4`}>
         <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">错误率趋势</h3>
-        <div className="flex h-48 items-center justify-center text-sm text-gray-400 dark:text-slate-500">
+        <div className={chartEmptyStateClass}>
           暂无数据
         </div>
       </div>
@@ -87,8 +83,4 @@ export default function ErrorRateChart({ buckets }: Props) {
       </div>
     </div>
   );
-}
-
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
 }

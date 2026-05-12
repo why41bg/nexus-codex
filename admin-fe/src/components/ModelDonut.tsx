@@ -1,7 +1,8 @@
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import type { MetricsBreakdown } from '@/types';
-import { cardClass } from '@/lib/styles';
+import { cardClass, chartEmptyStateClass } from '@/lib/styles';
 import { useTheme } from '@/contexts/ThemeContext';
+import { roundTo } from '@/lib/time';
 
 interface Props {
   breakdown: MetricsBreakdown;
@@ -31,7 +32,7 @@ export default function ModelDonut({ breakdown }: Props) {
     return (
       <div className={`${cardClass} p-4`}>
         <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">模型分布</h3>
-        <div className="flex h-48 items-center justify-center text-sm text-gray-400 dark:text-slate-500">
+        <div className={chartEmptyStateClass}>
           暂无数据
         </div>
       </div>
@@ -65,7 +66,7 @@ export default function ModelDonut({ breakdown }: Props) {
                   borderRadius: 8,
                 }}
                 formatter={(value, name) => [
-                  `${value} (${breakdown.totals.requests > 0 ? round((Number(value) / breakdown.totals.requests) * 100) : 0}%)`,
+                  `${value} (${breakdown.totals.requests > 0 ? roundTo((Number(value) / breakdown.totals.requests) * 100) : 0}%)`,
                   name,
                 ]}
               />
@@ -95,8 +96,4 @@ export default function ModelDonut({ breakdown }: Props) {
       </div>
     </div>
   );
-}
-
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
 }

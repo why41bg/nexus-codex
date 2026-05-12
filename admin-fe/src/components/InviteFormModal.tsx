@@ -1,4 +1,3 @@
-import type { ContributionInvite } from '@/types';
 import { formatDuration, WINDOW_PRESETS, generateRandomCode } from '@/lib/time';
 import { inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
 import BaseModal from './BaseModal';
@@ -13,30 +12,6 @@ export interface InviteFormState {
   maxActiveSessions: string;
   perIpLimitMax: string;
   perIpLimitWindowMs: string;
-}
-
-export const defaultInviteForm: InviteFormState = {
-  name: '',
-  note: '',
-  code: '',
-  enabled: true,
-  maxUses: '',
-  maxActiveSessions: '1',
-  perIpLimitMax: '3',
-  perIpLimitWindowMs: '86400000',
-};
-
-export function toInviteForm(invite: ContributionInvite): InviteFormState {
-  return {
-    name: invite.name,
-    note: invite.note,
-    code: invite.code || '',
-    enabled: invite.enabled,
-    maxUses: invite.maxUses != null ? String(invite.maxUses) : '',
-    maxActiveSessions: String(invite.maxActiveSessions),
-    perIpLimitMax: String(invite.perIpLimitMax),
-    perIpLimitWindowMs: String(invite.perIpLimitWindowMs),
-  };
 }
 
 interface InviteFormModalProps {
@@ -68,7 +43,7 @@ export default function InviteFormModal({ title, confirmLabel, form, error, savi
           <textarea className={inputClass} rows={2} value={form.note} onChange={(e) => onChange({ ...form, note: e.target.value })} placeholder="用途说明，例如面向哪些用户" />
         </div>
 
-        <fieldset className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
+        <fieldset className="rounded-lg border border-gray-200 p-3 dark:border-slate-700">
           <legend className="px-1 text-xs font-medium text-gray-600 dark:text-slate-400">邀请码</legend>
           <div className="space-y-3">
             <div>
@@ -83,7 +58,7 @@ export default function InviteFormModal({ title, confirmLabel, form, error, savi
                 <button
                   type="button"
                   onClick={() => onChange({ ...form, code: generateRandomCode() })}
-                  className="rounded-lg bg-gray-100 dark:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 whitespace-nowrap"
+                  className="whitespace-nowrap rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
                 >
                   随机生成
                 </button>
@@ -104,13 +79,13 @@ export default function InviteFormModal({ title, confirmLabel, form, error, savi
                   onChange={(e) => onChange({ ...form, maxUses: e.target.value })}
                   placeholder="不限制"
                 />
-                <span className="text-xs text-gray-400 dark:text-slate-500 whitespace-nowrap">次</span>
+                <span className="whitespace-nowrap text-xs text-gray-400 dark:text-slate-500">次</span>
               </div>
             </div>
           </div>
         </fieldset>
 
-        <fieldset className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
+        <fieldset className="rounded-lg border border-gray-200 p-3 dark:border-slate-700">
           <legend className="px-1 text-xs font-medium text-gray-600 dark:text-slate-400">会话与频率限制</legend>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
@@ -133,7 +108,7 @@ export default function InviteFormModal({ title, confirmLabel, form, error, savi
                   value={form.perIpLimitMax}
                   onChange={(e) => onChange({ ...form, perIpLimitMax: e.target.value })}
                 />
-                <span className="text-xs text-gray-400 dark:text-slate-500 whitespace-nowrap">次</span>
+                <span className="whitespace-nowrap text-xs text-gray-400 dark:text-slate-500">次</span>
               </div>
             </div>
             <div className="md:col-span-2">

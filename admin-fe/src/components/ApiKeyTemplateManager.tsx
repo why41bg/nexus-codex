@@ -3,7 +3,17 @@ import type { ApiKeyTemplate } from '@/types';
 import { API_BASE } from '@/lib/api';
 import { copyToClipboard } from '@/lib/clipboard';
 import { formatDuration } from '@/lib/time';
-import { cardClass, primaryBtnClass } from '@/lib/styles';
+import {
+  brandSubtleBtnClass,
+  cardClass,
+  dashedEmptyStateClass,
+  dangerSubtleBtnClass,
+  enabledStatusBadgeClass,
+  iconButtonClass,
+  primaryBtnClass,
+  subtleBtnClass,
+  warningSubtleBtnClass,
+} from '@/lib/styles';
 import { useToast } from '@/contexts/ToastContext';
 import { useDeleteApiKeyTemplate, useResetClaimUsage } from '@/hooks/useAdminMutations';
 import { CopyIcon } from './icons';
@@ -95,7 +105,7 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
           </div>
         )}
         {!loading && templates.length === 0 && (
-          <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-600 py-8 text-center text-sm text-gray-400 dark:text-slate-500">
+          <div className={dashedEmptyStateClass}>
             暂无申领模板，点击上方按钮创建
           </div>
         )}
@@ -105,7 +115,7 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">{template.name}</span>
-                  <span className={`rounded px-2 py-0.5 text-xs ${template.enabled ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400'}`}>
+                  <span className={enabledStatusBadgeClass(template.enabled)}>
                     {template.enabled ? '已启用' : '已停用'}
                   </span>
                   <span className="rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-400">
@@ -152,7 +162,7 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
                     <button
                       type="button"
                       onClick={() => copyClaimCodeFn(template.claimCode!)}
-                      className="rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
+                      className={iconButtonClass}
                       title="复制申领码"
                     >
                       <CopyIcon />
@@ -164,7 +174,7 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
                 <button
                   type="button"
                   onClick={() => copyClaimLink(template)}
-                  className="rounded-md bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                  className={subtleBtnClass}
                   title="复制申领链接"
                 >
                   <span className="inline-flex items-center gap-1">
@@ -176,7 +186,7 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
                   <button
                     type="button"
                     onClick={() => resetClaimUsage(template.id)}
-                    className="rounded-md bg-yellow-50 px-2.5 py-1 text-xs font-medium text-yellow-700 hover:bg-yellow-100 dark:bg-yellow-950 dark:text-yellow-400 dark:hover:bg-yellow-900"
+                    className={warningSubtleBtnClass}
                     title="重置申领码用量"
                   >
                     重置用量
@@ -185,14 +195,14 @@ export default function ApiKeyTemplateManager({ templates, models, loading, onRe
                 <button
                   type="button"
                   onClick={() => openEdit(template)}
-                  className="rounded-md bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-950 dark:text-brand-300 dark:hover:bg-brand-900"
+                  className={brandSubtleBtnClass}
                 >
                   编辑
                 </button>
                 <button
                   type="button"
                   onClick={() => setDeleteTarget(template)}
-                  className="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                  className={dangerSubtleBtnClass}
                 >
                   删除
                 </button>

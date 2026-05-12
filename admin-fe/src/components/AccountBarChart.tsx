@@ -9,7 +9,7 @@ import {
   Cell,
 } from 'recharts';
 import type { MetricsBreakdown } from '@/types';
-import { cardClass } from '@/lib/styles';
+import { cardClass, chartEmptyStateClass } from '@/lib/styles';
 import { useTheme } from '@/contexts/ThemeContext';
 
 interface Props {
@@ -35,7 +35,7 @@ export default function AccountBarChart({ breakdown }: Props) {
     return (
       <div className={`${cardClass} p-4`}>
         <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">账号使用分布</h3>
-        <div className="flex h-48 items-center justify-center text-sm text-gray-400 dark:text-slate-500">
+        <div className={chartEmptyStateClass}>
           暂无数据
         </div>
       </div>

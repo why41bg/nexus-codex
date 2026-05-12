@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { inputClass, secondaryBtnClass } from '@/lib/styles';
+import { useRef, useState } from 'react';
+import { inputClass, primaryBtnClass, secondaryBtnClass } from '@/lib/styles';
 import Spinner from './Spinner';
 import BaseModal from './BaseModal';
 
@@ -25,10 +25,6 @@ export default function PasswordConfirmModal({
   const [password, setPassword] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!password.trim()) return;
@@ -36,7 +32,13 @@ export default function PasswordConfirmModal({
   };
 
   return (
-    <BaseModal title={title} description={description} maxWidth="max-w-sm" onClose={onCancel}>
+    <BaseModal
+      title={title}
+      description={description}
+      maxWidth="max-w-sm"
+      onClose={onCancel}
+      initialFocusRef={inputRef}
+    >
       <form onSubmit={handleSubmit}>
         <label className="mb-1.5 block text-xs font-medium text-gray-600 dark:text-slate-400">
           管理员密码
@@ -59,11 +61,7 @@ export default function PasswordConfirmModal({
           <button type="button" onClick={onCancel} className={secondaryBtnClass}>
             取消
           </button>
-          <button
-            type="submit"
-            disabled={loading || !password.trim()}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50"
-          >
+          <button type="submit" disabled={loading || !password.trim()} className={primaryBtnClass}>
             {loading && <Spinner className="mr-1.5 inline h-4 w-4" />}
             {confirmLabel}
           </button>

@@ -1,7 +1,16 @@
 import { useState, useMemo } from 'react';
 import type { ApiKey } from '@/types';
 import { copyToClipboard } from '@/lib/clipboard';
-import { inputClass, primaryBtnClass, cardClass } from '@/lib/styles';
+import {
+  brandSubtleBtnClass,
+  cardClass,
+  dangerSubtleBtnClass,
+  filterTabBtnClass,
+  filterTabsWrapClass,
+  iconButtonClass,
+  inputClass,
+  primaryBtnClass,
+} from '@/lib/styles';
 import { relativeTime } from '@/lib/time';
 import { useToast } from '@/contexts/ToastContext';
 import { CopyIcon } from './icons';
@@ -148,37 +157,25 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
 
       {/* Source Filter Tabs */}
       {apiKeys.length > 0 && (
-        <div className="mt-4 flex gap-1 rounded-lg bg-gray-100 dark:bg-slate-800 p-1 w-fit">
+        <div className={filterTabsWrapClass}>
           <button
             type="button"
             onClick={() => setSourceFilter('all')}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              sourceFilter === 'all'
-                ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm'
-                : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
-            }`}
+            className={filterTabBtnClass(sourceFilter === 'all')}
           >
             全部 ({apiKeys.length})
           </button>
           <button
             type="button"
             onClick={() => setSourceFilter('admin')}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              sourceFilter === 'admin'
-                ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm'
-                : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
-            }`}
+            className={filterTabBtnClass(sourceFilter === 'admin')}
           >
             管理员创建 ({adminCount})
           </button>
           <button
             type="button"
             onClick={() => setSourceFilter('self_service')}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              sourceFilter === 'self_service'
-                ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm'
-                : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
-            }`}
+            className={filterTabBtnClass(sourceFilter === 'self_service')}
           >
             自助申领 ({selfServiceCount})
           </button>
@@ -263,7 +260,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                         <span className="font-mono text-xs text-gray-600 dark:text-slate-400">{k.keyMasked}</span>
                         <button
                           onClick={() => { setRevealError(null); setRevealTarget(k); }}
-                          className="rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
+                          className={iconButtonClass}
                           title="复制完整 Key（需验证密码）"
                         >
                           <CopyIcon />
@@ -296,13 +293,13 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => setEditTarget(k)}
-                          className="rounded-md bg-brand-50 dark:bg-brand-950 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:bg-brand-100 dark:hover:bg-brand-900"
+                          className={brandSubtleBtnClass}
                         >
                           编辑
                         </button>
                         <button
                           onClick={() => setDeleteTarget(k)}
-                          className="rounded-md bg-red-50 dark:bg-red-950 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900"
+                          className={dangerSubtleBtnClass}
                         >
                           删除
                         </button>
@@ -330,7 +327,7 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                     <span className="font-mono text-xs text-gray-500 dark:text-slate-400">{k.keyMasked}</span>
                     <button
                       onClick={() => { setRevealError(null); setRevealTarget(k); }}
-                      className="rounded p-0.5 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
+                      className={iconButtonClass}
                       title="复制完整 Key（需验证密码）"
                     >
                       <CopyIcon />
@@ -362,13 +359,13 @@ export default function ApiKeyManager({ apiKeys, models, loading, onRefresh }: P
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setEditTarget(k)}
-                      className="rounded-md bg-brand-50 dark:bg-brand-950 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:bg-brand-100 dark:hover:bg-brand-900"
+                      className={brandSubtleBtnClass}
                     >
                       编辑
                     </button>
                     <button
                       onClick={() => setDeleteTarget(k)}
-                      className="rounded-md bg-red-50 dark:bg-red-950 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-900"
+                      className={dangerSubtleBtnClass}
                     >
                       删除
                     </button>
